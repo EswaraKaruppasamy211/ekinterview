@@ -127,9 +127,21 @@
       <!-- COMPANY RECRUITER SIDEBAR LINKS -->
       <div id="sidebar-company-links" class="role-sidebar-group hidden">
         <div class="menu-label">Recruiter Portal</div>
-        <a href="#" class="sidebar-item active" data-target="company-dashboard" onclick="navigateTo('company-dashboard')"><i class="fa-solid fa-chart-line"></i> <span>ATS Pipeline</span></a>
-        <a href="#" class="sidebar-item" data-target="company-jobs" onclick="navigateTo('company-jobs')"><i class="fa-solid fa-plus-circle"></i> <span>Post New Job</span></a>
-        <a href="#" class="sidebar-item" data-target="talent-finder" onclick="navigateTo('talent-finder')"><i class="fa-solid fa-user-check"></i> <span>Talent Finder</span></a>
+        <a href="#" class="sidebar-item active" data-target="company-dashboard" onclick="navigateTo('company-dashboard')"><i class="fa-solid fa-chart-line"></i> <span>Company Dashboard</span></a>
+        <a href="#" class="sidebar-item" data-target="company-profile" onclick="navigateTo('company-profile')"><i class="fa-solid fa-building"></i> <span>Company Profile</span></a>
+        <a href="#" class="sidebar-item" data-target="company-talent-discovery" onclick="navigateTo('company-talent-discovery')"><i class="fa-solid fa-user-check"></i> <span>Talent Discovery</span></a>
+        <a href="#" class="sidebar-item" data-target="company-ai-match" onclick="navigateTo('company-ai-match')"><i class="fa-solid fa-brain"></i> <span>AI Candidate Match</span></a>
+        <a href="#" class="sidebar-item" data-target="company-skill-demand" onclick="navigateTo('company-skill-demand')"><i class="fa-solid fa-chart-column"></i> <span>Skill Demand Intelligence</span></a>
+        <a href="#" class="sidebar-item" data-target="company-internships" onclick="navigateTo('company-internships')"><i class="fa-solid fa-briefcase"></i> <span>Internship Programs</span></a>
+        <a href="#" class="sidebar-item" data-target="company-job-drives" onclick="navigateTo('company-job-drives')"><i class="fa-solid fa-people-group"></i> <span>Job & Placement Drives</span></a>
+        <a href="#" class="sidebar-item" data-target="company-assessments" onclick="navigateTo('company-assessments')"><i class="fa-solid fa-clipboard-check"></i> <span>Assessments</span></a>
+        <a href="#" class="sidebar-item" data-target="company-interview-pipeline" onclick="navigateTo('company-interview-pipeline')"><i class="fa-solid fa-list-check"></i> <span>Interview Pipeline</span></a>
+        <a href="#" class="sidebar-item" data-target="company-campus-connect" onclick="navigateTo('company-campus-connect')"><i class="fa-solid fa-school"></i> <span>Campus Connect</span></a>
+        <a href="#" class="sidebar-item" data-target="company-shortlist" onclick="navigateTo('company-shortlist')"><i class="fa-solid fa-star"></i> <span>Candidate Shortlist</span></a>
+        <a href="#" class="sidebar-item" data-target="company-analytics" onclick="navigateTo('company-analytics')"><i class="fa-solid fa-chart-pie"></i> <span>Recruitment Analytics</span></a>
+        <a href="#" class="sidebar-item" data-target="company-messages" onclick="navigateTo('company-messages')"><i class="fa-solid fa-message"></i> <span>Messages</span></a>
+        <a href="#" class="sidebar-item" data-target="company-notifications" onclick="navigateTo('company-notifications')"><i class="fa-solid fa-bell"></i> <span>Notifications</span></a>
+        <a href="#" class="sidebar-item" data-target="company-settings" onclick="navigateTo('company-settings')"><i class="fa-solid fa-gear"></i> <span>Settings</span></a>
       </div>
 
       <!-- COLLEGE ADMIN SIDEBAR LINKS -->
@@ -392,38 +404,182 @@
       <!-- COMPANY RECRUITER MODULE VIEWS -->
       <section id="view-company-dashboard" class="workspace-view hidden">
         <div class="flex-between mb-6">
-          <div><h1 style="font-size: 1.6rem; font-weight: 800;" id="comp-header">TechCorp ATS Pipeline</h1><p style="color: var(--text-muted);">8-Stage Candidate Management with 100% Multi-Tenant Data Isolation.</p></div>
-          <button class="btn-saas btn-primary" onclick="navigateTo('company-jobs')"><i class="fa-solid fa-plus"></i> Post Requirement</button>
+          <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800;" id="comp-header">TechCorp Recruitment Intelligence</h1>
+            <p style="color: var(--text-muted);">Professional hiring dashboard for talent discovery, assessment, and placement performance.</p>
+          </div>
+          <button class="btn-saas btn-primary" onclick="navigateTo('company-job-drives')"><i class="fa-solid fa-plus"></i> Launch Hiring Campaign</button>
         </div>
-
-        <div class="grid-4 gap-4 mb-6">
-          <div class="stat-card"><div><div style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">COMPANY ID</div><div style="font-size:1.3rem; font-weight:800; color:var(--text-blue);" id="comp-id-badge">CMP-10001</div></div></div>
-          <div class="stat-card"><div><div style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">ACTIVE JOBS</div><div style="font-size:1.4rem; font-weight:800;" id="comp-total-jobs">2</div></div></div>
-          <div class="stat-card"><div><div style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">TOTAL APPLICANTS</div><div style="font-size:1.4rem; font-weight:800;" id="comp-total-apps">1</div></div></div>
-          <div class="stat-card"><div><div style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">SHORTLISTED</div><div style="font-size:1.4rem; font-weight:800;" id="comp-shortlisted">1</div></div></div>
-        </div>
-
+        <div class="grid-4 gap-4 mb-6" id="company-metrics-grid"></div>
         <div class="saas-card mb-6">
-          <h3 style="font-weight:700;" class="mb-4">8-Stage Isolated ATS Candidate Pipeline</h3>
+          <div class="flex-between mb-4">
+            <h3 style="font-weight:700; margin:0;">AI Hiring Insight</h3>
+            <span class="badge-saas badge-emerald">Live Intelligence</span>
+          </div>
+          <div id="company-ai-insight"></div>
+        </div>
+        <div class="grid-2 gap-4 mb-6">
+          <div class="saas-card">
+            <h3 style="font-weight:700; margin-bottom: 1rem;">Applications over time</h3>
+            <div id="company-applications-chart" class="flex-align gap-2" style="height: 180px; align-items: end;"></div>
+          </div>
+          <div class="saas-card">
+            <h3 style="font-weight:700; margin-bottom: 1rem;">Hiring funnel</h3>
+            <div id="company-funnel-chart"></div>
+          </div>
+        </div>
+        <div class="grid-2 gap-4 mb-6">
+          <div class="saas-card">
+            <h3 style="font-weight:700; margin-bottom: 1rem;">Most demanded skills</h3>
+            <div id="company-demand-skills"></div>
+          </div>
+          <div class="saas-card">
+            <h3 style="font-weight:700; margin-bottom: 1rem;">Candidate skill distribution</h3>
+            <div id="company-skill-distribution"></div>
+          </div>
+        </div>
+        <div class="grid-2 gap-4 mb-6">
+          <div class="saas-card">
+            <h3 style="font-weight:700; margin-bottom: 1rem;">Internship vs Full-Time hiring</h3>
+            <div id="company-hiring-split"></div>
+          </div>
+          <div class="saas-card">
+            <h3 style="font-weight:700; margin-bottom: 1rem;">University-wise candidate distribution</h3>
+            <div id="company-university-distribution"></div>
+          </div>
+        </div>
+        <div class="saas-card mb-6">
+          <h3 style="font-weight:700; margin-bottom: 1rem;">Industry Skill Radar</h3>
+          <div id="company-skill-radar"></div>
+        </div>
+        <div class="saas-card">
+          <h3 style="font-weight:700;" class="mb-4">8-stage ATS candidate pipeline</h3>
           <div class="pipeline-container-flex" id="ats-kanban-board"></div>
         </div>
       </section>
 
-      <section id="view-company-jobs" class="workspace-view hidden">
-        <h1 style="font-size: 1.6rem; font-weight: 800;" class="mb-4">Post New Job Requirement</h1>
-        <div class="saas-card">
-          <form onsubmit="handlePostJobSubmit(event)">
-            <div class="grid-2 gap-4 mb-4">
-              <div><label class="block text-xs font-bold mb-1">Job Title *</label><input type="text" id="job-post-title" class="saas-input" placeholder="e.g. Senior Software Engineer" required /></div>
-              <div><label class="block text-xs font-bold mb-1">Location *</label><input type="text" id="job-post-loc" class="saas-input" placeholder="Bengaluru / Hybrid" required /></div>
-              <div><label class="block text-xs font-bold mb-1">Salary / Stipend</label><input type="text" id="job-post-salary" class="saas-input" placeholder="₹ 12,00,000 P.A." required /></div>
-              <div><label class="block text-xs font-bold mb-1">Minimum CGPA Cutoff</label><input type="number" step="0.1" id="job-post-cgpa" class="saas-input" value="7.5" required /></div>
-              <div><label class="block text-xs font-bold mb-1">Required Skills (Comma Separated)</label><input type="text" id="job-post-skills" class="saas-input" placeholder="Java, Python, SQL" required /></div>
-              <div><label class="block text-xs font-bold mb-1">Application Deadline</label><input type="date" id="job-post-deadline" class="saas-input" required /></div>
-            </div>
-            <button type="submit" class="btn-saas btn-primary"><i class="fa-solid fa-paper-plane"></i> Publish Job Requirement</button>
-          </form>
+      <section id="view-company-profile" class="workspace-view hidden">
+        <div class="flex-between mb-6">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Company Profile</h1><p style="color: var(--text-muted);">Manage employer identity, hiring requirements, and talent strategy.</p></div>
+          <div class="badge-saas badge-blue" id="company-profile-completion">Profile Completion: 78%</div>
         </div>
+        <div id="company-profile-content"></div>
+      </section>
+
+      <section id="view-company-talent-discovery" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Talent Discovery</h1><p style="color: var(--text-muted);">Search and filter students by technical and soft-skill fit.</p></div>
+          <div class="badge-saas badge-emerald">Privacy-safe search</div>
+        </div>
+        <div class="saas-card mb-4">
+          <div class="grid-3 gap-3">
+            <input id="company-talent-search" class="saas-input" placeholder="Find students with React + Node.js + MongoDB" />
+            <select id="company-talent-department" class="saas-input"><option value="">Department</option><option>CSE</option><option>IT</option><option>ECE</option><option>EEE</option><option>Mechanical</option></select>
+            <select id="company-talent-availability" class="saas-input"><option value="">Availability</option><option>Immediately</option><option>1-3 Months</option><option>3-6 Months</option></select>
+          </div>
+        </div>
+        <div id="company-talent-results" class="grid-2 gap-4"></div>
+      </section>
+
+      <section id="view-company-ai-match" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">AI Candidate Match</h1><p style="color: var(--text-muted);">Rank candidates against job requirements with an explainable fit score.</p></div>
+          <div class="badge-saas badge-blue">AI engine</div>
+        </div>
+        <div class="saas-card mb-4">
+          <label class="block text-xs font-bold mb-2">Job Description</label>
+          <textarea id="company-job-description" class="saas-input" rows="6" placeholder="We are hiring a full-stack engineer with React, Node.js, MongoDB, strong problem solving, and 1+ year project experience.">We are hiring a full-stack engineer with React, Node.js, MongoDB, REST APIs, and strong problem solving. Prefer candidates with relevant projects in product engineering and cloud deployment.</textarea>
+          <div class="mt-3"><button class="btn-saas btn-primary" onclick="runCompanyAIMatch()">Analyze candidates</button></div>
+        </div>
+        <div id="company-ai-match-results"></div>
+      </section>
+
+      <section id="view-company-skill-demand" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Skill Demand Intelligence</h1><p style="color: var(--text-muted);">Track demand, talent shortage, and skill-gap pressure across the hiring market.</p></div>
+          <div class="badge-saas badge-purple">Industry Intelligence</div>
+        </div>
+        <div id="company-skill-demand-content"></div>
+      </section>
+
+      <section id="view-company-internships" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Internship Programs</h1><p style="color: var(--text-muted);">Create, publish, and manage internship opportunities end-to-end.</p></div>
+          <button class="btn-saas btn-primary" onclick="navigateTo('company-job-drives')">Create internship</button>
+        </div>
+        <div id="company-internship-content"></div>
+      </section>
+
+      <section id="view-company-job-drives" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Job & Placement Drives</h1><p style="color: var(--text-muted);">Launch full-time, part-time, PPO, and campus-driven hiring programs.</p></div>
+          <button class="btn-saas btn-primary" onclick="renderCompanyOpportunityForm()">Publish opportunity</button>
+        </div>
+        <div id="company-job-drives-content"></div>
+      </section>
+
+      <section id="view-company-assessments" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Assessments</h1><p style="color: var(--text-muted);">Create structured screening and shortlist candidates automatically.</p></div>
+          <button class="btn-saas btn-primary" onclick="companyCreateAssessment()">Create assessment</button>
+        </div>
+        <div id="company-assessment-content"></div>
+      </section>
+
+      <section id="view-company-interview-pipeline" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Interview Pipeline</h1><p style="color: var(--text-muted);">Drag candidates through the hiring process and capture interview feedback.</p></div>
+          <div class="badge-saas badge-emerald">Kanban board</div>
+        </div>
+        <div id="company-interview-pipeline-content"></div>
+      </section>
+
+      <section id="view-company-campus-connect" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Campus Connect</h1><p style="color: var(--text-muted);">Discover universities, track specialized talent pools, and send hiring requests.</p></div>
+          <button class="btn-saas btn-primary" onclick="companySendCampusRequest()">Send campus request</button>
+        </div>
+        <div id="company-campus-connect-content"></div>
+      </section>
+
+      <section id="view-company-shortlist" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Candidate Shortlist</h1><p style="color: var(--text-muted);">Compare, rate, and move promising candidates through the recruitment lifecycle.</p></div>
+          <button class="btn-saas btn-primary" onclick="companyCompareCandidates()">Compare candidates</button>
+        </div>
+        <div id="company-shortlist-content"></div>
+      </section>
+
+      <section id="view-company-analytics" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Recruitment Analytics</h1><p style="color: var(--text-muted);">Measure conversion, offer acceptance, and source quality across programs.</p></div>
+          <div class="badge-saas badge-blue">Performance dashboard</div>
+        </div>
+        <div id="company-analytics-content"></div>
+      </section>
+
+      <section id="view-company-messages" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Messages</h1><p style="color: var(--text-muted);">Coordinate with students, university placement teams, and internal recruiters.</p></div>
+          <button class="btn-saas btn-primary">Compose message</button>
+        </div>
+        <div id="company-messages-content"></div>
+      </section>
+
+      <section id="view-company-notifications" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Notifications</h1><p style="color: var(--text-muted);">Track new applications, interviews, and candidate activity.</p></div>
+          <div class="badge-saas badge-emerald">4 unread</div>
+        </div>
+        <div id="company-notifications-content"></div>
+      </section>
+
+      <section id="view-company-settings" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 style="font-size: 1.6rem; font-weight: 800;">Company Settings</h1><p style="color: var(--text-muted);">Control account, recruiter access, and hiring preferences.</p></div>
+          <button class="btn-saas btn-outline" onclick="handleLogout()">Logout</button>
+        </div>
+        <div id="company-settings-content"></div>
       </section>
 
       <section id="view-talent-finder" class="workspace-view hidden">

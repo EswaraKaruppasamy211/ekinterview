@@ -289,7 +289,21 @@ function navigateTo(viewId) {
   else if (viewId === 'campus-drives') loadCampusDrivesView();
   else if (viewId === 'placement') loadPlacementView();
   else if (viewId === 'settings') loadSettingsView();
-  else if (viewId === 'company-dashboard') loadCompanyATSPipeline();
+  else if (viewId === 'company-dashboard') { loadCompanyATSPipeline(); renderCompanyDashboard(); }
+  else if (viewId === 'company-profile') renderCompanyProfile();
+  else if (viewId === 'company-talent-discovery') renderCompanyTalentDiscovery();
+  else if (viewId === 'company-ai-match') runCompanyAIMatch();
+  else if (viewId === 'company-skill-demand') renderCompanySkillDemand();
+  else if (viewId === 'company-internships') renderCompanyInternships();
+  else if (viewId === 'company-job-drives') renderCompanyJobDrives();
+  else if (viewId === 'company-assessments') renderCompanyAssessments();
+  else if (viewId === 'company-interview-pipeline') renderCompanyInterviewPipeline();
+  else if (viewId === 'company-campus-connect') renderCompanyCampusConnect();
+  else if (viewId === 'company-shortlist') renderCompanyShortlist();
+  else if (viewId === 'company-analytics') renderCompanyAnalytics();
+  else if (viewId === 'company-messages') renderCompanyMessages();
+  else if (viewId === 'company-notifications') renderCompanyNotifications();
+  else if (viewId === 'company-settings') renderCompanySettings();
   else if (viewId === 'talent-finder') loadTalentFinder();
   else if (viewId === 'college-dashboard') loadCollegeDashboard();
   else if (viewId === 'college-students') loadCollegeStudentDirectory();
@@ -1737,6 +1751,667 @@ async function shortlistCandidate(studentId) {
 async function loadCompanyJobCandidates_old() { const jobId = document.getElementById('company-job-selector')?.value; if (!jobId) { document.getElementById('talent-candidates-list').innerHTML = '<p>No jobs posted yet.</p>'; return; } try { const data = await apiFetch(`/company/jobs/${jobId}/candidates`); document.getElementById('talent-candidates-list').innerHTML = data.candidates.length ? data.candidates.map(candidate => `<div class="saas-card"><h4>${candidate.name}</h4><div class="text-xs">${candidate.studentId} · CGPA: ${candidate.cgpa ?? 'Hidden'}</div><strong style="color:var(--text-emerald);">${candidate.matchPercentage}% · ${candidate.recommendationLevel}</strong><p class="text-xs mt-2">${candidate.skills.map(skill => `${skill.name} ${skill.scoreOutOfTen}/10`).join(', ') || 'Skills hidden by privacy settings'}</p><p class="text-xs mt-2">${candidate.skillGaps.filter(item => item.result === 'Gap').map(item => `Gap: ${item.skill}`).join(', ') || 'All listed requirements matched'}</p></div>`).join('') : '<p>No privacy-eligible candidates available.</p>'; } catch (err) { document.getElementById('talent-candidates-list').textContent = err.message; } }
 async function askCompanyAssistant(event) { event.preventDefault(); try { const data = await apiFetch('/company/assistant', { method: 'POST', body: JSON.stringify({ message: document.getElementById('company-assistant-input').value }) }); document.getElementById('company-assistant-reply').textContent = data.reply; } catch (err) { document.getElementById('company-assistant-reply').textContent = err.message; } }
 async function askCompanyAssistantFromDashboard(event) { event.preventDefault(); try { const data = await apiFetch('/company/assistant', { method: 'POST', body: JSON.stringify({ message: document.getElementById('company-dashboard-assistant-input').value }) }); document.getElementById('company-dashboard-assistant-reply').textContent = data.reply; } catch (err) { document.getElementById('company-dashboard-assistant-reply').textContent = err.message; } }
+
+const companyRecruitmentMock = {
+  metrics: [
+    { label: 'Total Open Positions', value: 142, accent: 'blue' },
+    { label: 'Active Internships', value: 18, accent: 'emerald' },
+    { label: 'Total Applications', value: 1248, accent: 'purple' },
+    { label: 'Shortlisted Candidates', value: 264, accent: 'orange' },
+    { label: 'Interviews Scheduled', value: 86, accent: 'sky' },
+    { label: 'Offers Made', value: 41, accent: 'green' },
+    { label: 'Students Hired', value: 31, accent: 'teal' },
+    { label: 'University Partnerships', value: 14, accent: 'violet' }
+  ],
+  applicationsOverTime: [62, 74, 95, 128, 150, 184, 220, 215],
+  hiringFunnel: [
+    { label: 'Applications', value: 1248 },
+    { label: 'Screening', value: 720 },
+    { label: 'Shortlisted', value: 264 },
+    { label: 'Interview', value: 86 },
+    { label: 'Selected', value: 41 },
+    { label: 'Offer Accepted', value: 31 }
+  ],
+  demandSkills: [
+    { name: 'React', demand: 90, posted: 180, candidates: 120, gap: 'High' },
+    { name: 'Python', demand: 85, posted: 160, candidates: 110, gap: 'High' },
+    { name: 'Java', demand: 78, posted: 210, candidates: 140, gap: 'Medium' },
+    { name: 'Node.js', demand: 81, posted: 150, candidates: 98, gap: 'High' },
+    { name: 'SQL', demand: 76, posted: 170, candidates: 135, gap: 'Medium' },
+    { name: 'Cloud Computing', demand: 74, posted: 120, candidates: 70, gap: 'High' },
+    { name: 'Cybersecurity', demand: 80, posted: 95, candidates: 40, gap: 'High' },
+    { name: 'AI/ML', demand: 86, posted: 130, candidates: 75, gap: 'High' }
+  ],
+  skillDistribution: [
+    { label: 'Frontend', value: 35 },
+    { label: 'Backend', value: 24 },
+    { label: 'Data', value: 18 },
+    { label: 'Cloud', value: 14 },
+    { label: 'Security', value: 9 }
+  ],
+  hiringSplit: { internship: 58, fullTime: 42 },
+  universityDistribution: [
+    { name: 'Anna University', value: 28 },
+    { name: 'VIT', value: 22 },
+    { name: 'SRM', value: 18 },
+    { name: 'Amrita', value: 16 },
+    { name: 'PSG Tech', value: 12 },
+    { name: 'Others', value: 4 }
+  ],
+  talentCandidates: [
+    { name: 'Aarav Nair', skillScore: 96, department: 'CSE', cgpa: 9.3, projects: 4, certifications: 3, experience: '2 internships', availability: 'Immediately', matchingSkills: ['React', 'Node.js', 'MongoDB'], scoreColor: 'emerald' },
+    { name: 'Meera Iyer', skillScore: 91, department: 'IT', cgpa: 9.1, projects: 3, certifications: 4, experience: '1 internship', availability: '1-3 Months', matchingSkills: ['Python', 'SQL', 'AI/ML'], scoreColor: 'blue' },
+    { name: 'Karthik Raman', skillScore: 87, department: 'ECE', cgpa: 8.9, projects: 2, certifications: 2, experience: 'Embedded systems', availability: 'Immediately', matchingSkills: ['C++', 'Embedded', 'IoT'], scoreColor: 'purple' },
+    { name: 'Nisha Patel', skillScore: 92, department: 'CSE', cgpa: 9.2, projects: 5, certifications: 5, experience: '2 internships', availability: 'Immediately', matchingSkills: ['React', 'Node.js', 'AWS'], scoreColor: 'emerald' }
+  ],
+  internships: [
+    { title: 'Frontend Engineer Intern', duration: '6 months', stipend: '₹25,000 / month', positions: 12, status: 'Applications Open', skills: ['React', 'TypeScript', 'UI Design'] },
+    { title: 'Data Science Intern', duration: '4 months', stipend: '₹30,000 / month', positions: 8, status: 'Screening', skills: ['Python', 'SQL', 'ML'] },
+    { title: 'Cybersecurity Intern', duration: '3 months', stipend: '₹20,000 / month', positions: 5, status: 'Published', skills: ['Security', 'Linux', 'Networking'] }
+  ],
+  assessments: [
+    { name: 'Full Stack Screening', candidates: 82, score: 84, status: 'Active' },
+    { name: 'Aptitude Benchmark', candidates: 41, score: 76, status: 'Completed' },
+    { name: 'Technical Interview Readiness', candidates: 19, score: 89, status: 'In Progress' }
+  ],
+  interviews: [
+    { candidate: 'Aarav Nair', stage: 'Technical Interview', interviewer: 'Priya Menon', type: 'Panel', date: '2026-09-12', score: 91 },
+    { candidate: 'Meera Iyer', stage: 'HR Interview', interviewer: 'Rohit Shah', type: 'Virtual', date: '2026-09-14', score: 88 },
+    { candidate: 'Nisha Patel', stage: 'Assessment', interviewer: 'Sameer Nair', type: 'Coding', date: '2026-09-11', score: 94 }
+  ],
+  universities: [
+    { name: 'Anna University', departments: ['CSE', 'IT'], students: 480, topSkills: ['React', 'Python'], placementRate: '88%' },
+    { name: 'VIT', departments: ['CSE', 'AI/ML'], students: 360, topSkills: ['AI/ML', 'Cloud'], placementRate: '91%' },
+    { name: 'SRM', departments: ['ECE', 'CSE'], students: 310, topSkills: ['Cybersecurity', 'Java'], placementRate: '84%' }
+  ],
+  shortlist: [
+    { name: 'Aarav Nair', skillMatch: 96, cgpa: 9.3, projects: 4, assessment: 92, aiScore: 96, notes: 'Strong product mindset and consistent internship exposure.' },
+    { name: 'Nisha Patel', skillMatch: 92, cgpa: 9.2, projects: 5, assessment: 90, aiScore: 92, notes: 'Excellent frontend and AWS exposure.' },
+    { name: 'Meera Iyer', skillMatch: 90, cgpa: 9.1, projects: 3, assessment: 88, aiScore: 91, notes: 'Strong analytical profile and data storytelling.' }
+  ],
+  analytics: [
+    { label: 'Total applicants', value: 1248 },
+    { label: 'Hiring conversion rate', value: '21.4%' },
+    { label: 'Average time to hire', value: '19 days' },
+    { label: 'Offer acceptance rate', value: '76%' },
+    { label: 'Internship conversion', value: '46%' },
+    { label: 'Best source', value: 'Campus referrals' }
+  ],
+  messages: [
+    { sender: 'Aarav Nair', topic: 'Interview scheduling', preview: 'Could you share the technical interview slot for Friday?', time: '2h ago' },
+    { sender: 'Anna University', topic: 'Campus Hiring Request', preview: 'We can host a campus drive for final-year CSE and IT students.', time: '1d ago' },
+    { sender: 'Recruiting Team', topic: 'Assessment completed', preview: 'The aptitude benchmark was submitted by 18 shortlisted candidates.', time: '3h ago' }
+  ],
+  notifications: [
+    { title: 'New application received', detail: '12 new candidates applied to Frontend Engineer roles today.', time: '10 mins ago' },
+    { title: 'AI match update', detail: '3 new candidates crossed 90% match threshold.', time: '35 mins ago' },
+    { title: 'Interview reminder', detail: 'Two technical panels are scheduled tomorrow at 10:00 AM.', time: '1 hour ago' },
+    { title: 'University response', detail: 'Anna University confirmed a campus hiring request for next week.', time: '3 hours ago' }
+  ]
+};
+
+const companyAIService = {
+  getOverview() {
+    return {
+      metrics: companyRecruitmentMock.metrics,
+      applicationsOverTime: companyRecruitmentMock.applicationsOverTime,
+      hiringFunnel: companyRecruitmentMock.hiringFunnel,
+      skillDemand: companyRecruitmentMock.demandSkills,
+      skillDistribution: companyRecruitmentMock.skillDistribution,
+      hiringSplit: companyRecruitmentMock.hiringSplit,
+      universities: companyRecruitmentMock.universityDistribution,
+      insight: 'Your company has received 142 applications in the last 30 days. 34 candidates match more than 80% of the required skills. Cybersecurity talent is limited and university partnerships in cyber programs should be prioritized.'
+    };
+  },
+  getTalentCandidates() {
+    return companyRecruitmentMock.talentCandidates;
+  },
+  getSkillDemand() {
+    return companyRecruitmentMock.demandSkills;
+  },
+  getAIRecommendations(jobDescription) {
+    const text = (jobDescription || '').toLowerCase();
+    const weightedKeywords = [
+      { phrase: 'react', score: 12 },
+      { phrase: 'node', score: 12 },
+      { phrase: 'mongodb', score: 11 },
+      { phrase: 'python', score: 10 },
+      { phrase: 'sql', score: 9 },
+      { phrase: 'cloud', score: 8 },
+      { phrase: 'cybersecurity', score: 7 },
+      { phrase: 'problem solving', score: 6 },
+      { phrase: 'api', score: 6 },
+      { phrase: 'project', score: 5 }
+    ];
+    let total = 0;
+    weightedKeywords.forEach(item => { if (text.includes(item.phrase)) total += item.score; });
+    return companyRecruitmentMock.talentCandidates.map((candidate, index) => {
+      let match = Math.min(99, 78 + Math.round((candidate.skillScore + (candidate.projects * 2) + (candidate.certifications * 3) + (index * 2) + total) / 1.8));
+      if (candidate.matchingSkills.some(skill => text.includes(skill.toLowerCase()))) match += 8;
+      return {
+        ...candidate,
+        match: Math.min(99, match),
+        why: `${candidate.name} brings strong ${candidate.matchingSkills.slice(0, 3).join(', ')} expertise with ${candidate.projects} relevant projects and ${candidate.experience}.`
+      };
+    }).sort((a, b) => b.match - a.match);
+  }
+};
+
+function renderMetricCard(label, value, accent) {
+  const accents = {
+    blue: 'linear-gradient(135deg, rgba(59,130,246,.18), rgba(59,130,246,.05))',
+    emerald: 'linear-gradient(135deg, rgba(16,185,129,.18), rgba(16,185,129,.05))',
+    purple: 'linear-gradient(135deg, rgba(168,85,247,.18), rgba(168,85,247,.05))',
+    orange: 'linear-gradient(135deg, rgba(251,146,60,.18), rgba(251,146,60,.05))',
+    sky: 'linear-gradient(135deg, rgba(14,165,233,.18), rgba(14,165,233,.05))',
+    green: 'linear-gradient(135deg, rgba(34,197,94,.18), rgba(34,197,94,.05))',
+    teal: 'linear-gradient(135deg, rgba(45,212,191,.18), rgba(45,212,191,.05))',
+    violet: 'linear-gradient(135deg, rgba(139,92,246,.18), rgba(139,92,246,.05))'
+  };
+  return `
+    <div class="stat-card" style="background:${accents[accent] || accents.blue};">
+      <div>
+        <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">${label}</div>
+        <div style="font-size:1.4rem; font-weight:800; margin-top:0.25rem;">${value}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCompanyDashboard() {
+  const overview = companyAIService.getOverview();
+  const metricsGrid = document.getElementById('company-metrics-grid');
+  if (metricsGrid) {
+    metricsGrid.innerHTML = overview.metrics.map(metric => renderMetricCard(metric.label, metric.value, metric.accent)).join('');
+  }
+
+  const insightEl = document.getElementById('company-ai-insight');
+  if (insightEl) {
+    insightEl.innerHTML = `
+      <div class="saas-card" style="background:rgba(15,23,42,.7); border:1px solid rgba(56,189,248,.25);">
+        <p style="margin:0; color:var(--text-secondary); line-height:1.7;">${overview.insight}</p>
+      </div>
+    `;
+  }
+
+  const appChart = document.getElementById('company-applications-chart');
+  if (appChart) {
+    appChart.innerHTML = overview.applicationsOverTime.map((value, index) => `
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;">
+        <div style="width:100%; max-width:40px; height:${Math.max(28, value / 2.5)}px; background:linear-gradient(180deg, #38bdf8 0%, #1d4ed8 100%); border-radius:8px 8px 0 0; box-shadow:0 10px 18px rgba(56,189,248,.18);"></div>
+        <div style="font-size:0.65rem; color:var(--text-muted); margin-top:0.5rem;">${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug'][index]}</div>
+      </div>
+    `).join('');
+  }
+
+  const funnelEl = document.getElementById('company-funnel-chart');
+  if (funnelEl) {
+    const max = Math.max(...overview.hiringFunnel.map(item => item.value));
+    funnelEl.innerHTML = overview.hiringFunnel.map((item, idx) => `
+      <div class="mb-3">
+        <div class="flex-between mb-1"><span style="font-size:0.8rem; color:var(--text-secondary);">${item.label}</span><span style="font-weight:800; font-size:0.8rem;">${item.value}</span></div>
+        <div style="height:10px; background:rgba(148,163,184,.15); border-radius:999px; overflow:hidden;">
+          <div style="height:100%; width:${(item.value / max) * 100}%; background:${['#38bdf8','#60a5fa','#a78bfa','#fbbf24','#34d399','#22c55e'][idx % 6]}; border-radius:999px;"></div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  const demandEl = document.getElementById('company-demand-skills');
+  if (demandEl) {
+    demandEl.innerHTML = overview.skillDemand.map(skill => `
+      <div class="mb-3">
+        <div class="flex-between mb-1"><span style="font-weight:700; font-size:0.8rem;">${skill.name}</span><span style="font-size:0.75rem; color:var(--text-muted);">${skill.demand}% demand</span></div>
+        <div style="height:9px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden; margin-bottom:0.2rem;">
+          <div style="height:100%; width:${skill.demand}%; background:linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius:999px;"></div>
+        </div>
+        <div style="font-size:0.72rem; color:var(--text-muted);">${skill.posted} postings • ${skill.candidates} candidates • Gap: <strong style="color:var(--text-blue);">${skill.gap}</strong></div>
+      </div>
+    `).join('');
+  }
+
+  const distEl = document.getElementById('company-skill-distribution');
+  if (distEl) {
+    distEl.innerHTML = overview.skillDistribution.map(item => `
+      <div class="mb-3">
+        <div class="flex-between mb-1"><span style="font-size:0.8rem;">${item.label}</span><span style="font-size:0.75rem; color:var(--text-muted);">${item.value}%</span></div>
+        <div style="height:9px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden;">
+          <div style="height:100%; width:${item.value}%; background:linear-gradient(90deg, #14b8a6, #22c55e); border-radius:999px;"></div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  const splitEl = document.getElementById('company-hiring-split');
+  if (splitEl) {
+    splitEl.innerHTML = `
+      <div class="mb-3">
+        <div class="flex-between mb-2"><span>Internship</span><span>${overview.hiringSplit.internship}%</span></div>
+        <div style="height:12px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden;"><div style="height:100%; width:${overview.hiringSplit.internship}%; background:linear-gradient(90deg, #38bdf8, #3b82f6); border-radius:999px;"></div></div>
+      </div>
+      <div>
+        <div class="flex-between mb-2"><span>Full-Time</span><span>${overview.hiringSplit.fullTime}%</span></div>
+        <div style="height:12px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden;"><div style="height:100%; width:${overview.hiringSplit.fullTime}%; background:linear-gradient(90deg, #a78bfa, #6366f1); border-radius:999px;"></div></div>
+      </div>
+    `;
+  }
+
+  const uniEl = document.getElementById('company-university-distribution');
+  if (uniEl) {
+    uniEl.innerHTML = overview.universities.map((item, idx) => `
+      <div class="mb-3">
+        <div class="flex-between mb-1"><span style="font-size:0.8rem;">${item.name}</span><span style="font-size:0.75rem; color:var(--text-muted);">${item.value}%</span></div>
+        <div style="height:9px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden;"><div style="height:100%; width:${item.value}%; background:${['#38bdf8','#818cf8','#a78bfa','#f59e0b','#34d399'][idx % 5]}; border-radius:999px;"></div></div>
+      </div>
+    `).join('');
+  }
+
+  const radarEl = document.getElementById('company-skill-radar');
+  if (radarEl) {
+    radarEl.innerHTML = overview.skillDemand.slice(0, 5).map(skill => `
+      <div class="mb-3">
+        <div class="flex-between mb-1"><strong>${skill.name}</strong><span class="badge-saas ${skill.gap === 'High' ? 'badge-purple' : 'badge-emerald'}">${skill.gap} Talent Gap</span></div>
+        <div class="grid-2 gap-3">
+          <div>
+            <div class="text-xs" style="color:var(--text-muted); margin-bottom:0.25rem;">Demand</div>
+            <div style="height:12px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden;"><div style="height:100%; width:${skill.demand}%; background:linear-gradient(90deg, #0ea5e9, #2563eb); border-radius:999px;"></div></div>
+          </div>
+          <div>
+            <div class="text-xs" style="color:var(--text-muted); margin-bottom:0.25rem;">Available Talent</div>
+            <div style="height:12px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden;"><div style="height:100%; width:${Math.min(100, Math.round((skill.candidates / Math.max(skill.posted, 1)) * 100))}%; background:linear-gradient(90deg, #34d399, #15803d); border-radius:999px;"></div></div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+function renderCompanyProfile() {
+  const container = document.getElementById('company-profile-content');
+  if (!container) return;
+  const completion = 78;
+  const profile = {
+    name: 'TechCorp Solutions',
+    industry: 'Software & Digital Products',
+    size: '500-1000 employees',
+    location: 'Bengaluru, India',
+    website: 'https://www.techcorp.example',
+    description: 'Builds enterprise productivity platforms, AI copilots, and product engineering solutions for global clients.',
+    technologies: ['React', 'Node.js', 'MongoDB', 'Kubernetes', 'Python', 'AWS'],
+    requiredSkills: ['Full Stack Development', 'Data Structures', 'AI/ML', 'System Design', 'Communication'],
+    benefits: ['Health insurance', 'Flexible hybrid work', 'Learning stipend', 'Stock options'],
+    foundedYear: 2012,
+    contact: 'recruiter@techcorp.com | +91 99887 76543'
+  };
+  container.innerHTML = `
+    <div class="grid-2 gap-4">
+      <div class="saas-card">
+        <h3 style="font-weight:700; margin-bottom:1rem;">Company Identity</h3>
+        <div class="flex-align gap-3 mb-3">
+          <div style="width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,#38bdf8,#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:900;color:white;">T</div>
+          <div>
+            <div style="font-size:1rem; font-weight:800;">${profile.name}</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">${profile.industry}</div>
+          </div>
+        </div>
+        <div class="mb-3"><label class="block text-xs font-bold mb-1">Company name</label><input class="saas-input" value="${profile.name}" /></div>
+        <div class="mb-3"><label class="block text-xs font-bold mb-1">Industry</label><input class="saas-input" value="${profile.industry}" /></div>
+        <div class="mb-3"><label class="block text-xs font-bold mb-1">Website</label><input class="saas-input" value="${profile.website}" /></div>
+        <div class="mb-3"><label class="block text-xs font-bold mb-1">Location</label><input class="saas-input" value="${profile.location}" /></div>
+      </div>
+      <div class="saas-card">
+        <h3 style="font-weight:700; margin-bottom:1rem;">Profile completion</h3>
+        <div class="mb-3"><div class="flex-between"><span>Company Profile Completion</span><strong>${completion}%</strong></div><div style="height:12px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden; margin-top:0.75rem;"><div style="width:${completion}%; height:100%; background:linear-gradient(90deg,#38bdf8,#8b5cf6); border-radius:999px;"></div></div></div>
+        <div class="mb-3"><label class="block text-xs font-bold mb-1">Description</label><textarea class="saas-input" rows="5">${profile.description}</textarea></div>
+        <div class="mb-3"><label class="block text-xs font-bold mb-1">Company size</label><input class="saas-input" value="${profile.size}" /></div>
+        <div><label class="block text-xs font-bold mb-1">Founded year</label><input class="saas-input" value="${profile.foundedYear}" /></div>
+      </div>
+    </div>
+    <div class="grid-2 gap-4 mt-4">
+      <div class="saas-card">
+        <h3 style="font-weight:700; margin-bottom:1rem;">Technology & skills</h3>
+        <div class="flex-align gap-2 flex-wrap mb-3">${profile.technologies.map(item => `<span class="badge-saas badge-blue">${item}</span>`).join('')}</div>
+        <div class="flex-align gap-2 flex-wrap">${profile.requiredSkills.map(item => `<span class="badge-saas badge-purple">${item}</span>`).join('')}</div>
+      </div>
+      <div class="saas-card">
+        <h3 style="font-weight:700; margin-bottom:1rem;">Benefits & contact</h3>
+        <div class="flex-align gap-2 flex-wrap mb-3">${profile.benefits.map(item => `<span class="badge-saas badge-emerald">${item}</span>`).join('')}</div>
+        <div style="font-size:0.85rem; color:var(--text-muted);">${profile.contact}</div>
+      </div>
+    </div>
+  `;
+  const completionEl = document.getElementById('company-profile-completion');
+  if (completionEl) completionEl.textContent = `Profile Completion: ${completion}%`;
+}
+
+function renderCompanyTalentDiscovery() {
+  const container = document.getElementById('company-talent-results');
+  if (!container) return;
+
+  const searchInput = document.getElementById('company-talent-search');
+  const departmentInput = document.getElementById('company-talent-department');
+  const availabilityInput = document.getElementById('company-talent-availability');
+  if (searchInput && !searchInput.dataset.bound) {
+    searchInput.addEventListener('input', renderCompanyTalentDiscovery);
+    searchInput.dataset.bound = 'true';
+  }
+  if (departmentInput && !departmentInput.dataset.bound) {
+    departmentInput.addEventListener('change', renderCompanyTalentDiscovery);
+    departmentInput.dataset.bound = 'true';
+  }
+  if (availabilityInput && !availabilityInput.dataset.bound) {
+    availabilityInput.addEventListener('change', renderCompanyTalentDiscovery);
+    availabilityInput.dataset.bound = 'true';
+  }
+  const query = (searchInput?.value || '').toLowerCase();
+  const department = (departmentInput?.value || '').toLowerCase();
+  const availability = (availabilityInput?.value || '').toLowerCase();
+
+  const candidates = companyAIService.getTalentCandidates().filter(candidate => {
+    const matchesText = !query || candidate.matchingSkills.some(skill => skill.toLowerCase().includes(query)) || candidate.name.toLowerCase().includes(query);
+    const matchesDepartment = !department || candidate.department.toLowerCase() === department;
+    const matchesAvailability = !availability || candidate.availability.toLowerCase().includes(availability);
+    return matchesText && matchesDepartment && matchesAvailability;
+  });
+
+  container.innerHTML = candidates.length ? candidates.map(candidate => `
+    <div class="saas-card">
+      <div class="flex-between mb-3">
+        <div>
+          <h4 style="font-weight:800; margin:0;">${candidate.name}</h4>
+          <div style="font-size:0.78rem; color:var(--text-muted);">${candidate.department} • ${candidate.cgpa} CGPA</div>
+        </div>
+        <div class="badge-saas badge-${candidate.scoreColor}">${candidate.skillScore}% Match</div>
+      </div>
+      <div class="grid-2 gap-2 text-xs mb-3" style="color:var(--text-muted);">
+        <div><strong>Matching skills:</strong> ${candidate.matchingSkills.join(', ')}</div>
+        <div><strong>Projects:</strong> ${candidate.projects}</div>
+        <div><strong>Certifications:</strong> ${candidate.certifications}</div>
+        <div><strong>Experience:</strong> ${candidate.experience}</div>
+        <div><strong>Availability:</strong> ${candidate.availability}</div>
+        <div><strong>Skills score:</strong> ${candidate.skillScore}</div>
+      </div>
+      <div class="flex-align gap-2 flex-wrap">${candidate.matchingSkills.map(skill => `<span class="badge-saas badge-blue">${skill}</span>`).join('')}</div>
+    </div>
+  `).join('') : '<div class="saas-card">No candidate matches found for the selected filters.</div>';
+}
+
+function runCompanyAIMatch() {
+  const container = document.getElementById('company-ai-match-results');
+  const text = document.getElementById('company-job-description')?.value || '';
+  if (!container) return;
+  const matches = companyAIService.getAIRecommendations(text);
+  container.innerHTML = matches.slice(0, 3).map((candidate, index) => `
+    <div class="saas-card mb-4">
+      <div class="flex-between mb-3">
+        <div>
+          <div class="badge-saas badge-${candidate.scoreColor}">${index + 1}. ${candidate.name}</div>
+        </div>
+        <div style="font-size:1.4rem; font-weight:800; color:var(--text-blue);">${candidate.match}%</div>
+      </div>
+      <div class="grid-2 gap-3 text-sm" style="color:var(--text-secondary);">
+        <div><strong>Skill Match:</strong> ${candidate.skillScore}%</div>
+        <div><strong>Project Match:</strong> ${candidate.projects * 18}%</div>
+        <div><strong>Education Match:</strong> ${Math.min(98, candidate.cgpa * 10)}%</div>
+        <div><strong>Experience Match:</strong> ${Math.min(97, 72 + candidate.projects * 5)}%</div>
+      </div>
+      <div class="mt-3"><strong>Why this candidate is recommended:</strong> ${candidate.why}</div>
+    </div>
+  `).join('');
+}
+
+function renderCompanySkillDemand() {
+  const container = document.getElementById('company-skill-demand-content');
+  if (!container) return;
+  const skills = companyAIService.getSkillDemand();
+  container.innerHTML = skills.map(skill => `
+    <div class="saas-card mb-3">
+      <div class="flex-between mb-2">
+        <div><h4 style="font-weight:800; margin:0;">${skill.name}</h4></div>
+        <div class="badge-saas ${skill.gap === 'High' ? 'badge-purple' : 'badge-emerald'}">${skill.gap}</div>
+      </div>
+      <div class="grid-2 gap-4 text-sm" style="color:var(--text-muted);">
+        <div><strong>Demand:</strong> ${skill.demand}%</div>
+        <div><strong>Job postings:</strong> ${skill.posted}</div>
+        <div><strong>Available candidates:</strong> ${skill.candidates}</div>
+        <div><strong>Talent shortage:</strong> ${skill.gap}</div>
+      </div>
+      <div class="mt-3">
+        <div class="flex-between mb-1"><span style="font-size:0.8rem;">Skill gap indicator</span><span style="font-size:0.75rem; color:var(--text-muted);">${skill.gap === 'High' ? 'High talent gap' : 'Balanced market'}</span></div>
+        <div style="height:12px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden;"><div style="height:100%; width:${Math.min(100, Math.max(15, (skill.demand - (skill.candidates / 2))))}%; background:linear-gradient(90deg,#f59e0b,#ef4444); border-radius:999px;"></div></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderCompanyInternships() {
+  const container = document.getElementById('company-internship-content');
+  if (!container) return;
+  container.innerHTML = companyRecruitmentMock.internships.map(item => `
+    <div class="saas-card mb-3">
+      <div class="flex-between mb-2">
+        <div><h4 style="font-weight:800; margin:0;">${item.title}</h4></div>
+        <span class="badge-saas badge-emerald">${item.status}</span>
+      </div>
+      <div class="grid-3 gap-3 text-sm" style="color:var(--text-muted);">
+        <div><strong>Duration:</strong> ${item.duration}</div>
+        <div><strong>Stipend:</strong> ${item.stipend}</div>
+        <div><strong>Positions:</strong> ${item.positions}</div>
+      </div>
+      <div class="mt-3 flex-align gap-2 flex-wrap">${item.skills.map(skill => `<span class="badge-saas badge-blue">${skill}</span>`).join('')}</div>
+    </div>
+  `).join('');
+}
+
+function renderCompanyOpportunityForm() {
+  const container = document.getElementById('company-job-drives-content');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="saas-card">
+      <form onsubmit="handlePostJobSubmit(event)">
+        <div class="grid-2 gap-4 mb-4">
+          <div><label class="block text-xs font-bold mb-1">Job title</label><input type="text" id="job-post-title" class="saas-input" value="Senior Software Engineer" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Department</label><input type="text" id="job-post-department" class="saas-input" value="Product Engineering" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Location</label><input type="text" id="job-post-loc" class="saas-input" value="Bengaluru / Hybrid" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Salary / stipend</label><input type="text" id="job-post-salary" class="saas-input" value="₹12 LPA + ESOPs" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Minimum CGPA</label><input type="number" step="0.1" id="job-post-cgpa" class="saas-input" value="7.5" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Application deadline</label><input type="date" id="job-post-deadline" class="saas-input" value="2026-10-30" required /></div>
+          <div class="span-2"><label class="block text-xs font-bold mb-1">Required skills</label><input type="text" id="job-post-skills" class="saas-input" value="React, Node.js, MongoDB, SQL, Problem Solving" required /></div>
+        </div>
+        <button type="submit" class="btn-saas btn-primary">Publish opportunity</button>
+      </form>
+    </div>
+  `;
+}
+
+function renderCompanyJobDrives() {
+  const container = document.getElementById('company-job-drives-content');
+  if (!container) return;
+  renderCompanyOpportunityForm();
+}
+
+function renderCompanyAssessments() {
+  const container = document.getElementById('company-assessment-content');
+  if (!container) return;
+  container.innerHTML = companyRecruitmentMock.assessments.map(item => `
+    <div class="saas-card mb-3">
+      <div class="flex-between mb-2">
+        <h4 style="font-weight:800; margin:0;">${item.name}</h4>
+        <span class="badge-saas ${item.status === 'Active' ? 'badge-emerald' : 'badge-blue'}">${item.status}</span>
+      </div>
+      <div class="grid-3 gap-3 text-sm" style="color:var(--text-muted);">
+        <div><strong>Candidates:</strong> ${item.candidates}</div>
+        <div><strong>Score:</strong> ${item.score}%</div>
+        <div><strong>Shortlist rule:</strong> score > 80</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function companyCreateAssessment() {
+  const container = document.getElementById('company-assessment-content');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="saas-card">
+      <h3 style="font-weight:800; margin-bottom:1rem;">Create candidate assessment</h3>
+      <div class="grid-2 gap-4">
+        <div><label class="block text-xs font-bold mb-1">Assessment name</label><input class="saas-input" value="Technical Screening - Full Stack" /></div>
+        <div><label class="block text-xs font-bold mb-1">Type</label><select class="saas-input"><option>MCQ</option><option>Technical</option><option>Coding</option><option>Skill-based</option></select></div>
+        <div><label class="block text-xs font-bold mb-1">Duration</label><input class="saas-input" value="60 minutes" /></div>
+        <div><label class="block text-xs font-bold mb-1">Pass score</label><input class="saas-input" value="75" /></div>
+      </div>
+      <div class="mt-3"><button class="btn-saas btn-primary" onclick="renderCompanyAssessments()">Save assessment</button></div>
+    </div>
+  `;
+}
+
+function renderCompanyInterviewPipeline() {
+  const container = document.getElementById('company-interview-pipeline-content');
+  if (!container) return;
+  const stages = ['Applied', 'Screening', 'Shortlisted', 'Assessment', 'Technical Interview', 'HR Interview', 'Selected', 'Offer'];
+  const candidateColumns = stages.map(stage => {
+    const matching = companyRecruitmentMock.interviews.filter(item => item.stage === stage || (stage === 'Technical Interview' && item.stage === 'Technical Interview') || (stage === 'Assessment' && item.stage === 'Assessment'));
+    return `
+      <div class="saas-card" style="min-width:180px;">
+        <div class="flex-between mb-3"><strong>${stage}</strong><span class="badge-saas badge-blue">${matching.length}</span></div>
+        ${matching.length ? matching.map(item => `
+          <div style="border:1px solid rgba(56,189,248,.2); border-radius:12px; padding:0.7rem; background:rgba(15,23,42,.7); margin-bottom:0.75rem;">
+            <div style="font-weight:800; margin-bottom:0.2rem;">${item.candidate}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted);">${item.interviewer} • ${item.type}</div>
+            <div style="font-size:0.75rem; color:var(--text-blue); margin-top:0.4rem;">Score: ${item.score}</div>
+          </div>
+        `).join('') : '<div style="font-size:0.75rem; color:var(--text-muted);">No candidates in this stage.</div>'}
+      </div>
+    `;
+  }).join('');
+  container.innerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:1rem;">${candidateColumns}</div>`;
+}
+
+function renderCompanyCampusConnect() {
+  const container = document.getElementById('company-campus-connect-content');
+  if (!container) return;
+  container.innerHTML = companyRecruitmentMock.universities.map(university => `
+    <div class="saas-card mb-3">
+      <div class="flex-between mb-2">
+        <div><h4 style="font-weight:800; margin:0;">${university.name}</h4></div>
+        <span class="badge-saas badge-emerald">${university.placementRate}</span>
+      </div>
+      <div class="grid-2 gap-3 text-sm" style="color:var(--text-muted);">
+        <div><strong>Departments:</strong> ${university.departments.join(', ')}</div>
+        <div><strong>Available students:</strong> ${university.students}</div>
+        <div><strong>Top skills:</strong> ${university.topSkills.join(', ')}</div>
+        <div><strong>Internship participation:</strong> High</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function companySendCampusRequest() {
+  alert('Campus hiring request sent to the selected university partnerships.');
+}
+
+function renderCompanyShortlist() {
+  const container = document.getElementById('company-shortlist-content');
+  if (!container) return;
+  container.innerHTML = companyRecruitmentMock.shortlist.map(candidate => `
+    <div class="saas-card mb-3">
+      <div class="flex-between mb-2">
+        <div><h4 style="font-weight:800; margin:0;">${candidate.name}</h4></div>
+        <span class="badge-saas badge-blue">AI ${candidate.aiScore}%</span>
+      </div>
+      <div class="grid-2 gap-3 text-sm" style="color:var(--text-muted);">
+        <div><strong>Skills:</strong> ${candidate.skillMatch}%</div>
+        <div><strong>CGPA:</strong> ${candidate.cgpa}</div>
+        <div><strong>Projects:</strong> ${candidate.projects}</div>
+        <div><strong>Assessment:</strong> ${candidate.assessment}%</div>
+      </div>
+      <div class="mt-3"><strong>Notes:</strong> ${candidate.notes}</div>
+    </div>
+  `).join('');
+}
+
+function companyCompareCandidates() {
+  const container = document.getElementById('company-shortlist-content');
+  if (!container) return;
+  const first = companyRecruitmentMock.shortlist[0];
+  const second = companyRecruitmentMock.shortlist[1];
+  container.innerHTML = `
+    <div class="saas-card">
+      <h3 style="font-weight:800; margin-bottom:1rem;">Compare Candidates</h3>
+      <table class="saas-table">
+        <thead><tr><th>Metric</th><th>${first.name}</th><th>${second.name}</th></tr></thead>
+        <tbody>
+          <tr><td>Skills</td><td>${first.skillMatch}%</td><td>${second.skillMatch}%</td></tr>
+          <tr><td>CGPA</td><td>${first.cgpa}</td><td>${second.cgpa}</td></tr>
+          <tr><td>Projects</td><td>${first.projects}</td><td>${second.projects}</td></tr>
+          <tr><td>Assessment score</td><td>${first.assessment}%</td><td>${second.assessment}%</td></tr>
+          <tr><td>AI Match score</td><td>${first.aiScore}%</td><td>${second.aiScore}%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderCompanyAnalytics() {
+  const container = document.getElementById('company-analytics-content');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="grid-3 gap-4 mb-4">${companyRecruitmentMock.analytics.map(item => `<div class="saas-card"><div style="font-size:0.72rem; color:var(--text-muted);">${item.label}</div><div style="font-size:1.4rem; font-weight:800; margin-top:0.35rem;">${item.value}</div></div>`).join('')}</div>
+    <div class="saas-card">
+      <h3 style="font-weight:800; margin-bottom:1rem;">Applications vs Hires</h3>
+      <div style="display:flex; gap:1rem; align-items:end; height:180px;">
+        <div style="flex:1; display:flex; align-items:end; justify-content:center; height:100%;"><div style="width:50%; height:72%; background:linear-gradient(180deg,#38bdf8,#1d4ed8); border-radius:12px 12px 0 0;"></div></div>
+        <div style="flex:1; display:flex; align-items:end; justify-content:center; height:100%;"><div style="width:50%; height:33%; background:linear-gradient(180deg,#34d399,#15803d); border-radius:12px 12px 0 0;"></div></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCompanyMessages() {
+  const container = document.getElementById('company-messages-content');
+  if (!container) return;
+  container.innerHTML = companyRecruitmentMock.messages.map(message => `
+    <div class="saas-card mb-3">
+      <div class="flex-between mb-2"><strong>${message.sender}</strong><span style="font-size:0.75rem; color:var(--text-muted);">${message.time}</span></div>
+      <div style="font-weight:700; margin-bottom:0.35rem;">${message.topic}</div>
+      <div style="font-size:0.82rem; color:var(--text-muted);">${message.preview}</div>
+    </div>
+  `).join('');
+}
+
+function renderCompanyNotifications() {
+  const container = document.getElementById('company-notifications-content');
+  if (!container) return;
+  container.innerHTML = companyRecruitmentMock.notifications.map(item => `
+    <div class="saas-card mb-3">
+      <div class="flex-between mb-2"><h4 style="font-weight:800; margin:0;">${item.title}</h4><span style="font-size:0.75rem; color:var(--text-muted);">${item.time}</span></div>
+      <div style="font-size:0.82rem; color:var(--text-muted);">${item.detail}</div>
+    </div>
+  `).join('');
+}
+
+function renderCompanySettings() {
+  const container = document.getElementById('company-settings-content');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="grid-2 gap-4">
+      <div class="saas-card">
+        <h3 style="font-weight:800; margin-bottom:1rem;">Account settings</h3>
+        <div class="mb-3"><label class="block text-xs font-bold mb-1">Recruiter profile</label><input class="saas-input" value="Priya Menon" /></div>
+        <div class="mb-3"><label class="block text-xs font-bold mb-1">Email</label><input class="saas-input" value="recruiter@techcorp.com" /></div>
+        <div><label class="block text-xs font-bold mb-1">Hiring preferences</label><select class="saas-input"><option>Full stack & AI roles</option><option>Security engineering</option><option>Data roles</option></select></div>
+      </div>
+      <div class="saas-card">
+        <h3 style="font-weight:800; margin-bottom:1rem;">Notifications & security</h3>
+        <label class="flex-align gap-2 mb-2"><input type="checkbox" checked /> New applications</label>
+        <label class="flex-align gap-2 mb-2"><input type="checkbox" checked /> Candidate matches</label>
+        <label class="flex-align gap-2 mb-2"><input type="checkbox" checked /> Interview reminders</label>
+        <label class="flex-align gap-2 mb-2"><input type="checkbox" checked /> University response</label>
+        <label class="flex-align gap-2"><input type="checkbox" /> Security alert summaries</label>
+      </div>
+    </div>
+  `;
+}
 
 // COLLEGE ADMIN LOADERS
 async function loadCollegeDashboard() {
