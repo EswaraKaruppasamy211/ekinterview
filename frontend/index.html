@@ -152,7 +152,11 @@
         <div class="menu-label">University Admin</div>
         <a href="#" class="sidebar-item active" data-target="college-dashboard" onclick="navigateTo('college-dashboard')"><i class="fa-solid fa-graduation-cap"></i> <span>Placement Analytics</span></a>
         <a href="#" class="sidebar-item" data-target="college-students" onclick="navigateTo('college-students')"><i class="fa-solid fa-users"></i> <span>Student Directory</span></a>
-        <a href="#" class="sidebar-item" data-target="campus-drives" onclick="navigateTo('campus-drives')"><i class="fa-solid fa-building-columns"></i> <span>Campus Drives</span></a>
+        <a href="#" class="sidebar-item" data-target="college-skill-mapping" onclick="navigateTo('college-skill-mapping')"><i class="fa-solid fa-chart-line"></i> <span>Skill Mapping</span></a>
+        <a href="#" class="sidebar-item" data-target="college-partnerships" onclick="navigateTo('college-partnerships')"><i class="fa-solid fa-handshake"></i> <span>Industry Partnerships</span></a>
+        <a href="#" class="sidebar-item" data-target="college-placements" onclick="navigateTo('college-placements')"><i class="fa-solid fa-briefcase"></i> <span>Placement Management</span></a>
+        <a href="#" class="sidebar-item" data-target="college-campus-drives" onclick="navigateTo('college-campus-drives')"><i class="fa-solid fa-building-columns"></i> <span>Campus Drives</span></a>
+        <a href="#" class="sidebar-item" data-target="college-reports" onclick="navigateTo('college-reports')"><i class="fa-solid fa-file-lines"></i> <span>University Reports</span></a>
       </div>
     </aside>
 
@@ -426,25 +430,130 @@
 
       <!-- UNIVERSITY / COLLEGE ADMIN MODULE VIEWS -->
       <section id="view-college-dashboard" class="workspace-view hidden">
-        <h1 style="font-size: 1.6rem; font-weight: 800;" class="mb-6">University Placement & Academic Analytics</h1>
-        <div class="saas-card mb-4"><form onsubmit="askCollegeAssistant(event)" class="flex-align gap-2"><input id="college-assistant-input" class="saas-input" placeholder="Ask about job-ready students or missing skills"><button class="btn-saas btn-primary" type="submit">Ask AI</button></form><p id="college-assistant-reply" class="text-sm mt-2"></p></div>
-        <div class="grid-3 gap-4 mb-6">
-          <div class="stat-card"><div><div style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">TOTAL STUDENTS</div><div style="font-size:1.4rem; font-weight:800;" id="col-total-students">450</div></div></div>
-          <div class="stat-card"><div><div style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">PLACED STUDENTS</div><div style="font-size:1.4rem; font-weight:800;" id="col-placed-students">382</div></div></div>
-          <div class="stat-card"><div><div style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">PLACEMENT RATE</div><div style="font-size:1.4rem; font-weight:800; color:var(--text-emerald);" id="col-placement-rate">84.8%</div></div></div>
+        <div class="flex-between mb-4">
+          <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800;">University Placement & Academic Analytics</h1>
+            <p style="color: var(--text-muted);">Monitor student outcomes, department readiness, and employer engagement across the university.</p>
+          </div>
+          <div class="badge-saas badge-purple">University overview</div>
         </div>
-        <div class="saas-card mb-6">
-          <h3 style="font-weight:700;" class="mb-4">Department Placement Performance</h3>
-          <table class="saas-table">
-            <thead><tr><th>Department</th><th>Total Enrolled</th><th>Placed</th><th>Placement %</th></tr></thead>
-            <tbody id="college-dept-table"></tbody>
-          </table>
+
+        <div class="saas-card mb-4">
+          <form onsubmit="askCollegeAssistant(event)" class="flex-align gap-2">
+            <input id="college-assistant-input" class="saas-input" placeholder="Ask about placement trends, skill gaps, or campus performance">
+            <button class="btn-saas btn-primary" type="submit">Ask AI</button>
+          </form>
+          <p id="college-assistant-reply" class="text-sm mt-2" style="color: var(--text-secondary);"></p>
+        </div>
+
+        <div class="grid-4 gap-4 mb-6" id="college-overview-cards"></div>
+
+        <div class="grid-2 gap-4 mb-6">
+          <div class="saas-card">
+            <h3 style="font-weight:700; margin-bottom:1rem;">Department Placement Performance</h3>
+            <table class="saas-table">
+              <thead><tr><th>Department</th><th>Total</th><th>Placed</th><th>Placement %</th></tr></thead>
+              <tbody id="college-dept-table"></tbody>
+            </table>
+          </div>
+          <div class="saas-card">
+            <h3 style="font-weight:700; margin-bottom:1rem;">Top Skill Demand Signals</h3>
+            <div id="college-skill-demand-list"></div>
+          </div>
+        </div>
+
+        <div class="saas-card">
+          <h3 style="font-weight:700; margin-bottom:1rem;">Strategic Recommendations</h3>
+          <div id="college-strategy-insights" class="grid-2 gap-3"></div>
         </div>
       </section>
 
       <section id="view-college-students" class="workspace-view hidden">
-        <h1 style="font-size: 1.6rem; font-weight: 800;" class="mb-4">Student Directory</h1>
-        <div class="saas-card"><div id="college-students-list" class="grid-2 gap-4"></div></div>
+        <div class="flex-between mb-4">
+          <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800;">Student Directory</h1>
+            <p style="color: var(--text-muted);">Track profiles, placement status, and readiness by department.</p>
+          </div>
+          <div class="badge-saas badge-emerald">Live directory</div>
+        </div>
+
+        <div class="saas-card mb-4">
+          <div class="grid-3 gap-3">
+            <input id="college-student-search" class="saas-input" type="text" placeholder="Search by name, department, or ID" />
+            <select id="college-student-dept" class="saas-input">
+              <option value="all">All departments</option>
+              <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+              <option value="Information Technology">Information Technology</option>
+              <option value="Electronics & Communication">Electronics & Communication</option>
+              <option value="Electrical & Electronics">Electrical & Electronics</option>
+            </select>
+            <select id="college-student-status" class="saas-input">
+              <option value="all">All placement statuses</option>
+              <option value="Placed">Placed</option>
+              <option value="Shortlisted">Shortlisted</option>
+              <option value="Available">Available</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="saas-card">
+          <div id="college-students-list" class="grid-2 gap-4"></div>
+        </div>
+      </section>
+
+      <section id="view-college-skill-mapping" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800;">Skill Mapping</h1>
+            <p style="color: var(--text-muted);">Compare demand signals against department-level skill readiness and program performance.</p>
+          </div>
+          <div class="badge-saas badge-blue">Skill intelligence</div>
+        </div>
+        <div id="college-skill-mapping-content"></div>
+      </section>
+
+      <section id="view-college-partnerships" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800;">Industry Partnerships</h1>
+            <p style="color: var(--text-muted);">Monitor industry associations, internship tie-ups, mentorship programs, and employer engagement.</p>
+          </div>
+          <div class="badge-saas badge-purple">Network overview</div>
+        </div>
+        <div id="college-partnerships-content"></div>
+      </section>
+
+      <section id="view-college-placements" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800;">Placement Management</h1>
+            <p style="color: var(--text-muted);">Track offers, intake, and hiring outcomes across cohorts and internship-to-full-time pipelines.</p>
+          </div>
+          <div class="badge-saas badge-emerald">Offer pipeline</div>
+        </div>
+        <div id="college-placements-content"></div>
+      </section>
+
+      <section id="view-college-campus-drives" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800;">Campus Drives</h1>
+            <p style="color: var(--text-muted);">Review scheduled campus hiring programs, company requests, and student participation across departments.</p>
+          </div>
+          <div class="badge-saas badge-orange">Drive calendar</div>
+        </div>
+        <div id="college-campus-drives-list"></div>
+      </section>
+
+      <section id="view-college-reports" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800;">University Reports</h1>
+            <p style="color: var(--text-muted);">Executive summaries for placement strategy, curriculum planning, and employer relationship growth.</p>
+          </div>
+          <div class="badge-saas badge-sky">Executive brief</div>
+        </div>
+        <div id="college-reports-content"></div>
       </section>
 
       <section id="view-campus-drives" class="workspace-view hidden"><h1 style="font-size: 1.6rem; font-weight: 800;" class="mb-4">Campus Placement Drives</h1><div id="campus-drives-list"></div></section>

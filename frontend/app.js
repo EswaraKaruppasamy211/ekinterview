@@ -217,7 +217,8 @@ function switchPortalRole(targetRole) {
     return;
   }
 
-  if (targetRole === 'college' && (!currentUser || currentUser.role !== 'college')) {
+  const collegeRoles = ['college', 'college_admin', 'university_admin'];
+  if (targetRole === 'college' && (!currentUser || !collegeRoles.includes(currentUser.role))) {
     openCollegeAuthModal('login');
     return;
   }
@@ -307,6 +308,11 @@ function navigateTo(viewId) {
   else if (viewId === 'talent-finder') loadTalentFinder();
   else if (viewId === 'college-dashboard') loadCollegeDashboard();
   else if (viewId === 'college-students') loadCollegeStudentDirectory();
+  else if (viewId === 'college-skill-mapping') loadCollegeSkillMapping();
+  else if (viewId === 'college-partnerships') loadCollegePartnerships();
+  else if (viewId === 'college-placements') loadCollegePlacements();
+  else if (viewId === 'college-campus-drives') loadCollegeCampusDrives();
+  else if (viewId === 'college-reports') loadCollegeReports();
   else if (viewId === 'university-dashboard') loadUniversityDashboard();
   else if (viewId === 'admin-dashboard') loadAdminDashboard();
 }
@@ -1378,6 +1384,230 @@ async function changePassword(event) { event.preventDefault(); try { const data 
 async function deleteStudentAccount() { if (!window.confirm('Delete your account and all associated profile data? This action cannot be undone.')) return; try { await apiFetch('/student/account', { method: 'DELETE' }); alert('Your account and associated data were deleted.'); handleLogout(); } catch (err) { alert(err.message); } }
 function applyTheme(theme) { const resolved = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : theme; document.body.dataset.theme = resolved; localStorage.setItem('sb_theme', theme); }
 
+async function loadCollegeDashboard() {
+  const overview = document.getElementById('college-overview-cards');
+  const deptTable = document.getElementById('college-dept-table');
+  const skillDemandList = document.getElementById('college-skill-demand-list');
+  const strategyInsights = document.getElementById('college-strategy-insights');
+
+  if (overview) {
+    overview.innerHTML = universityAdminMock.overview.map(item => renderMetricCard(item.label, item.value, item.accent)).join('');
+  }
+
+  if (deptTable) {
+    deptTable.innerHTML = universityAdminMock.departments.map(item => `
+      <tr>
+        <td style="font-weight:700;">${item.department}</td>
+        <td>${item.total}</td>
+        <td>${item.placed}</td>
+        <td><span class="badge-saas badge-emerald">${item.rate}%</span></td>
+      </tr>
+    `).join('');
+  }
+
+  if (skillDemandList) {
+    skillDemandList.innerHTML = universityAdminMock.skillSignals.map(item => `
+      <div class="mb-3">
+        <div class="flex-between mb-1"><span style="font-weight:700; font-size:0.8rem;">${item.name}</span><span style="font-size:0.75rem; color:var(--text-muted);">${item.demand}% demand</span></div>
+        <div style="height:9px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden; margin-bottom:0.2rem;">
+          <div style="height:100%; width:${item.demand}%; background:linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius:999px;"></div>
+        </div>
+        <div style="font-size:0.72rem; color:var(--text-muted);">Readiness: <strong>${item.readiness}%</strong></div>
+      </div>
+    `).join('');
+  }
+
+  if (strategyInsights) {
+    strategyInsights.innerHTML = universityAdminMock.recommendations.map(item => `
+      <div class="saas-card">
+        <div class="badge-saas badge-blue mb-2">Action</div>
+        <p style="margin:0; line-height:1.6; color:var(--text-secondary);">${item}</p>
+      </div>
+    `).join('');
+  }
+}
+
+async function loadCollegeStudentDirectory() {
+  const container = document.getElementById('college-students-list');
+  if (!container) return;
+
+  const deptFilter = document.getElementById('college-student-dept')?.value || 'all';
+  const statusFilter = document.getElementById('college-student-status')?.value || 'all';
+  const searchValue = (document.getElementById('college-student-search')?.value || '').trim().toLowerCase();
+
+  const filtered = universityAdminMock.students.filter(student => {
+    const matchesDept = deptFilter === 'all' || student.department === deptFilter;
+    const matchesStatus = statusFilter === 'all' || student.status === statusFilter;
+    const searchText = `${student.name} ${student.department} ${student.id}`.toLowerCase();
+    const matchesSearch = !searchValue || searchText.includes(searchValue);
+    return matchesDept && matchesStatus && matchesSearch;
+  });
+
+  container.innerHTML = filtered.map(student => `
+    <div class="saas-card">
+      <div class="flex-between mb-2">
+        <h4 style="font-weight:700; margin:0;">${student.name}</h4>
+        <span class="badge-saas ${student.status === 'Placed' ? 'badge-emerald' : student.status === 'Shortlisted' ? 'badge-blue' : 'badge-purple'}">${student.status}</span>
+      </div>
+      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">${student.id} • ${student.department}</div>
+      <div class="grid-2 gap-2 text-sm">
+        <div><strong>CGPA:</strong> ${student.cgpa}</div>
+        <div><strong>Track:</strong> ${student.specialization}</div>
+      </div>
+    </div>
+  `).join('') || '<div class="saas-card">No students match the current filters.</div>';
+
+  ['college-student-search', 'college-student-dept', 'college-student-status'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element && !element.dataset.bound) {
+      element.dataset.bound = 'true';
+      element.addEventListener('input', loadCollegeStudentDirectory);
+      element.addEventListener('change', loadCollegeStudentDirectory);
+    }
+  });
+}
+
+async function loadCollegeSkillMapping() {
+  const container = document.getElementById('college-skill-mapping-content');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="grid-2 gap-4">
+      ${universityAdminMock.skillMapping.map(item => `
+        <div class="saas-card">
+          <div class="flex-between mb-2">
+            <h3 style="font-weight:800; margin:0;">${item.department}</h3>
+            <span class="badge-saas badge-blue">${item.readiness}% readiness</span>
+          </div>
+          <p style="color: var(--text-muted); margin-bottom: 1rem;">${item.coach}</p>
+          <div class="mb-3">
+            <div class="flex-between mb-1"><span class="text-xs">Department readiness</span><span class="text-xs">${item.readiness}%</span></div>
+            <div style="height: 10px; background: rgba(148,163,184,.13); border-radius: 999px; overflow: hidden;">
+              <div style="height:100%; width:${item.readiness}%; background: linear-gradient(90deg, #38bdf8, #2563eb); border-radius:999px;"></div>
+            </div>
+          </div>
+          <div class="mb-2"><strong>Primary gap:</strong> ${item.gap}</div>
+          <div><strong>Recommended action:</strong> ${item.action}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadCollegePartnerships() {
+  const container = document.getElementById('college-partnerships-content');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="grid-2 gap-4">
+      ${universityAdminMock.partnerships.map(item => `
+        <div class="saas-card">
+          <div class="flex-between mb-3">
+            <div>
+              <h3 style="font-weight:800; margin:0;">${item.company}</h3>
+              <div class="text-xs mt-1" style="color:var(--text-muted);">${item.type}</div>
+            </div>
+            <span class="badge-saas ${item.status === 'Active' ? 'badge-emerald' : 'badge-orange'}">${item.status}</span>
+          </div>
+          <div class="grid-2 gap-2 text-sm">
+            <div><strong>Engagement:</strong><br>${item.engagement}</div>
+            <div><strong>Reach:</strong><br>${item.reach}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadCollegePlacements() {
+  const container = document.getElementById('college-placements-content');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="grid-2 gap-4">
+      ${universityAdminMock.placements.map(item => `
+        <div class="saas-card">
+          <div class="flex-between mb-2">
+            <h3 style="font-weight:800; margin:0;">${item.company}</h3>
+            <span class="badge-saas badge-purple">${item.role}</span>
+          </div>
+          <div class="grid-3 gap-2 text-sm">
+            <div><strong>Offers</strong><br>${item.offers}</div>
+            <div><strong>Accepted</strong><br>${item.accepted}</div>
+            <div><strong>Avg Package</strong><br>${item.avgPackage}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadCollegeCampusDrives() {
+  const container = document.getElementById('college-campus-drives-list');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="grid-2 gap-4">
+      ${universityAdminMock.campusDrives.map(item => `
+        <div class="saas-card">
+          <div class="flex-between mb-2">
+            <h3 style="font-weight:800; margin:0;">${item.company}</h3>
+            <span class="badge-saas ${item.status === 'Scheduled' ? 'badge-blue' : item.status === 'Confirmed' ? 'badge-emerald' : item.status === 'Shortlisted' ? 'badge-purple' : 'badge-orange'}">${item.status}</span>
+          </div>
+          <div class="text-sm" style="color: var(--text-muted);">${item.date}</div>
+          <div class="mt-2 text-sm"><strong>Department:</strong> ${item.department}</div>
+          <div class="mt-1 text-sm"><strong>Mode:</strong> ${item.mode}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadCollegeReports() {
+  const container = document.getElementById('college-reports-content');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="grid-3 gap-4">
+      ${universityAdminMock.reports.map(item => `
+        <div class="saas-card">
+          <div class="badge-saas badge-sky mb-2">Report</div>
+          <h3 style="font-weight:800; margin-bottom:0.75rem;">${item.title}</h3>
+          <p style="color:var(--text-secondary); line-height:1.7; margin:0;">${item.summary}</p>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function askCollegeAssistant(event) {
+  event.preventDefault();
+  const input = document.getElementById('college-assistant-input');
+  const output = document.getElementById('college-assistant-reply');
+  if (!input || !output) return;
+
+  const message = input.value.trim();
+  if (!message) {
+    output.textContent = 'Ask about placement trends, department gaps, or employer engagement.';
+    return;
+  }
+
+  const lower = message.toLowerCase();
+  let reply = 'Based on current university performance, the strongest placement momentum is in Computer Science and IT, while cloud and AI/ML readiness remain the main skill gaps to address.';
+
+  if (lower.includes('skill') || lower.includes('gap')) {
+    reply = 'The biggest skill gaps are in Cloud, AI/ML, and advanced coding readiness for EEE/ECE departments. A targeted upskilling program would improve placement conversion within one semester.';
+  } else if (lower.includes('company') || lower.includes('partnership')) {
+    reply = 'Current employer partnerships are strongest in software services and campus connect programs. Additional product-company tie-ups would improve final-offer conversion and salary outcomes.';
+  } else if (lower.includes('department') || lower.includes('cse') || lower.includes('it')) {
+    reply = 'CSE and IT remain highest-performing departments with the strongest placement conversion, while ECE and EEE need more bridge programs for coding and product readiness.';
+  } else if (lower.includes('report') || lower.includes('summary')) {
+    reply = 'University placement conversion improved by 6.2% this cycle, with the biggest growth in software and analytics roles. The next strategic focus should be cloud and AI/ML readiness.';
+  }
+
+  output.textContent = reply;
+}
+
 // UNIVERSITY ADMIN DASHBOARD
 async function loadUniversityDashboard() {
   const dashboard = document.getElementById('view-university-dashboard');
@@ -1751,6 +1981,69 @@ async function shortlistCandidate(studentId) {
 async function loadCompanyJobCandidates_old() { const jobId = document.getElementById('company-job-selector')?.value; if (!jobId) { document.getElementById('talent-candidates-list').innerHTML = '<p>No jobs posted yet.</p>'; return; } try { const data = await apiFetch(`/company/jobs/${jobId}/candidates`); document.getElementById('talent-candidates-list').innerHTML = data.candidates.length ? data.candidates.map(candidate => `<div class="saas-card"><h4>${candidate.name}</h4><div class="text-xs">${candidate.studentId} · CGPA: ${candidate.cgpa ?? 'Hidden'}</div><strong style="color:var(--text-emerald);">${candidate.matchPercentage}% · ${candidate.recommendationLevel}</strong><p class="text-xs mt-2">${candidate.skills.map(skill => `${skill.name} ${skill.scoreOutOfTen}/10`).join(', ') || 'Skills hidden by privacy settings'}</p><p class="text-xs mt-2">${candidate.skillGaps.filter(item => item.result === 'Gap').map(item => `Gap: ${item.skill}`).join(', ') || 'All listed requirements matched'}</p></div>`).join('') : '<p>No privacy-eligible candidates available.</p>'; } catch (err) { document.getElementById('talent-candidates-list').textContent = err.message; } }
 async function askCompanyAssistant(event) { event.preventDefault(); try { const data = await apiFetch('/company/assistant', { method: 'POST', body: JSON.stringify({ message: document.getElementById('company-assistant-input').value }) }); document.getElementById('company-assistant-reply').textContent = data.reply; } catch (err) { document.getElementById('company-assistant-reply').textContent = err.message; } }
 async function askCompanyAssistantFromDashboard(event) { event.preventDefault(); try { const data = await apiFetch('/company/assistant', { method: 'POST', body: JSON.stringify({ message: document.getElementById('company-dashboard-assistant-input').value }) }); document.getElementById('company-dashboard-assistant-reply').textContent = data.reply; } catch (err) { document.getElementById('company-dashboard-assistant-reply').textContent = err.message; } }
+
+const universityAdminMock = {
+  overview: [
+    { label: 'Total Students', value: '12,480', accent: 'blue' },
+    { label: 'Placed Students', value: '9,430', accent: 'emerald' },
+    { label: 'Placement Rate', value: '75.6%', accent: 'purple' },
+    { label: 'Active Recruiters', value: '188', accent: 'orange' }
+  ],
+  departments: [
+    { department: 'Computer Science & Engineering', total: 1480, placed: 1165, rate: 78.7 },
+    { department: 'Information Technology', total: 860, placed: 664, rate: 77.2 },
+    { department: 'Electronics & Communication', total: 930, placed: 680, rate: 73.1 },
+    { department: 'Electrical & Electronics', total: 740, placed: 520, rate: 70.3 }
+  ],
+  skillSignals: [
+    { name: 'Python', demand: 91, readiness: 84 },
+    { name: 'React', demand: 88, readiness: 80 },
+    { name: 'SQL', demand: 84, readiness: 78 },
+    { name: 'Cloud', demand: 79, readiness: 68 }
+  ],
+  recommendations: [
+    'Introduce a Python + Data Analytics bootcamp to improve interview readiness for analytics tracks.',
+    'Increase AI/ML lab hours and mock technical rounds to reduce the current skill gap in cloud and data roles.',
+    'Strengthen employer partnerships with 3 more product-based companies to raise final-placement conversion.'
+  ],
+  students: [
+    { id: 'STU-2026-101', name: 'Aarav Nair', department: 'Computer Science & Engineering', status: 'Placed', cgpa: 9.4, specialization: 'Full Stack' },
+    { id: 'STU-2026-145', name: 'Meera Iyer', department: 'Information Technology', status: 'Shortlisted', cgpa: 9.1, specialization: 'Data Analytics' },
+    { id: 'STU-2026-187', name: 'Karthik Raman', department: 'Electronics & Communication', status: 'Available', cgpa: 8.7, specialization: 'Embedded Systems' },
+    { id: 'STU-2026-219', name: 'Nisha Patel', department: 'Computer Science & Engineering', status: 'Placed', cgpa: 9.2, specialization: 'Frontend Engineering' },
+    { id: 'STU-2026-233', name: 'Rohit Shah', department: 'Electrical & Electronics', status: 'Shortlisted', cgpa: 8.9, specialization: 'Power Systems' },
+    { id: 'STU-2026-250', name: 'Vikram S', department: 'Information Technology', status: 'Available', cgpa: 8.6, specialization: 'Cybersecurity' }
+  ],
+  skillMapping: [
+    { department: 'CSE', readiness: 86, gap: 'AI/ML', action: 'Expand advanced ML labs and internship-linked projects.', coach: 'Strong in full-stack and problem solving.' },
+    { department: 'IT', readiness: 81, gap: 'Cloud', action: 'Add AWS/GCP certification pathways and mock cloud labs.', coach: 'Solid analytics and database exposure.' },
+    { department: 'ECE', readiness: 74, gap: 'Embedded + IoT', action: 'Create focused product incubator sessions for IoT roles.', coach: 'Good hardware fundamentals but needs product demos.' },
+    { department: 'EEE', readiness: 69, gap: 'Core Software', action: 'Support coding workshops and Python bridge training.', coach: 'High aptitude but low programming breadth.' }
+  ],
+  partnerships: [
+    { company: 'Microsoft', type: 'Mentorship + Hackathons', status: 'Active', engagement: '28 sessions', reach: '340 students' },
+    { company: 'Infosys', type: 'Campus Connect', status: 'Active', engagement: '6 drives', reach: '1,200 students' },
+    { company: 'Tata Consultancy Services', type: 'Skill Bootcamp', status: 'In Review', engagement: '3 tracks', reach: '470 students' },
+    { company: 'Zoho', type: 'Product Internship Collaboration', status: 'Active', engagement: '2 cohorts', reach: '140 students' }
+  ],
+  placements: [
+    { company: 'Infosys', role: 'Software Engineer', offers: 180, accepted: 144, avgPackage: '₹7.8 LPA' },
+    { company: 'Wipro', role: 'Project Engineer', offers: 120, accepted: 98, avgPackage: '₹6.9 LPA' },
+    { company: 'Amazon', role: 'SDE Intern', offers: 44, accepted: 29, avgPackage: '₹18.4 LPA' },
+    { company: 'Accenture', role: 'Associate Analyst', offers: 96, accepted: 80, avgPackage: '₹5.2 LPA' }
+  ],
+  campusDrives: [
+    { company: 'Google', date: '12 Sep 2026', department: 'CSE / IT', mode: 'Hybrid', status: 'Scheduled' },
+    { company: 'Cognizant', date: '18 Sep 2026', department: 'ECE / EEE', mode: 'On Campus', status: 'Confirmed' },
+    { company: 'Zeta', date: '27 Sep 2026', department: 'CSE', mode: 'Virtual', status: 'Shortlisted' },
+    { company: 'HashedIn', date: '02 Oct 2026', department: 'All tech departments', mode: 'On Campus', status: 'Proposed' }
+  ],
+  reports: [
+    { title: 'Annual Placement Summary', summary: 'Placement conversion improved by 6.2% over the previous academic year, with highest growth in frontend and analytics tracks.' },
+    { title: 'Skill Gap Analysis', summary: 'Highest gap remains in cloud deployment, AI/ML product readiness, and structured communication for core engineering departments.' },
+    { title: 'Employer Pulse Report', summary: 'Companies ranked communication, project depth, and certification proof as the biggest differentiators in shortlist decisions.' }
+  ]
+};
 
 const companyRecruitmentMock = {
   metrics: [
@@ -2411,27 +2704,6 @@ function renderCompanySettings() {
       </div>
     </div>
   `;
-}
-
-// COLLEGE ADMIN LOADERS
-async function loadCollegeDashboard() {
-  try {
-    const data = await apiFetch('/college/dashboard');
-    document.getElementById('col-total-students').textContent = data.total_students;
-    document.getElementById('col-placed-students').textContent = data.placed_students;
-    document.getElementById('col-placement-rate').textContent = `${data.placement_rate}%`;
-
-    const tbody = document.getElementById('college-dept-table');
-    tbody.innerHTML = (data.department_stats || []).map(d => `<tr><td style="font-weight:700;">${d.name}</td><td>${d.total}</td><td style="color:var(--text-emerald); font-weight:800;">${d.placed}</td><td><span class="badge-saas badge-emerald">${d.percentage}%</span></td></tr>`).join('');
-  } catch (e) {}
-}
-async function askCollegeAssistant(event) { event.preventDefault(); try { const data = await apiFetch('/college/assistant', { method: 'POST', body: JSON.stringify({ message: document.getElementById('college-assistant-input').value }) }); document.getElementById('college-assistant-reply').textContent = data.reply; } catch (err) { document.getElementById('college-assistant-reply').textContent = err.message; } }
-
-async function loadCollegeStudentDirectory() {
-  try {
-    const students = await apiFetch('/college/students');
-    document.getElementById('college-students-list').innerHTML = students.map(s => `<div class="saas-card"><h4 style="font-weight:700;">${s.name}</h4><div style="font-size:0.8rem; color:var(--text-muted);">${s.student_id} • ${s.department}</div></div>`).join('');
-  } catch (e) {}
 }
 
 // CAMPUS DRIVES & APPLICATIONS
