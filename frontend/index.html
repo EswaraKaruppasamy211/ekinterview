@@ -110,6 +110,7 @@
         <div class="menu-label">Student Navigation</div>
         <a href="#" class="sidebar-item active" data-target="dashboard" onclick="navigateTo('dashboard')"><i class="fa-solid fa-house"></i> <span>Dashboard</span></a>
         <a href="#" class="sidebar-item" data-target="profile" onclick="navigateTo('profile')"><i class="fa-solid fa-user"></i> <span>My Profile</span></a>
+        <a href="#" class="sidebar-item" data-target="ats-resume" onclick="navigateTo('ats-resume')"><i class="fa-solid fa-file-circle-check"></i> <span>ATS Score Analysis</span></a>
         <a href="#" class="sidebar-item" data-target="academics" onclick="navigateTo('academics')"><i class="fa-solid fa-graduation-cap"></i> <span>Academics</span></a>
         <a href="#" class="sidebar-item" data-target="skills" onclick="navigateTo('skills')"><i class="fa-solid fa-code"></i> <span>Skills</span></a>
         <a href="#" class="sidebar-item" data-target="certificates" onclick="navigateTo('certificates')"><i class="fa-solid fa-certificate"></i> <span>Certificates</span></a>
@@ -557,6 +558,24 @@
       </section>
 
       <section id="view-campus-drives" class="workspace-view hidden"><h1 style="font-size: 1.6rem; font-weight: 800;" class="mb-4">Campus Placement Drives</h1><div id="campus-drives-list"></div></section>
+      <section id="view-ats-resume" class="workspace-view hidden">
+        <h1 style="font-size: 1.6rem; font-weight: 800;" class="mb-4">ATS Resume Analysis</h1>
+        <div class="saas-card mb-4">
+          <form id="resume-upload-form" onsubmit="handleResumeUpload(event)">
+            <label class="block text-xs font-bold mb-2">Upload resume PDF</label>
+            <div class="flex-align gap-3"><input type="file" id="resume-file-input" class="saas-input" accept=".pdf,application/pdf" required /><button class="btn-saas btn-primary" type="submit">Analyze PDF</button></div>
+          </form>
+        </div>
+        <div class="saas-card">
+          <div class="flex-between mb-3"><h3 style="font-weight:800;margin:0;">ATS Score Analysis</h3><span id="resume-ats-status" class="badge-saas badge-blue">Awaiting PDF</span></div>
+          <div id="resume-ats-empty" class="text-sm" style="color:var(--text-muted);">Upload a PDF to view ATS and AI resume scores.</div>
+          <div id="resume-ats-results" class="hidden">
+            <div class="grid-2 gap-3 mb-4"><div class="mini-stat-card"><span>ATS Score</span><strong id="resume-ats-score">0 / 100</strong></div><div class="mini-stat-card"><span>AI Resume Score</span><strong id="resume-ai-score">0 / 100</strong></div></div>
+            <div id="resume-ats-breakdown" class="flex-col gap-3"></div>
+            <p id="resume-ats-findings" class="text-sm mt-3"></p>
+          </div>
+        </div>
+      </section>
       <section id="view-placement" class="workspace-view hidden"><h1 style="font-size: 1.6rem; font-weight: 800;" class="mb-4">My Placement</h1><div class="saas-card"><form onsubmit="handleSavePlacement(event)"><div class="grid-2 gap-4 mb-4"><input id="placement-company" class="saas-input" placeholder="Company Name" required /><input id="placement-role" class="saas-input" placeholder="Job Role" required /><input id="placement-department" class="saas-input" placeholder="Department" /><input id="placement-package" class="saas-input" placeholder="Package / CTC" /><input id="placement-date" type="date" class="saas-input" /><input id="placement-joining" type="date" class="saas-input" /><input id="placement-location" class="saas-input" placeholder="Location" /><select id="placement-type" class="saas-input"><option>Campus Placement</option><option>Off Campus</option></select></div><button class="btn-saas btn-primary" type="submit">Save Placement</button></form><div id="placement-current" class="mt-4"></div></div></section>
 
     </main>
@@ -726,6 +745,7 @@
   <button id="floating-ai-button" class="floating-ai-button" onclick="openAiAssistant()">🤖 Ask AI</button>
   <div id="ai-assistant-panel" class="ai-assistant-panel hidden"><div class="flex-between"><h3>🤖 AI Career Assistant</h3><button class="btn-saas btn-outline" onclick="closeAiAssistant()">×</button></div><p class="text-xs mt-2">Ask me about your skills, jobs, match score and career profile.</p><div class="ai-quick-actions mt-3"><button onclick="askAiQuick('Analyze my profile')">Analyze My Profile</button><button onclick="askAiQuick('Explain my match score')">Explain My Match Score</button><button onclick="askAiQuick('Find my skill gaps')">Find Skill Gaps</button><button onclick="askAiQuick('How can I improve my profile?')">Improve My Profile</button><button onclick="askAiQuick('How should I prepare for this job?')">Prepare for This Job</button></div><div id="student-ai-chat-log" class="chat-log mt-3"><div class="chat-bubble bot">Hi! I can analyze your saved SkillBridge profile and career opportunities.</div></div><form onsubmit="handleAiChatSubmit(event)" class="flex-align gap-2 mt-3"><input id="student-ai-chat-input" class="saas-input" placeholder="Ask a question" required><button class="btn-saas btn-primary" type="submit">Send</button></form></div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

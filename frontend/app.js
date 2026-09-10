@@ -276,6 +276,7 @@ function navigateTo(viewId) {
 
   if (viewId === 'dashboard') loadDashboardHome();
   else if (viewId === 'profile') loadProfileView();
+  else if (viewId === 'ats-resume') loadATSResumeView();
   else if (viewId === 'academics') loadAcademicsView();
   else if (viewId === 'skills') loadSkillsView();
   else if (viewId === 'certificates') loadCertificatesView();
@@ -728,6 +729,102 @@ async function loadProfileView() {
     document.getElementById('onboarding-skills').value = (skills.technical || []).map(s => `${s.skill_name}:${s.level_pct}`).join(', ');
   } catch (e) {}
 }
+
+async function extractPdfText(file) {
+  if (!file || file.type !== 'application/pdf') throw new Error('Only PDF resumes are accepted.');
+  if (!window.pdfjsLib) throw new Error('PDF analysis is still loading. Please try again.');
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pages = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(content.items.map(item => item.str).join(' '));
+  }
+  return pages.join('\n').trim();
+}
+
+function calculateResumeATS(text) {
+  const normalized = text.toLowerCase();
+  const sections = ['experience', 'education', 'skills', 'projects', 'certifications', 'summary'];
+  const foundSections = sections.filter(section => normalized.includes(section));
+  const keywords = ['python', 'java', 'javascript', 'sql', 'react', 'docker', 'api', 'aws'];
+  const verbs = ['built', 'developed', 'implemented', 'designed', 'deployed', 'led'];
+  const sectionsScore = foundSections.length / sections.length * 35;
+  const contactScore = (/@/.test(text) ? 8 : 0) + (/(linkedin|github|https?:\/\/)/i.test(text) ? 7 : 0);
+  const keywordScore = keywords.filter(keyword => normalized.includes(keyword)).length / keywords.length * 25;
+  const actionScore = verbs.filter(verb => normalized.includes(verb)).length / verbs.length * 15;
+  const lengthScore = text.length >= 800 && text.length <= 12000 ? 10 : (text.length > 200 ? 5 : 0);
+  const score = Math.min(100, Math.round(sectionsScore + contactScore + keywordScore + actionScore + lengthScore));
+  return {
+    score,
+    aiScore: Math.min(100, Math.round(score * 0.85 + 15)),
+    wordCount: text.split(/\s+/).filter(Boolean).length,
+    missingSections: sections.filter(section => !normalized.includes(section)),
+    breakdown: [
+      ['Resume sections', sectionsScore, 35],
+      ['Contact & links', contactScore, 15],
+      ['Technical keywords', keywordScore, 25],
+      ['Action language', actionScore, 15],
+      ['Length & readability', lengthScore, 10]
+    ]
+  };
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Unable to read the PDF file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderResumeATSAnalysis(analysis) {
+  document.getElementById('resume-ats-empty').classList.add('hidden');
+  document.getElementById('resume-ats-results').classList.remove('hidden');
+  document.getElementById('resume-ats-score').textContent = `${analysis.score} / 100`;
+  document.getElementById('resume-ai-score').textContent = `${analysis.aiScore} / 100`;
+  const status = document.getElementById('resume-ats-status');
+  status.textContent = analysis.score >= 80 ? 'Strong match' : analysis.score >= 60 ? 'Needs tuning' : 'Needs improvement';
+  status.className = `badge-saas ${analysis.score >= 80 ? 'badge-emerald' : 'badge-purple'}`;
+  document.getElementById('resume-ats-breakdown').innerHTML = analysis.breakdown.map(item => `
+    <div><div class="flex-between text-sm"><strong>${item[0]}</strong><span>${Math.round(item[1])}% / ${item[2]}%</span></div>
+    <div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><div style="width:${Math.min(100, item[1] / item[2] * 100)}%;height:100%;background:linear-gradient(90deg,#2563eb,#7c3aed);"></div></div></div>
+  `).join('');
+  document.getElementById('resume-ats-findings').textContent = `${analysis.wordCount} words analyzed. ${analysis.missingSections.length ? `Missing sections: ${analysis.missingSections.join(', ')}.` : 'All core sections detected.'}`;
+}
+
+async function loadATSResumeView() {
+  try {
+    const data = await apiFetch('/student/profile');
+    if (data.resume && data.resume.ats_analysis) renderResumeATSAnalysis(data.resume.ats_analysis);
+  } catch (error) {
+    console.error('ATS resume analysis load failed:', error);
+  }
+}
+
+async function handleResumeUpload(event) {
+  event.preventDefault();
+  const file = document.getElementById('resume-file-input').files[0];
+  if (!file || file.type !== 'application/pdf') {
+    alert('Please select a PDF resume.');
+    return;
+  }
+  try {
+    const analysis = calculateResumeATS(await extractPdfText(file));
+    renderResumeATSAnalysis(analysis);
+    await apiFetch('/student/resume', {
+      method: 'POST',
+      body: JSON.stringify({ fileUrl: await readFileAsDataUrl(file), resumeUrl: await readFileAsDataUrl(file), fileName: file.name, atsAnalysis: analysis })
+    });
+    document.getElementById('resume-file-input').value = '';
+    alert('PDF analyzed successfully.');
+  } catch (error) {
+    alert(error.message || 'Resume analysis failed.');
+  }
+}
+
 function updateOnboardingCGPA() {
   const values = [...document.querySelectorAll('.onboarding-gpa')].map(input => input.value).filter(value => value !== '').map(Number).filter(inputValueIsPresent);
   const element = document.getElementById('onboarding-cgpa');
