@@ -110,6 +110,7 @@
         <div class="menu-label">Student Navigation</div>
         <a href="#" class="sidebar-item active" data-target="dashboard" onclick="navigateTo('dashboard')"><i class="fa-solid fa-house"></i> <span>Dashboard</span></a>
         <a href="#" class="sidebar-item" data-target="profile" onclick="navigateTo('profile')"><i class="fa-solid fa-user"></i> <span>My Profile</span></a>
+        <a href="#" class="sidebar-item" data-target="ats-resume" onclick="navigateTo('ats-resume')"><i class="fa-solid fa-file-circle-check"></i> <span>ATS Score Analysis</span></a>
         <a href="#" class="sidebar-item" data-target="academics" onclick="navigateTo('academics')"><i class="fa-solid fa-graduation-cap"></i> <span>Academics</span></a>
         <a href="#" class="sidebar-item" data-target="skills" onclick="navigateTo('skills')"><i class="fa-solid fa-code"></i> <span>Skills</span></a>
         <a href="#" class="sidebar-item" data-target="assessments" onclick="navigateTo('assessments')"><i class="fa-solid fa-chart-simple"></i> <span>Assessments</span></a>
@@ -226,33 +227,25 @@
           <form id="profile-form" onsubmit="handleSaveProfile(event)">
             <div class="grid-3 gap-4 mb-4">
               <div><label class="mb-1 block text-xs font-bold">Full Name</label><input type="text" id="prof-name" class="saas-input" required /></div>
+              <div><label class="mb-1 block text-xs font-bold">Student ID</label><input type="text" id="prof-student-id" class="saas-input" readonly /></div>
+              <div><label class="mb-1 block text-xs font-bold">Date of Birth</label><input type="date" id="prof-dob" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Gender</label><select id="prof-gender" class="saas-input"><option value="">Select</option><option>Female</option><option>Male</option><option>Other</option></select></div>
               <div><label class="mb-1 block text-xs font-bold">Phone Number</label><input type="text" id="prof-phone" class="saas-input" required /></div>
               <div><label class="mb-1 block text-xs font-bold">College</label><input type="text" id="prof-college" class="saas-input" required /></div>
-              <div><label class="mb-1 block text-xs font-bold">LinkedIn</label><input type="url" id="prof-linkedin" class="saas-input" placeholder="https://linkedin.com/in/..." /></div>
-              <div><label class="mb-1 block text-xs font-bold">GitHub</label><input type="url" id="prof-github" class="saas-input" placeholder="https://github.com/..." /></div>
-              <div><label class="mb-1 block text-xs font-bold">Portfolio</label><input type="url" id="prof-portfolio" class="saas-input" placeholder="https://yourportfolio.dev" /></div>
+              <div><label class="mb-1 block text-xs font-bold">University</label><input type="text" id="prof-university" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Department</label><input type="text" id="prof-department" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Degree</label><input type="text" id="prof-degree" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Expected Graduation Year</label><input type="number" id="prof-graduation" class="saas-input" min="2020" max="2100" /></div>
+              <div><label class="mb-1 block text-xs font-bold">City</label><input type="text" id="prof-city" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">State</label><input type="text" id="prof-state" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Country</label><input type="text" id="prof-country" class="saas-input" value="India" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Pincode</label><input type="text" id="prof-pincode" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Door / House</label><input type="text" id="prof-door-house" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Street</label><input type="text" id="prof-street" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">Area</label><input type="text" id="prof-area" class="saas-input" /></div>
+              <div><label class="mb-1 block text-xs font-bold">District</label><input type="text" id="prof-district" class="saas-input" /></div>
             </div>
             <button type="submit" class="btn-saas btn-primary">Save Profile</button>
-          </form>
-        </div>
-
-        <div class="saas-card mb-6">
-          <h3 style="font-weight: 800; margin-bottom: 1rem;">Resume Upload</h3>
-          <form id="resume-upload-form" onsubmit="handleResumeUpload(event)">
-            <div class="grid-2 gap-4 mb-4">
-              <div>
-                <label class="mb-1 block text-xs font-bold">Upload resume file</label>
-                <input type="file" id="resume-file-input" class="saas-input" accept=".pdf,.doc,.docx" />
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-bold">Resume URL</label>
-                <input type="url" id="resume-url" class="saas-input" placeholder="https://drive.google.com/..." />
-              </div>
-            </div>
-            <div class="flex-between mb-3">
-              <div id="resume-status" class="text-sm" style="color: var(--text-muted);">No resume uploaded</div>
-              <button type="submit" class="btn-saas btn-primary">Save Resume</button>
-            </div>
           </form>
         </div>
       </section>
@@ -296,6 +289,49 @@
         <div class="saas-card"><div id="technical-skills-list" class="flex-col gap-3"></div></div>
       </section>
       <section id="view-assessments" class="workspace-view hidden"><h1 class="mb-4">Assessments</h1><div class="saas-card mb-4"><h2 id="assess-overall-score">82 / 100</h2></div><div id="assessments-list-container"></div></section>
+      <section id="view-ats-resume" class="workspace-view hidden">
+        <h1 class="mb-4">ATS Resume Analysis</h1>
+        <div class="saas-card mb-6" id="resume-ats-analysis">
+          <form id="resume-upload-form" onsubmit="handleResumeUpload(event)">
+            <label class="mb-1 block text-xs font-bold">Upload resume PDF</label>
+            <div class="flex-between gap-3 mb-4">
+              <input type="file" id="resume-file-input" class="saas-input" accept=".pdf,application/pdf" required />
+              <button type="submit" class="btn-saas btn-primary">Analyze PDF</button>
+            </div>
+          </form>
+          <div class="flex-between mb-3">
+            <div>
+              <h3 style="font-weight: 800; margin: 0;">Resume ATS Analysis</h3>
+              <p class="text-sm" style="color: var(--text-muted); margin: 0.25rem 0 0;">Analysis of the PDF resume received in My Profile.</p>
+            </div>
+            <span id="resume-ats-status" class="badge-saas badge-blue">Awaiting PDF</span>
+          </div>
+          <div id="resume-ats-empty" class="text-sm" style="color: var(--text-muted);">Upload a PDF here to generate the ATS analysis.</div>
+          <div id="resume-ats-results" class="hidden">
+            <div class="grid-2 gap-3 mb-4">
+              <div class="mini-stat-card"><span>ATS Score</span><strong id="resume-ats-score">0 / 100</strong></div>
+              <div class="mini-stat-card"><span>AI Resume Score</span><strong id="resume-ai-score">0 / 100</strong></div>
+            </div>
+            <div class="saas-card mb-4">
+              <div class="flex-between mb-3">
+                <h3 style="font-weight:800; margin:0;">ATS Score Breakdown</h3>
+                <span class="badge-saas badge-purple">AI analyzed</span>
+              </div>
+              <div id="resume-ats-breakdown" class="flex-col gap-3"></div>
+            </div>
+            <div class="saas-card mb-4">
+              <h3 style="font-weight:800; margin-bottom:0.75rem;">Complete Resume Review</h3>
+              <div id="resume-ats-review" class="grid-2 gap-3"></div>
+            </div>
+            <div id="resume-ats-findings" class="text-sm"></div>
+            <div class="saas-card mt-4">
+              <h3 style="font-weight:800; margin-bottom:0.5rem;">AI Analysis & Recommendations</h3>
+              <p id="resume-ats-ai-text" class="text-sm" style="color:var(--text-muted); margin:0;"></p>
+              <div id="resume-ats-recommendations" class="flex-col gap-2 mt-3"></div>
+            </div>
+          </div>
+        </div>
+      </section>
       <section id="view-portfolio" class="workspace-view hidden">
         <h1 class="mb-4">Portfolio</h1>
         <div class="grid-2 gap-4 mb-4">
@@ -374,7 +410,27 @@
       <section id="view-notifications" class="workspace-view hidden"><h1 class="mb-4">Notifications</h1><div id="notifications-list-container"></div></section>
       <section id="view-placement" class="workspace-view hidden">
         <h1 class="mb-4">Placement & Offers</h1>
+        <div class="grid-3 gap-4 mb-4">
+          <div class="mini-stat-card"><span>Placement Readiness</span><strong id="placement-readiness-score">--%</strong></div>
+          <div class="mini-stat-card"><span>Applications</span><strong id="placement-application-count">--</strong></div>
+          <div class="mini-stat-card"><span>Next Action</span><strong id="placement-next-action">Profile</strong></div>
+        </div>
         <div id="placement-details-container"></div>
+      </section>
+      <section id="view-campus-drives" class="workspace-view hidden">
+        <div class="flex-between mb-4">
+          <div><h1 class="mb-1">Campus Placement Drives</h1><p style="color:var(--text-muted);">Find eligible drives, track deadlines, and manage registrations.</p></div>
+          <select id="campus-drive-filter" class="saas-input" style="max-width:180px;" onchange="filterCampusDrives(this.value)">
+            <option value="all">All drives</option><option value="eligible">Eligible</option><option value="registered">Registered</option>
+          </select>
+        </div>
+        <div class="grid-3 gap-4 mb-4">
+          <div class="mini-stat-card"><span>Available Drives</span><strong id="campus-drive-count">0</strong></div>
+          <div class="mini-stat-card"><span>Eligible Drives</span><strong id="campus-eligible-count">0</strong></div>
+          <div class="mini-stat-card"><span>Registered</span><strong id="campus-registered-count">0</strong></div>
+        </div>
+        <div id="campus-drive-deadline-alert" class="saas-card mb-4 hidden"></div>
+        <div id="campus-drives-list-container"></div>
       </section>
       <section id="view-settings" class="workspace-view hidden">
         <h1 class="mb-4">Settings</h1>
@@ -851,6 +907,7 @@
     <i class="fa-solid fa-code text-blue"></i> Created by @Eswara Karuppasamy K
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="app.js"></script>
   <script src="company-module.js"></script>
 </body>

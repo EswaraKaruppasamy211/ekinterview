@@ -467,6 +467,19 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
       return sendJSON(200, { profile: state.studentProfiles[userId] || state.studentProfiles[1], completion: { percentage: 80, missingItems: [] }, resume: state.resumes[userId] || state.resumes[1] });
     }
+    if (pathname === '/api/student/resume' && req.method === 'POST') {
+      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const body = await parseJSON(req);
+      if (!body.fileUrl && !body.resumeUrl) return sendJSON(400, { error: 'Resume file or URL is required.' });
+      state.resumes[userId] = {
+        file_name: body.fileName || 'Resume.pdf',
+        file_url: body.fileUrl || body.resumeUrl,
+        upload_date: new Date().toISOString().split('T')[0],
+        status: 'Verified & Active',
+        ats_analysis: body.atsAnalysis || null
+      };
+      return sendJSON(201, { success: true, resume: state.resumes[userId] });
+    }
     if (pathname === '/api/student/profile' && req.method === 'PUT') {
       const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
       const body = await parseJSON(req);
@@ -508,6 +521,27 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/student/applications' && req.method === 'GET') {
       return sendJSON(200, state.applications);
+    }
+    if (pathname === '/api/student/campus-drives' && req.method === 'GET') {
+      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const drives = state.campusDrives || [
+        { id: 1, company: 'TechCorp Solutions', role: 'Software Engineer', location: 'Chennai / Hybrid', date: '2026-09-18', deadline: '2026-09-15', minimumCGPA: 7.5, salary: 'INR 8-12 LPA', eligible: true, registered: false, reason: 'Matches your academic and skill profile.' },
+        { id: 2, company: 'DataSoft Systems', role: 'Data Analyst', location: 'Bengaluru', date: '2026-09-24', deadline: '2026-09-20', minimumCGPA: 8.0, salary: 'INR 6-9 LPA', eligible: true, registered: false, reason: 'Eligible based on your CGPA and technical skills.' },
+        { id: 3, company: 'InnovateTech', role: 'Frontend Developer', location: 'Remote', date: '2026-10-02', deadline: '2026-09-27', minimumCGPA: 8.5, salary: 'INR 7-10 LPA', eligible: false, registered: false, reason: 'Minimum CGPA requirement is 8.5.' }
+      ];
+      return sendJSON(200, drives.map(drive => ({ ...drive, registered: Boolean((state.campusRegistrations || {})[userId]?.includes(drive.id)) })));
+    }
+    if (pathname.match(/^\/api\/student\/campus-drives\/\d+\/register$/) && req.method === 'POST') {
+      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const driveId = Number(pathname.split('/')[4]);
+      const registrations = state.campusRegistrations || (state.campusRegistrations = {});
+      registrations[userId] = registrations[userId] || [];
+      if (!registrations[userId].includes(driveId)) registrations[userId].push(driveId);
+      return sendJSON(200, { success: true, driveId, registered: true });
+    }
+    if (pathname === '/api/student/placement' && req.method === 'GET') {
+      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      return sendJSON(200, { placement: (state.placements || {})[userId] || null });
     }
     if (pathname === '/api/student/notifications' && req.method === 'GET') {
       return sendJSON(200, state.notifications[1] || []);
@@ -580,8 +614,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Static Asset Server Fallback (Supports root & frontend directory)
-    let filePath = path.join(repoRoot, 'frontend', pathname === '/' ? 'index.html' : pathname);
-    if (!fs.existsSync(filePath)) filePath = path.join(repoRoot, pathname === '/' ? 'index.html' : pathname);
+    let filePath = path.join(repoRoot, pathname === '/' ? 'index.html' : pathname);
+    if (!fs.existsSync(filePath)) filePath = path.join(repoRoot, 'frontend', pathname === '/' ? 'index.html' : pathname);
     if (!fs.existsSync(filePath)) filePath = path.join(repoRoot, 'index.html');
 
     const ext = path.extname(filePath).toLowerCase();

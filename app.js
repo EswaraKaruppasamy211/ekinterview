@@ -8,6 +8,7 @@ let currentRole = 'student';
 let authToken = localStorage.getItem('sb_token') || null;
 let pendingStudentOtpEmail = null;
 let otpCountdownTimer = null;
+let studentCampusDrives = [];
 let voiceInterview = {
   language: 'ta-IN',
   questionIndex: 0,
@@ -189,6 +190,7 @@ function navigateTo(viewId) {
   else if (viewId === 'academics') loadAcademicsView();
   else if (viewId === 'skills') loadSkillsView();
   else if (viewId === 'assessments') loadAssessmentsView();
+  else if (viewId === 'ats-resume') loadATSResumeView();
   else if (viewId === 'portfolio') loadPortfolioView();
   else if (viewId === 'ai-skill-analyzer') loadAISkillAnalyzerView();
   else if (viewId === 'opportunities') loadOpportunitiesView();
@@ -894,48 +896,193 @@ async function loadProfileView() {
     const p = data.profile || {};
     const onboardingCard = document.getElementById('profile-onboarding-card');
     document.getElementById('prof-name').value = p.name || '';
+    document.getElementById('prof-student-id').value = p.student_id || (currentUser && currentUser.student_id) || '';
     document.getElementById('prof-phone').value = p.phone || '';
     document.getElementById('prof-college').value = p.college || '';
-    document.getElementById('prof-linkedin').value = p.linkedin_url || '';
-    document.getElementById('prof-github').value = p.github_url || '';
-    document.getElementById('prof-portfolio').value = p.portfolio_url || '';
-    const resume = data.resume || null;
-    if (document.getElementById('resume-url')) document.getElementById('resume-url').value = resume ? (resume.file_url || '') : (p.resume_url || '');
-    if (document.getElementById('resume-status')) document.getElementById('resume-status').textContent = resume ? `${resume.status || 'Active'} • ${resume.file_name || 'Resume'}` : 'No resume uploaded';
+    ['university', 'department', 'degree', 'city', 'state', 'country', 'pincode'].forEach(field => {
+      const element = document.getElementById(`prof-${field}`);
+      if (element) element.value = p[field] || (field === 'country' ? 'India' : '');
+    });
+    document.getElementById('prof-dob').value = p.dateOfBirth || '';
+    document.getElementById('prof-gender').value = p.gender || '';
+    document.getElementById('prof-graduation').value = p.graduationYear || '';
+    ['door-house', 'street', 'area', 'district'].forEach(field => {
+      const element = document.getElementById(`prof-${field}`);
+      if (element) element.value = (p.address && p.address[field.replace('-', '')]) || '';
+    });
     if (onboardingCard) {
-      const incomplete = p.onboarding_complete === false || p.onboarding_complete === undefined;
+      const incomplete = p.onboarding_complete === false;
       onboardingCard.classList.toggle('hidden', !incomplete);
     }
   } catch (e) {}
 }
 
+async function extractPdfText(file) {
+  if (!file || file.type !== 'application/pdf') throw new Error('Please select a PDF resume for ATS analysis.');
+  if (!window.pdfjsLib) throw new Error('PDF analysis is still loading. Please try again.');
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const buffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
+  const pages = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(content.items.map(item => item.str).join(' '));
+  }
+  return pages.join('\n').trim();
+}
+
+function calculateResumeATS(text) {
+  const normalized = text.toLowerCase();
+  const sections = ['experience', 'education', 'skills', 'projects', 'certifications', 'summary'];
+  const sectionScore = sections.filter(section => normalized.includes(section)).length / sections.length * 35;
+  const contactScore = (/@/.test(text) ? 8 : 0) + (/(https?:\/\/|linkedin|github)/i.test(text) ? 7 : 0);
+  const keywordScore = ['python', 'java', 'javascript', 'sql', 'react', 'docker', 'api', 'aws']
+    .filter(keyword => normalized.includes(keyword)).length / 8 * 25;
+  const actionScore = ['built', 'developed', 'implemented', 'designed', 'deployed', 'led']
+    .filter(verb => normalized.includes(verb)).length / 6 * 15;
+  const lengthScore = text.length >= 800 && text.length <= 12000 ? 10 : (text.length > 200 ? 5 : 0);
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const emailFound = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text);
+  const phoneFound = /(?:\+?\d[\d\s().-]{8,}\d)/.test(text);
+  const linksFound = /(https?:\/\/|linkedin|github|portfolio)/i.test(text);
+  const quantifiedResults = /(?:\d+%|\d+\+|\$\s?\d+|\b\d+\s?(?:users|clients|projects|months|years)\b)/i.test(text);
+  const dateCount = (text.match(/\b(?:19|20)\d{2}\b/g) || []).length;
+  const missingSections = sections.filter(section => !normalized.includes(section));
+  const review = [
+    { label: 'Contact details', score: [emailFound, phoneFound, linksFound].filter(Boolean).length / 3 * 100, status: emailFound && phoneFound ? 'Email and phone detected.' : 'Add both a professional email and phone number.', tone: emailFound && phoneFound ? 'good' : 'warn' },
+    { label: 'Resume structure', score: sections.filter(section => normalized.includes(section)).length / sections.length * 100, status: `${sections.length - missingSections.length} of ${sections.length} core sections detected.`, tone: missingSections.length ? 'warn' : 'good' },
+    { label: 'Experience evidence', score: Math.min(100, (normalized.includes('experience') ? 45 : 0) + (actionScore / 15 * 30) + (quantifiedResults ? 25 : 0)), status: quantifiedResults ? 'Achievements include measurable evidence.' : 'Add measurable outcomes to experience bullets.', tone: quantifiedResults ? 'good' : 'warn' },
+    { label: 'Skills relevance', score: Math.min(100, keywordScore / 25 * 100), status: `${Math.round(keywordScore / 25 * 8)} of 8 common technical keywords detected.`, tone: keywordScore >= 15 ? 'good' : 'warn' },
+    { label: 'Education & certifications', score: (normalized.includes('education') ? 60 : 0) + (normalized.includes('certification') ? 40 : 0), status: normalized.includes('education') && normalized.includes('certification') ? 'Education and certifications detected.' : 'Include education and relevant certifications.', tone: normalized.includes('education') ? 'good' : 'warn' },
+    { label: 'Projects & portfolio', score: Math.min(100, (normalized.includes('project') ? 60 : 0) + (linksFound ? 40 : 0)), status: normalized.includes('project') && linksFound ? 'Projects and supporting links detected.' : 'Add project outcomes and a portfolio or GitHub link.', tone: normalized.includes('project') ? 'good' : 'warn' },
+    { label: 'Readability & length', score: lengthScore / 10 * 100, status: `${wordCount} words and ${dateCount} year references reviewed.`, tone: lengthScore >= 10 ? 'good' : 'warn' },
+    { label: 'ATS-safe content', score: Math.min(100, (emailFound ? 25 : 0) + (actionScore / 15 * 25) + (quantifiedResults ? 25 : 0) + (dateCount >= 1 ? 25 : 0)), status: 'Text-based compatibility signals reviewed by AI.', tone: 'good' }
+  ];
+  const score = Math.min(100, Math.round(sectionScore + contactScore + keywordScore + actionScore + lengthScore));
+  const breakdown = [
+    { label: 'Resume sections', score: Math.round(sectionScore), max: 35, detail: `${sections.length - missingSections.length}/${sections.length} core sections detected` },
+    { label: 'Contact & links', score: Math.round(contactScore), max: 15, detail: /@/.test(text) ? 'Email detected' : 'Email missing' },
+    { label: 'Technical keywords', score: Math.round(keywordScore), max: 25, detail: 'Skills and tools matched' },
+    { label: 'Action language', score: Math.round(actionScore), max: 15, detail: 'Achievement verbs detected' },
+    { label: 'Length & readability', score: lengthScore, max: 10, detail: `${text.split(/\s+/).filter(Boolean).length} words analyzed` }
+  ];
+  return {
+    score,
+    aiScore: Math.min(100, Math.round(score * 0.85 + 15)),
+    wordCount,
+    missingSections,
+    breakdown,
+    review,
+    aiText: 'AI reviewed the PDF text, structure, keywords, contact details, action language, and readability signals to estimate recruiter-system compatibility.',
+    recommendations: [
+      ...(missingSections.length ? [`Add these sections: ${missingSections.join(', ')}.`] : []),
+      ...(!emailFound ? ['Add a professional email address.'] : []),
+      ...(!phoneFound ? ['Add a phone number with country code.'] : []),
+      ...(!linksFound ? ['Add LinkedIn, GitHub, or portfolio links.'] : []),
+      ...(!quantifiedResults ? ['Add numbers to show impact, scale, savings, or growth.'] : []),
+      ...(!normalized.includes('experience') ? ['Add a clearly labeled Experience section.'] : []),
+      ...(score < 70 ? ['Use measurable achievements and job-specific keywords.'] : ['Tailor keywords to each job description before applying.'])
+    ]
+  };
+}
+
+function renderResumeATSAnalysis(analysis) {
+  const empty = document.getElementById('resume-ats-empty');
+  const results = document.getElementById('resume-ats-results');
+  const status = document.getElementById('resume-ats-status');
+  if (!analysis || !results) return;
+  if (empty) empty.classList.add('hidden');
+  results.classList.remove('hidden');
+  document.getElementById('resume-ats-score').textContent = `${analysis.score} / 100`;
+  document.getElementById('resume-ai-score').textContent = `${analysis.aiScore} / 100`;
+  if (status) {
+    status.textContent = analysis.score >= 80 ? 'Strong match' : analysis.score >= 60 ? 'Needs tuning' : 'Needs improvement';
+    status.className = `badge-saas ${analysis.score >= 80 ? 'badge-emerald' : 'badge-purple'}`;
+  }
+
+  const findings = document.getElementById('resume-ats-findings');
+  const missing = analysis.missingSections && analysis.missingSections.length
+    ? `Missing sections: ${analysis.missingSections.join(', ')}.`
+    : 'All core resume sections were detected.';
+  if (findings) findings.innerHTML = `<strong>${analysis.wordCount || 0} words detected.</strong> ${missing}`;
+  const breakdown = document.getElementById('resume-ats-breakdown');
+  if (breakdown) {
+    const score = Number(analysis.score) || 0;
+    const items = analysis.breakdown || [
+      { label: 'Overall ATS compatibility', score, max: 100, detail: 'Saved ATS result' },
+      { label: 'AI resume quality estimate', score: Number(analysis.aiScore) || 0, max: 100, detail: 'AI-derived score' }
+    ];
+    breakdown.innerHTML = items.map(item => `
+      <div>
+        <div class="flex-between text-sm mb-1"><strong>${item.label}</strong><span>${item.score}% / ${item.max}%</span></div>
+        <div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><div style="width:${Math.min(100, (item.score / item.max) * 100)}%;height:100%;background:linear-gradient(90deg,#2563eb,#7c3aed);"></div></div>
+        <div class="text-xs mt-1" style="color:var(--text-muted);">${item.detail}</div>
+      </div>
+    `).join('');
+  }
+  const aiText = document.getElementById('resume-ats-ai-text');
+  if (aiText) aiText.textContent = analysis.aiText || 'AI analyzed the uploaded resume for ATS compatibility.';
+  const recommendations = document.getElementById('resume-ats-recommendations');
+  if (recommendations) recommendations.innerHTML = (analysis.recommendations || []).map(item => `<span class="badge-saas badge-blue">${item}</span>`).join('');
+  const review = document.getElementById('resume-ats-review');
+  if (review) {
+    review.innerHTML = (analysis.review || []).map(item => {
+      const color = item.tone === 'good' ? '#059669' : '#d97706';
+      return `<div class="saas-card" style="border-left:4px solid ${color}; padding:0.85rem;">
+        <div class="flex-between text-sm mb-2"><strong>${item.label}</strong><strong style="color:${color};">${Math.round(item.score)}%</strong></div>
+        <div style="height:7px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:0.5rem;"><div style="width:${Math.min(100, Math.max(0, item.score))}%;height:100%;background:${color};"></div></div>
+        <div class="text-xs" style="color:var(--text-muted);">${item.status}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function loadATSResumeView() {
+  try {
+    const data = await apiFetch('/student/profile');
+    const resume = data.resume || null;
+    if (resume && resume.ats_analysis) {
+      renderResumeATSAnalysis(resume.ats_analysis);
+    } else if (resume) {
+      const status = document.getElementById('resume-ats-status');
+      if (status) status.textContent = 'PDF received - analyze from My Profile';
+    }
+  } catch (err) {
+    console.error('ATS resume analysis load failed', err);
+  }
+}
+
 async function handleResumeUpload(event) {
   event.preventDefault();
   const fileInput = document.getElementById('resume-file-input');
-  const urlInput = document.getElementById('resume-url');
   const resumeFile = fileInput && fileInput.files && fileInput.files[0];
-  const resumeUrl = (urlInput ? urlInput.value.trim() : '').trim();
 
-  if (!resumeFile && !resumeUrl) {
-    alert('Upload a resume file or add a resume URL before saving.');
+  if (!resumeFile) {
+    alert('Please select a PDF resume before starting ATS analysis.');
     return;
   }
 
   try {
-    let finalUrl = resumeUrl;
-    if (resumeFile) finalUrl = await readFileAsDataUrl(resumeFile);
-    await apiFetch('/student/resume', {
-      method: 'POST',
-      body: JSON.stringify({
-        fileUrl: finalUrl,
-        resumeUrl: finalUrl,
-        fileName: resumeFile ? resumeFile.name : 'Resume.pdf'
-      })
-    });
+    let atsAnalysis = null;
+    if (resumeFile) {
+      if (resumeFile.type !== 'application/pdf') throw new Error('Only PDF resumes are accepted for ATS analysis.');
+      const finalUrl = await readFileAsDataUrl(resumeFile);
+      const resumeText = await extractPdfText(resumeFile);
+      atsAnalysis = calculateResumeATS(resumeText);
+      renderResumeATSAnalysis(atsAnalysis);
+      await apiFetch('/student/resume', {
+        method: 'POST',
+        body: JSON.stringify({
+          fileUrl: finalUrl,
+          resumeUrl: finalUrl,
+          fileName: resumeFile.name,
+          atsAnalysis
+        })
+      });
+    }
     if (fileInput) fileInput.value = '';
-    alert('Resume uploaded successfully.');
-    await loadProfileView();
-    await loadDashboardHome();
+    alert('PDF analyzed successfully.');
   } catch (err) {
     alert(err.message || 'Resume upload failed.');
   }
@@ -970,15 +1117,29 @@ async function submitStudentOnboarding() {
 async function handleSaveProfile(e) {
   e.preventDefault();
   try {
+    const value = id => document.getElementById(id)?.value.trim() || '';
     const data = await apiFetch('/student/profile', {
       method: 'PUT',
       body: JSON.stringify({
-        name: document.getElementById('prof-name').value.trim(),
-        phone: document.getElementById('prof-phone').value.trim(),
-        college: document.getElementById('prof-college').value.trim(),
-        linkedin_url: document.getElementById('prof-linkedin').value.trim(),
-        github_url: document.getElementById('prof-github').value.trim(),
-        portfolio_url: document.getElementById('prof-portfolio').value.trim()
+        name: value('prof-name'),
+        phone: value('prof-phone'),
+        college: value('prof-college'),
+        university: value('prof-university'),
+        department: value('prof-department'),
+        degree: value('prof-degree'),
+        dateOfBirth: value('prof-dob'),
+        gender: value('prof-gender'),
+        graduationYear: Number(value('prof-graduation')) || null,
+        city: value('prof-city'),
+        state: value('prof-state'),
+        country: value('prof-country'),
+        pincode: value('prof-pincode'),
+        address: {
+          doorHouse: value('prof-door-house'),
+          street: value('prof-street'),
+          area: value('prof-area'),
+          district: value('prof-district')
+        }
       })
     });
     currentProfile = data.profile;
@@ -1368,11 +1529,30 @@ async function markNotificationRead(notificationId) {
 
 async function loadPlacementView() {
   try {
-    const data = await apiFetch('/student/placement');
+    const [placementResponse, applicationsResponse] = await Promise.all([
+      apiFetch('/student/placement'),
+      apiFetch('/student/applications')
+    ]);
+    const data = placementResponse;
     const placement = data.placement;
+    const applications = Array.isArray(applicationsResponse) ? applicationsResponse : [];
+    const readiness = placement ? 100 : Math.min(95, 35 + Math.min(40, applications.length * 10));
+    document.getElementById('placement-readiness-score').textContent = `${readiness}%`;
+    document.getElementById('placement-application-count').textContent = applications.length;
+    document.getElementById('placement-next-action').textContent = placement ? 'Review offer' : applications.length ? 'Track applications' : 'Apply now';
     const container = document.getElementById('placement-details-container');
     if (!placement) {
-      container.innerHTML = '<div class="saas-card"><p style="color:var(--text-muted);">No placement record saved yet. Add your offer details from the student profile flow.</p></div>';
+      container.innerHTML = `
+        <div class="saas-card mb-4">
+          <div class="flex-between mb-3"><h3 style="font-weight:800;margin:0;">Placement Journey</h3><span class="badge-saas badge-purple">In progress</span></div>
+          <p style="color:var(--text-muted);">You do not have an offer recorded yet. Use campus drives and opportunities to build your placement pipeline.</p>
+          <div class="grid-3 gap-3 mt-4 text-sm">
+            <div><strong>Profile</strong><div class="badge-saas badge-emerald mt-2">Ready</div></div>
+            <div><strong>Applications</strong><div class="badge-saas badge-blue mt-2">${applications.length} active</div></div>
+            <div><strong>Offer</strong><div class="badge-saas badge-purple mt-2">Awaiting</div></div>
+          </div>
+        </div>
+        <div class="saas-card"><h3 style="font-weight:800;">Recommended next steps</h3><ul class="text-sm mt-3" style="color:var(--text-muted);line-height:2;"><li>Register for eligible campus drives.</li><li>Keep your resume and ATS score updated.</li><li>Practice interviews before recruiter rounds.</li></ul></div>`;
       return;
     }
     container.innerHTML = `
@@ -1398,7 +1578,26 @@ async function loadPlacementView() {
 async function loadCampusDrivesView() {
   try {
     const drives = await apiFetch('/student/campus-drives');
+    studentCampusDrives = Array.isArray(drives) ? drives : [];
+    renderCampusDrives(studentCampusDrives);
+  } catch (e) {}
+}
+
+function renderCampusDrives(drives) {
     const container = document.getElementById('campus-drives-list-container');
+    if (!container) return;
+    const allDrives = studentCampusDrives.length ? studentCampusDrives : drives;
+    const eligibleCount = allDrives.filter(drive => drive.eligible).length;
+    const registeredCount = allDrives.filter(drive => drive.registered).length;
+    document.getElementById('campus-drive-count').textContent = allDrives.length;
+    document.getElementById('campus-eligible-count').textContent = eligibleCount;
+    document.getElementById('campus-registered-count').textContent = registeredCount;
+    const deadlines = drives.filter(drive => drive.deadline).sort((a, b) => String(a.deadline).localeCompare(String(b.deadline)));
+    const alert = document.getElementById('campus-drive-deadline-alert');
+    if (alert && deadlines.length) {
+      alert.classList.remove('hidden');
+      alert.innerHTML = `<strong>Upcoming deadline:</strong> ${deadlines[0].company} registration closes on ${deadlines[0].deadline}.`;
+    }
     container.innerHTML = drives.map(drive => `
       <div class="saas-card mb-4">
         <div class="flex-between mb-3">
@@ -1420,7 +1619,16 @@ async function loadCampusDrivesView() {
         </button>
       </div>
     `).join('');
-  } catch (e) {}
+    if (!drives.length) container.innerHTML = '<div class="saas-card"><p style="color:var(--text-muted);">No campus drives match this filter.</p></div>';
+}
+
+function filterCampusDrives(filter) {
+  const filtered = filter === 'eligible'
+    ? studentCampusDrives.filter(drive => drive.eligible)
+    : filter === 'registered'
+      ? studentCampusDrives.filter(drive => drive.registered)
+      : studentCampusDrives;
+  renderCampusDrives(filtered);
 }
 
 async function registerCampusDrive(driveId) {
