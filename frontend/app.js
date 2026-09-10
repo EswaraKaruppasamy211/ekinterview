@@ -265,6 +265,7 @@ function navigateTo(viewId) {
     viewId = 'profile';
   }
   closeMobileDrawer();
+  document.querySelectorAll('.mobile-nav-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.mobileTarget === viewId || (viewId === 'dashboard' && tab.dataset.mobileTarget === 'home')));
 
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   const activeItem = document.querySelector(`.sidebar-item[data-target="${viewId}"]`);
@@ -316,6 +317,21 @@ function navigateTo(viewId) {
   else if (viewId === 'college-reports') loadCollegeReports();
   else if (viewId === 'university-dashboard') loadUniversityDashboard();
   else if (viewId === 'admin-dashboard') loadAdminDashboard();
+}
+
+function navigateMobile(target) {
+  const roleTargets = {
+    student: { home: 'dashboard', profile: 'profile', opportunities: 'opportunities', notifications: 'notifications' },
+    company: { home: 'company-dashboard', profile: 'company-profile', opportunities: 'company-talent-discovery', notifications: 'company-notifications' },
+    college: { home: 'college-dashboard', profile: 'college-students', opportunities: 'college-partnerships', notifications: 'college-reports' },
+    college_admin: { home: 'college-dashboard', profile: 'college-students', opportunities: 'college-partnerships', notifications: 'college-reports' },
+    university_admin: { home: 'college-dashboard', profile: 'college-students', opportunities: 'college-partnerships', notifications: 'college-reports' }
+  };
+  const targetView = (roleTargets[currentRole] || roleTargets.student)[target] || 'dashboard';
+  navigateTo(targetView);
+  document.querySelectorAll('.mobile-nav-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.mobileTarget === target);
+  });
 }
 
 // STUDENT AUTH HANDLERS
@@ -2851,5 +2867,16 @@ function openModal(id) { const el = document.getElementById(id); if (el) el.clas
 function closeModal(id) { const el = document.getElementById(id); if (el) el.classList.add('hidden'); }
 function openLogoutModal() { handleLogout(); }
 function handleLogout() { authToken = null; currentUser = null; currentProfile = null; localStorage.removeItem('sb_token'); showGuestLanding(); }
-function closeMobileDrawer() { const sidebar = document.getElementById('app-sidebar'); if (sidebar) sidebar.classList.remove('mobile-open'); }
-function toggleMobileDrawer() { const sidebar = document.getElementById('app-sidebar'); if (sidebar) sidebar.classList.toggle('mobile-open'); }
+function closeMobileDrawer() {
+  const sidebar = document.getElementById('app-sidebar');
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  if (sidebar) sidebar.classList.remove('mobile-open');
+  if (backdrop) backdrop.classList.remove('active');
+}
+function toggleMobileDrawer() {
+  const sidebar = document.getElementById('app-sidebar');
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  if (!sidebar) return;
+  const isOpen = sidebar.classList.toggle('mobile-open');
+  if (backdrop) backdrop.classList.toggle('active', isOpen);
+}

@@ -579,6 +579,21 @@
       <section id="view-placement" class="workspace-view hidden"><h1 style="font-size: 1.6rem; font-weight: 800;" class="mb-4">My Placement</h1><div class="saas-card"><form onsubmit="handleSavePlacement(event)"><div class="grid-2 gap-4 mb-4"><input id="placement-company" class="saas-input" placeholder="Company Name" required /><input id="placement-role" class="saas-input" placeholder="Job Role" required /><input id="placement-department" class="saas-input" placeholder="Department" /><input id="placement-package" class="saas-input" placeholder="Package / CTC" /><input id="placement-date" type="date" class="saas-input" /><input id="placement-joining" type="date" class="saas-input" /><input id="placement-location" class="saas-input" placeholder="Location" /><select id="placement-type" class="saas-input"><option>Campus Placement</option><option>Off Campus</option></select></div><button class="btn-saas btn-primary" type="submit">Save Placement</button></form><div id="placement-current" class="mt-4"></div></div></section>
 
     </main>
+
+    <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
+      <button class="mobile-nav-tab active" data-mobile-target="home" onclick="navigateMobile('home')">
+        <i class="fa-solid fa-house" aria-hidden="true"></i><span>Home</span>
+      </button>
+      <button class="mobile-nav-tab" data-mobile-target="profile" onclick="navigateMobile('profile')">
+        <i class="fa-solid fa-user" aria-hidden="true"></i><span>Profile</span>
+      </button>
+      <button class="mobile-nav-tab" data-mobile-target="opportunities" onclick="navigateMobile('opportunities')">
+        <i class="fa-solid fa-briefcase" aria-hidden="true"></i><span>Explore</span>
+      </button>
+      <button class="mobile-nav-tab" data-mobile-target="notifications" onclick="navigateMobile('notifications')">
+        <i class="fa-solid fa-bell" aria-hidden="true"></i><span>Alerts</span>
+      </button>
+    </nav>
   </div>
 
   <!-- ENFORCED STUDENT AUTHENTICATION MODAL -->
