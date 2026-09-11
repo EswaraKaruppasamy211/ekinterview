@@ -964,3 +964,231 @@ body::before {
 }
 
 @media (min-width: 769px) { .mobile-bottom-nav, .mobile-drawer-backdrop { display: none !important; } }
+
+/* Responsive safety rails for narrow viewports. Keep wide desktop layouts unchanged. */
+html, body { max-width: 100%; }
+img, video, canvas, svg { max-width: 100%; }
+button, input, select, textarea { max-width: 100%; }
+.workspace-layout, .main-workspace, .workspace-view, .saas-card { min-width: 0; }
+.main-workspace { overflow-wrap: anywhere; }
+.saas-table-wrapper { max-width: 100%; }
+
+@media (max-width: 1024px) {
+  .main-workspace { padding-left: 1.25rem; padding-right: 1.25rem; }
+  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .interview-layout { grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.8fr); }
+}
+
+@media (max-width: 768px) {
+  .header-container { min-width: 0; }
+  .header-container > .flex-align:first-child,
+  .header-container > .flex-align:last-child { min-width: 0; }
+  .brand-name { overflow: hidden; text-overflow: ellipsis; }
+  #guest-nav-controls { min-width: 0; }
+  #guest-nav-controls .btn-saas { padding-left: 0.6rem; padding-right: 0.6rem; }
+  .main-workspace { overflow-x: hidden; }
+  .flex-between { flex-wrap: wrap; }
+  .flex-between > * { min-width: 0; }
+  .saas-card > .flex-between > .btn-saas,
+  .view-header > .btn-saas { max-width: 100%; }
+  .modal-content { overflow-x: hidden; }
+  .saas-input { min-width: 0; }
+  .pipeline-container-flex { max-width: 100%; }
+  .pipeline-stage-col { flex-basis: min(280px, calc(100vw - 3rem)); min-width: min(280px, calc(100vw - 3rem)); }
+}
+
+@media (max-width: 480px) {
+  .app-header { padding-left: 0.5rem; padding-right: 0.5rem; }
+  .header-container { gap: 0.25rem; }
+  .header-container > .flex-align:last-child { gap: 0.25rem; }
+  .brand-logo { gap: 0.4rem; }
+  .brand-name { font-size: 0.9rem; }
+  #guest-nav-controls { gap: 0.25rem; }
+  #guest-nav-controls .btn-saas { font-size: 0.72rem; padding-left: 0.45rem; padding-right: 0.45rem; }
+  .main-workspace { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+  .saas-card { padding: 0.85rem; }
+  .btn-saas { white-space: normal; line-height: 1.2; }
+  .interview-question { font-size: 1rem; }
+  .floating-ai-button { max-width: calc(100vw - 1.5rem); }
+  .ai-assistant-panel { right: 0.5rem; width: calc(100vw - 1rem); }
+}
+
+/* Mobile application layout refinements. These rules only change presentation. */
+@media (max-width: 768px) {
+  html,
+  body {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .workspace-layout {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .main-workspace {
+    min-width: 0;
+    width: 100%;
+    padding-top: 1rem !important;
+  }
+
+  #guest-landing {
+    width: calc(100% - 1.5rem);
+    margin: 1rem auto 1.5rem !important;
+    padding: 1rem !important;
+  }
+
+  #guest-landing .landing-image-container {
+    min-height: 190px !important;
+    max-height: 240px;
+  }
+
+  #guest-landing .landing-image-container > div:last-child {
+    left: 1rem !important;
+    right: 1rem !important;
+    bottom: 1rem !important;
+  }
+
+  #guest-landing h1 {
+    font-size: clamp(1.55rem, 7vw, 2rem) !important;
+    overflow-wrap: normal;
+  }
+
+  #guest-landing .btn-saas {
+    min-height: 48px;
+  }
+
+  .saas-card,
+  .stat-card,
+  .mini-stat-card {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .saas-card {
+    padding: 1rem;
+  }
+
+  .flex-between {
+    row-gap: 0.75rem;
+  }
+
+  .flex-between > .btn-saas,
+  .workspace-view form > .btn-saas {
+    width: 100%;
+  }
+
+  .interview-layout {
+    gap: 0.85rem;
+  }
+
+  .interview-agent-card,
+  .interview-summary-card {
+    padding: 1rem;
+  }
+
+  .interview-panel-top {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .interview-progress {
+    max-width: 100%;
+  }
+
+  .interview-question {
+    min-height: 0;
+    margin: 0.75rem 0;
+    padding: 1rem;
+    font-size: clamp(1rem, 4.5vw, 1.15rem);
+    line-height: 1.5;
+  }
+
+  .interview-controls {
+    gap: 0.6rem;
+  }
+
+  .interview-controls .btn-saas,
+  .interview-agent-card .btn-saas {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .flex-align:has(> input[type="file"]) {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .flex-align:has(> input[type="file"]) .btn-saas {
+    width: 100%;
+  }
+
+  .saas-table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  .modal-backdrop {
+    align-items: flex-start;
+    padding: 0.75rem;
+  }
+
+  .modal-content {
+    max-height: calc(100vh - 1.5rem);
+    border-radius: var(--radius-lg);
+  }
+
+  .modal-content[style] {
+    padding: 1rem !important;
+  }
+
+  .floating-ai-button {
+    right: 0.75rem;
+    bottom: 74px;
+    min-height: 44px;
+  }
+
+  .ai-assistant-panel {
+    bottom: 130px;
+  }
+}
+
+@media (max-width: 360px) {
+  .app-header {
+    min-height: 58px;
+    height: auto;
+  }
+
+  .header-container {
+    flex-wrap: wrap;
+    padding: 0.35rem 0;
+  }
+
+  .header-container > .flex-align:first-child {
+    flex: 1 1 auto;
+  }
+
+  #guest-nav-controls {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    padding-bottom: 0.25rem;
+  }
+
+  #guest-nav-controls .btn-saas {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  #guest-landing {
+    width: calc(100% - 1rem);
+  }
+
+  .saas-card {
+    padding: 0.85rem;
+  }
+}
