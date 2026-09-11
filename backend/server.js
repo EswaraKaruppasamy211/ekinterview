@@ -213,15 +213,7 @@ function restoreState() {
 
 // Seed Unique Initial Data
 function seedData() {
-  const studentPwd = hashPassword('Student@123');
-  const compPwd = hashPassword('Company@123');
-  const collegePwd = hashPassword('College@123');
-
-  state.users = [
-    { id: 1, email: 'arjun@skillbridge.ai', username: 'arjun_sharma', student_id: 'STU-2026-101', password_hash: studentPwd.hash, salt: studentPwd.salt, role: 'student' },
-    { id: 2, email: 'recruiter@techcorp.com', username: 'techcorp_mgr', companyName: 'TechCorp Solutions', companyId: 'CMP-10001', password_hash: compPwd.hash, salt: compPwd.salt, role: 'company' },
-    { id: 3, email: 'admin@annauniv.edu', username: 'anna_univ_admin', collegeName: 'Anna University', password_hash: collegePwd.hash, salt: collegePwd.salt, role: 'college' }
-  ];
+  state.users = [];
 
   state.studentProfiles[1] = {
     user_id: 1,
