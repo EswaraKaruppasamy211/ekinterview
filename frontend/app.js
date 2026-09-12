@@ -1,7 +1,7 @@
 // SkillBridge — Enforced Security Client Engine for Student, Company & College Modules
 
 // Use relative API path that works in both local and production environments
-const API_BASE ='https://interview-wc6b.onrender.com/api';
+const API_BASE = '/api';
 
 let currentUser = null;
 let currentProfile = null;
@@ -2324,8 +2324,14 @@ function renderMetricCard(label, value, accent) {
   `;
 }
 
-function renderCompanyDashboard() {
-  const overview = companyAIService.getOverview();
+async function renderCompanyDashboard() {
+  let overview;
+  try {
+    overview = await apiFetch('/company/dashboard');
+  } catch (err) {
+    console.error('Company dashboard data load failed:', err);
+    return;
+  }
   const metricsGrid = document.getElementById('company-metrics-grid');
   if (metricsGrid) {
     metricsGrid.innerHTML = overview.metrics.map(metric => renderMetricCard(metric.label, metric.value, metric.accent)).join('');

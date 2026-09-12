@@ -185,6 +185,10 @@ let state = {
   }
 };
 
+function normalizeIdentity(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
 function persistState() {
   try { fs.writeFileSync(stateFile, JSON.stringify({ state, counters }, null, 2)); } catch (error) { console.error('State persistence failed:', error.message); }
 }
@@ -195,6 +199,8 @@ function restoreState() {
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
     if (saved.state) state = { ...state, ...saved.state };
     if (saved.counters) counters = { ...counters, ...saved.counters };
+    state.users = Array.isArray(state.users) ? state.users : [];
+    state.studentProfiles = state.studentProfiles || {};
     if (!Array.isArray(state.campusDrives)) state.campusDrives = [];
     Object.keys(state.certifications || {}).forEach(studentId => {
       const legacy = state.certifications[studentId] || [];
@@ -212,8 +218,47 @@ function restoreState() {
 }
 
 // Seed Unique Initial Data
+function ensureDemoUsers() {
+  const student = state.users.find(u => u.role === 'student' && (normalizeIdentity(u.email) === 'arjun@skillbridge.ai' || normalizeIdentity(u.username || '') === 'arjun_sharma'));
+  if (!student) {
+    const studentPwd = hashPassword('Student@123');
+    state.users.push({ id: 1, email: 'arjun@skillbridge.ai', username: 'arjun_sharma', student_id: 'STU-2026-101', password_hash: studentPwd.hash, salt: studentPwd.salt, role: 'student' });
+  }
+
+  if (!state.studentProfiles[1]) {
+    state.studentProfiles[1] = {
+      user_id: 1,
+      name: 'Arjun Sharma',
+      email: 'arjun@skillbridge.ai',
+      phone: '+91 9876543210',
+      student_id: 'STU-2026-101',
+      college: 'Anna University',
+      department: 'Computer Science & Engineering',
+      year: '4th Year',
+      semester: '7th Semester',
+      cgpa: 8.8,
+      linkedin_url: 'https://linkedin.com/in/arjun-sharma-2026',
+      github_url: 'https://github.com/arjun-sharma',
+      portfolio_url: 'https://arjunsharma.dev'
+    };
+  }
+
+  const company = state.users.find(u => u.role === 'company' && normalizeIdentity(u.companyId || '') === 'cmp-10001');
+  if (!company) {
+    const compPwd = hashPassword('Company@123');
+    state.users.push({ id: 2, email: 'recruiter@techcorp.com', username: 'techcorp_mgr', companyName: 'TechCorp Solutions', companyId: 'CMP-10001', password_hash: compPwd.hash, salt: compPwd.salt, role: 'company' });
+  }
+
+  const college = state.users.find(u => u.role === 'college' && normalizeIdentity(u.email) === 'admin@annauniv.edu');
+  if (!college) {
+    const collegePwd = hashPassword('College@123');
+    state.users.push({ id: 3, email: 'admin@annauniv.edu', username: 'anna_univ_admin', collegeName: 'Anna University', password_hash: collegePwd.hash, salt: collegePwd.salt, role: 'college' });
+  }
+}
+
 function seedData() {
-  state.users = [];
+  state.users = state.users || [];
+  ensureDemoUsers();
 
   state.studentProfiles[1] = {
     user_id: 1,
@@ -354,6 +399,7 @@ function seedData() {
 
 seedData();
 restoreState();
+ensureDemoUsers();
 
 // Unique AI Employability Skill Score Engine
 function calculateSkillScore(studentId) {
@@ -538,40 +584,50 @@ const server = http.createServer(async (req, res) => {
 
       if (userRole === 'company') {
         if (!companyName || !email || !password) return sendJSON(400, { error: 'Company Name, Email, and Password required.' });
+        const normalizedEmail = normalizeIdentity(email);
+        const normalizedCompany = normalizeIdentity(companyName);
+        if (state.users.some(user => user.role === 'company' && (
+          normalizeIdentity(user.email) === normalizedEmail ||
+          normalizeIdentity(user.companyName || '') === normalizedCompany
+        ))) {
+          return sendJSON(409, { error: 'A company account with this email or company name already exists. Use the login form.' });
+        }
         const assignedCompId = nextCompanyId();
         const newComp = { id: newId, companyId: assignedCompId, name: companyName, logo: '🏢', industry: 'Corporate Partner', manager_name: managerName || 'Recruitment Manager', min_cgpa: 7.0, min_ai_score: 70, required_skills: ['Java', 'SQL'] };
         state.companies.push(newComp);
 
         const credentials = hashPassword(password);
-        const newUser = { id: newId, email, username: email.split('@')[0], companyName, companyId: assignedCompId, password_hash: credentials.hash, salt: credentials.salt, role: 'company' };
+        const newUser = { id: newId, email: normalizedEmail, username: normalizedEmail.split('@')[0], companyName, companyId: assignedCompId, password_hash: credentials.hash, salt: credentials.salt, role: 'company' };
         state.users.push(newUser);
-        const token = generateToken({ id: newUser.id, email, companyId: assignedCompId, role: 'company' });
+        const token = generateToken({ id: newUser.id, email: normalizedEmail, companyId: assignedCompId, role: 'company' });
         return sendJSON(201, { token, user: newUser, company: newComp });
 
       } else if (userRole === 'college') {
         if (!collegeName || !email || !password) return sendJSON(400, { error: 'University Name, Email, and Password required.' });
         const credentials = hashPassword(password);
-        const newUser = { id: newId, email, username: email.split('@')[0], collegeName, adminName: adminName || 'University Admin', password_hash: credentials.hash, salt: credentials.salt, role: 'college' };
+        const safeEmail = normalizeIdentity(email);
+        const newUser = { id: newId, email: safeEmail, username: safeEmail.split('@')[0], collegeName, adminName: adminName || 'University Admin', password_hash: credentials.hash, salt: credentials.salt, role: 'college' };
         state.users.push(newUser);
-        const token = generateToken({ id: newUser.id, email, role: 'college' });
+        const token = generateToken({ id: newUser.id, email: safeEmail, role: 'college' });
         return sendJSON(201, { token, user: newUser });
 
       } else {
         if (!fullName || !username || !email || !mobile) return sendJSON(400, { error: 'Full name, username, email, and mobile number are required.' });
-        const normalizedUsername = username.toLowerCase();
-        if (state.users.some(u => u.email.toLowerCase() === email.toLowerCase() || u.username.toLowerCase() === normalizedUsername)) return sendJSON(409, { error: 'Username or email is already registered.' });
-        const emailKey = String(email).trim().toLowerCase();
+        const normalizedEmail = normalizeIdentity(email);
+        const normalizedUsername = normalizeIdentity(username);
+        if (state.users.some(u => normalizeIdentity(u.email) === normalizedEmail || normalizeIdentity(u.username) === normalizedUsername)) return sendJSON(409, { error: 'Username or email is already registered.' });
+        const emailKey = normalizedEmail;
         const otpEntry = otpStore[emailKey];
         if (!otpEntry || !otpEntry.verified || Date.now() > otpEntry.expiresAt) {
           return sendJSON(400, { error: 'Email verification is required before creating a student account.' });
         }
         const assignedStuId = nextStudentId();
         const { salt, hash } = hashPassword(password);
-        const newUser = { id: newId, email, username: normalizedUsername, student_id: assignedStuId, password_hash: hash, salt, role: 'student' };
+        const newUser = { id: newId, email: normalizedEmail, username: normalizedUsername, student_id: assignedStuId, password_hash: hash, salt, role: 'student' };
         state.users.push(newUser);
-        state.studentProfiles[newId] = { user_id: newId, name: fullName, email, phone: mobile, student_id: assignedStuId, onboarding_complete: false };
+        state.studentProfiles[newId] = { user_id: newId, name: fullName, email: normalizedEmail, phone: mobile, student_id: assignedStuId, onboarding_complete: false };
         delete otpStore[emailKey];
-        const token = generateToken({ id: newUser.id, email, role: 'student' });
+        const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'student' });
         return sendJSON(201, { token, user: newUser, profile: state.studentProfiles[newId], studentId: assignedStuId });
       }
     }
@@ -579,19 +635,47 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/auth/login' && req.method === 'POST') {
       const { identity, companyName, password, role } = await parseJSON(req);
       const userRole = role || 'student';
+      const normalizedIdentity = normalizeIdentity(identity);
+      const normalizedCompanyName = normalizeIdentity(companyName);
       let user = null;
 
       if (userRole === 'company') {
-        if (!companyName) return sendJSON(400, { error: 'Company Name is REQUIRED for Recruiter Login.' });
-        user = state.users.find(u => u.role === 'company' && (u.companyName.toLowerCase() === companyName.toLowerCase() || u.companyId === companyName) && (u.email.toLowerCase() === (identity || '').toLowerCase() || u.username === identity));
-        if (!user && (companyName === 'TechCorp Solutions' || companyName === 'CMP-10001')) user = state.users.find(u => u.role === 'company' && u.companyId === 'CMP-10001');
+        const companyUsers = state.users.filter(u => u.role === 'company');
+        const identityMatches = companyUsers.filter(u => [
+          normalizeIdentity(u.email),
+          normalizeIdentity(u.username || ''),
+          normalizeIdentity(u.companyId || ''),
+          normalizeIdentity(u.companyName || '')
+        ].includes(normalizedIdentity));
+        const companyMatches = companyUsers.filter(u => [
+          normalizeIdentity(u.companyName || ''),
+          normalizeIdentity(u.companyId || '')
+        ].includes(normalizedCompanyName));
+
+        // A registered email/username/company ID is the primary identity.
+        // The company-name field is optional context and must not reject a valid account.
+        user = identityMatches.length === 1
+          ? identityMatches[0]
+          : companyMatches.length === 1 && !normalizedIdentity
+            ? companyMatches[0]
+            : companyMatches.find(candidate => identityMatches.includes(candidate)) || null;
+        if (!user) {
+          return sendJSON(401, { error: 'Company account not found in this local database. Register this company on localhost:3000 first, then log in with the same email and password.' });
+        }
 
       } else if (userRole === 'college') {
-        user = state.users.find(u => u.role === 'college' && (u.email.toLowerCase() === (identity || '').toLowerCase() || u.username === identity));
-        if (!user && (identity === 'anna_univ_admin' || identity === 'admin@annauniv.edu')) user = state.users.find(u => u.role === 'college');
+        user = state.users.find(u => u.role === 'college' && (
+          normalizeIdentity(u.email) === normalizedIdentity ||
+          normalizeIdentity(u.username || '') === normalizedIdentity
+        ));
+        if (!user && (normalizedIdentity === 'anna_univ_admin' || normalizedIdentity === 'admin@annauniv.edu')) user = state.users.find(u => u.role === 'college');
 
       } else {
-        user = state.users.find(u => u.role === 'student' && (u.email.toLowerCase() === (identity || '').toLowerCase() || u.student_id === identity || u.username === identity));
+        user = state.users.find(u => u.role === 'student' && (
+          normalizeIdentity(u.email) === normalizedIdentity ||
+          normalizeIdentity(u.student_id || '') === normalizedIdentity ||
+          normalizeIdentity(u.username || '') === normalizedIdentity
+        ));
       }
 
       if (!user || !verifyPassword(password, user.salt, user.password_hash)) {
@@ -1816,8 +1900,81 @@ const server = http.createServer(async (req, res) => {
       const company = state.companies.find(c => c.companyId === compId) || state.companies[0];
       const compJobs = state.jobs.filter(j => j.companyId === compId);
       const compApps = state.applications.filter(a => a.companyId === compId);
-
-      return sendJSON(200, { company, jobs: compJobs, total_jobs: compJobs.length, total_applicants: compApps.length, shortlisted: compApps.filter(a => a.status === 'Shortlisted' || a.status === 'Technical Interview').length, pipeline: compApps });
+      const interviews = (state.companyInterviews && state.companyInterviews[compId]) || [];
+      const offers = (state.companyOffers && state.companyOffers[compId]) || [];
+      const selectedApps = compApps.filter(a => ['Selected', 'Hired', 'Offer Accepted'].includes(a.status));
+      const shortlistedApps = compApps.filter(a => ['Shortlisted', 'Technical Interview', 'HR Interview', 'Final Review', 'Selected', 'Hired', 'Offer Accepted'].includes(a.status));
+      const screeningApps = compApps.filter(a => ['Screening', 'AI Screening', 'Shortlisted', 'Assessment', 'Technical Interview', 'HR Interview', 'Final Review', 'Selected', 'Hired', 'Offer Accepted'].includes(a.status));
+      const activeInternships = compJobs.filter(job => /intern(ship)?/i.test(`${job.title || ''} ${job.job_type || ''}`)).length;
+      const universityCounts = {};
+      compApps.forEach(application => {
+        const profile = state.studentProfiles[application.student_id] || {};
+        const university = profile.university || profile.college;
+        if (university) universityCounts[university] = (universityCounts[university] || 0) + 1;
+      });
+      const totalUniversityApplications = Object.values(universityCounts).reduce((sum, count) => sum + count, 0);
+      const universities = Object.entries(universityCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => ({ name, value: totalUniversityApplications ? Math.round((count / totalUniversityApplications) * 100) : 0 }));
+      const skillCounts = {};
+      compJobs.forEach(job => (job.required_skills || []).forEach(skill => {
+        const name = String(skill).trim();
+        if (name) skillCounts[name] = (skillCounts[name] || 0) + 1;
+      }));
+      const maxSkillCount = Math.max(1, ...Object.values(skillCounts));
+      const skillDemand = Object.entries(skillCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => ({ name, demand: Math.round((count / maxSkillCount) * 100), posted: count, candidates: compApps.length, gap: compApps.length >= count ? 'Low' : 'High' }));
+      const typeCounts = { internship: activeInternships, fullTime: Math.max(0, compJobs.length - activeInternships) };
+      const typeTotal = typeCounts.internship + typeCounts.fullTime;
+      const hiringSplit = {
+        internship: typeTotal ? Math.round((typeCounts.internship / typeTotal) * 100) : 0,
+        fullTime: typeTotal ? Math.round((typeCounts.fullTime / typeTotal) * 100) : 0
+      };
+      const now = new Date();
+      const applicationsOverTime = Array.from({ length: 8 }, (_, index) => {
+        const monthStart = new Date(now.getFullYear(), now.getMonth() - (7 - index), 1);
+        const nextMonth = new Date(now.getFullYear(), now.getMonth() - (6 - index), 1);
+        return compApps.filter(application => {
+          const date = new Date(application.applied_at || application.createdAt || 0);
+          return date >= monthStart && date < nextMonth;
+        }).length;
+      });
+      const metrics = [
+        { label: 'Open Positions', value: compJobs.filter(job => !job.deadline || new Date(job.deadline) >= now).length, accent: 'blue' },
+        { label: 'Active Internships', value: activeInternships, accent: 'emerald' },
+        { label: 'Applications', value: compApps.length, accent: 'purple' },
+        { label: 'Shortlisted Candidates', value: shortlistedApps.length, accent: 'orange' },
+        { label: 'Interviews Scheduled', value: interviews.filter(item => item.status !== 'Cancelled').length, accent: 'sky' },
+        { label: 'Offers Made', value: offers.length, accent: 'green' },
+        { label: 'Students Hired', value: selectedApps.length, accent: 'teal' },
+        { label: 'University Sources', value: Object.keys(universityCounts).length, accent: 'violet' }
+      ];
+      return sendJSON(200, {
+        company,
+        jobs: compJobs,
+        total_jobs: compJobs.length,
+        total_applicants: compApps.length,
+        shortlisted: shortlistedApps.length,
+        pipeline: compApps,
+        metrics,
+        applicationsOverTime,
+        hiringFunnel: [
+          { label: 'Applications', value: compApps.length },
+          { label: 'Screening', value: screeningApps.length },
+          { label: 'Shortlisted', value: shortlistedApps.length },
+          { label: 'Interviews', value: interviews.length },
+          { label: 'Selected', value: selectedApps.length },
+          { label: 'Offers', value: offers.length }
+        ],
+        skillDemand,
+        skillDistribution: [],
+        hiringSplit,
+        universities,
+        insight: compApps.length
+          ? `${compApps.length} application${compApps.length === 1 ? '' : 's'} are recorded for ${company.name}. Metrics update from jobs, applications, interviews, offers, and candidate stages.`
+          : `No applications are recorded yet for ${company.name}. Publish a job to begin collecting candidate data.`
+      });
     }
 
     if (pathname.match(/^\/api\/company\/jobs\/\d+\/candidates$/) && req.method === 'GET') {

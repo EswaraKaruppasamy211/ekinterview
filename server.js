@@ -112,8 +112,53 @@ let state = {
   }
 };
 
+function normalizeIdentity(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function ensureDemoUsers() {
+  const student = state.users.find(u => u.role === 'student' && (normalizeIdentity(u.email) === 'arjun@skillbridge.ai' || normalizeIdentity(u.username || '') === 'arjun_sharma'));
+  if (!student) {
+    const studentPwd = hashPassword('Student@123');
+    state.users.push({ id: 1, email: 'arjun@skillbridge.ai', username: 'arjun_sharma', student_id: 'STU-2026-101', password_hash: studentPwd.hash, salt: studentPwd.salt, role: 'student' });
+  }
+
+  if (!state.studentProfiles[1]) {
+    state.studentProfiles[1] = {
+      user_id: 1,
+      name: 'Arjun Sharma',
+      email: 'arjun@skillbridge.ai',
+      phone: '+91 9876543210',
+      student_id: 'STU-2026-101',
+      college: 'Anna University',
+      department: 'Computer Science & Engineering',
+      year: '4th Year',
+      semester: '7th Semester',
+      cgpa: 8.8,
+      linkedin_url: 'https://linkedin.com/in/arjun-sharma-2026',
+      github_url: 'https://github.com/arjun-sharma',
+      portfolio_url: 'https://arjunsharma.dev'
+    };
+  }
+
+  const company = state.users.find(u => u.role === 'company' && normalizeIdentity(u.companyId || '') === 'cmp-10001');
+  if (!company) {
+    const compPwd = hashPassword('Company@123');
+    state.users.push({ id: 2, email: 'recruiter@techcorp.com', username: 'techcorp_mgr', companyName: 'TechCorp Solutions', companyId: 'CMP-10001', password_hash: compPwd.hash, salt: compPwd.salt, role: 'company' });
+  }
+
+  const college = state.users.find(u => u.role === 'college' && normalizeIdentity(u.email) === 'admin@annauniv.edu');
+  if (!college) {
+    const collegePwd = hashPassword('College@123');
+    state.users.push({ id: 3, email: 'admin@annauniv.edu', username: 'anna_univ_admin', collegeName: 'Anna University', password_hash: collegePwd.hash, salt: collegePwd.salt, role: 'college' });
+  }
+}
+
 // Seed Unique Initial Data
 function seedData() {
+  state.users = state.users || [];
+  ensureDemoUsers();
+
   const studentPwd = hashPassword('Student@123');
   const compPwd = hashPassword('Company@123');
   const collegePwd = hashPassword('College@123');
@@ -406,24 +451,28 @@ const server = http.createServer(async (req, res) => {
         const newComp = { id: newId, companyId: assignedCompId, name: companyName, logo: '🏢', industry: 'Corporate Partner', manager_name: managerName || 'Recruitment Manager', min_cgpa: 7.0, min_ai_score: 70, required_skills: ['Java', 'SQL'] };
         state.companies.push(newComp);
 
-        const newUser = { id: newId, email, username: email.split('@')[0], companyName, companyId: assignedCompId, password_hash: hash, salt, role: 'company' };
+        const normalizedEmail = normalizeIdentity(email);
+        const newUser = { id: newId, email: normalizedEmail, username: normalizedEmail.split('@')[0], companyName, companyId: assignedCompId, password_hash: hash, salt, role: 'company' };
         state.users.push(newUser);
-        const token = generateToken({ id: newUser.id, email, companyId: assignedCompId, role: 'company' });
+        const token = generateToken({ id: newUser.id, email: normalizedEmail, companyId: assignedCompId, role: 'company' });
         return sendJSON(201, { token, user: newUser, company: newComp });
 
       } else if (userRole === 'college') {
         if (!collegeName || !email || !password) return sendJSON(400, { error: 'University Name, Email, and Password required.' });
-        const newUser = { id: newId, email, username: email.split('@')[0], collegeName, adminName: adminName || 'University Admin', password_hash: hash, salt, role: 'college' };
+        const normalizedEmail = normalizeIdentity(email);
+        const newUser = { id: newId, email: normalizedEmail, username: normalizedEmail.split('@')[0], collegeName, adminName: adminName || 'University Admin', password_hash: hash, salt, role: 'college' };
         state.users.push(newUser);
-        const token = generateToken({ id: newUser.id, email, role: 'college' });
+        const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'college' });
         return sendJSON(201, { token, user: newUser });
 
       } else {
         const assignedStuId = studentId || nextStudentId();
-        const newUser = { id: newId, email, username: email.split('@')[0], student_id: assignedStuId, password_hash: hash, salt, role: 'student' };
+        const normalizedEmail = normalizeIdentity(email);
+        const normalizedUsername = normalizeIdentity(fullName || email.split('@')[0]);
+        const newUser = { id: newId, email: normalizedEmail, username: normalizedUsername, student_id: assignedStuId, password_hash: hash, salt, role: 'student' };
         state.users.push(newUser);
-        state.studentProfiles[newId] = { user_id: newId, name: fullName || 'New Student', email, phone: mobile || '+91 9876543210', student_id: assignedStuId, college: 'Anna University', department: 'Computer Science & Engg', cgpa: 8.5 };
-        const token = generateToken({ id: newUser.id, email, role: 'student' });
+        state.studentProfiles[newId] = { user_id: newId, name: fullName || 'New Student', email: normalizedEmail, phone: mobile || '+91 9876543210', student_id: assignedStuId, college: 'Anna University', department: 'Computer Science & Engg', cgpa: 8.5 };
+        const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'student' });
         return sendJSON(201, { token, user: newUser, profile: state.studentProfiles[newId] });
       }
     }
@@ -431,19 +480,34 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/auth/login' && req.method === 'POST') {
       const { identity, companyName, password, role } = await parseJSON(req);
       const userRole = role || 'student';
+      const normalizedIdentity = normalizeIdentity(identity);
+      const normalizedCompanyName = normalizeIdentity(companyName);
       let user = null;
 
       if (userRole === 'company') {
         if (!companyName) return sendJSON(400, { error: 'Company Name is REQUIRED for Recruiter Login.' });
-        user = state.users.find(u => u.role === 'company' && (u.companyName.toLowerCase() === companyName.toLowerCase() || u.companyId === companyName) && (u.email.toLowerCase() === (identity || '').toLowerCase() || u.username === identity));
-        if (!user && (companyName === 'TechCorp Solutions' || companyName === 'CMP-10001')) user = state.users.find(u => u.role === 'company' && u.companyId === 'CMP-10001');
+        user = state.users.find(u => u.role === 'company' && (
+          normalizeIdentity(u.companyName) === normalizedCompanyName ||
+          normalizeIdentity(u.companyId || '') === normalizedCompanyName
+        ) && (
+          normalizeIdentity(u.email) === normalizedIdentity ||
+          normalizeIdentity(u.username || '') === normalizedIdentity
+        ));
+        if (!user && (normalizedCompanyName === 'techcorp solutions' || normalizedCompanyName === 'cmp-10001')) user = state.users.find(u => u.role === 'company' && normalizeIdentity(u.companyId || '') === 'cmp-10001');
 
       } else if (userRole === 'college') {
-        user = state.users.find(u => u.role === 'college' && (u.email.toLowerCase() === (identity || '').toLowerCase() || u.username === identity));
-        if (!user && (identity === 'anna_univ_admin' || identity === 'admin@annauniv.edu')) user = state.users.find(u => u.role === 'college');
+        user = state.users.find(u => u.role === 'college' && (
+          normalizeIdentity(u.email) === normalizedIdentity ||
+          normalizeIdentity(u.username || '') === normalizedIdentity
+        ));
+        if (!user && (normalizedIdentity === 'anna_univ_admin' || normalizedIdentity === 'admin@annauniv.edu')) user = state.users.find(u => u.role === 'college');
 
       } else {
-        user = state.users.find(u => u.role === 'student' && (u.email.toLowerCase() === (identity || '').toLowerCase() || u.student_id === identity || u.username === identity));
+        user = state.users.find(u => u.role === 'student' && (
+          normalizeIdentity(u.email) === normalizedIdentity ||
+          normalizeIdentity(u.student_id || '') === normalizedIdentity ||
+          normalizeIdentity(u.username || '') === normalizedIdentity
+        ));
       }
 
       if (!user || !verifyPassword(password, user.salt, user.password_hash)) {
