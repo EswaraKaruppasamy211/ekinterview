@@ -48,7 +48,7 @@ if (fs.existsSync(envPath)) {
 const port = Number(process.env.PORT) || 3000;
 const repoRoot = path.resolve(__dirname, '..');
 const uploadsDir = path.join(repoRoot, 'uploads');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+if (require.main === module && !fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 const stateFile = path.join(__dirname, 'skillbridge-state.json');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'skillbridge-unique-backend-secret-key-2026';
