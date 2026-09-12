@@ -44,7 +44,20 @@ async function apiFetch(endpoint, options = {}) {
   if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-    const data = await res.json();
+    const contentType = res.headers.get('content-type') || '';
+    const responseText = await res.text();
+    let data = {};
+    if (responseText) {
+      if (contentType.includes('application/json')) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error(`Server returned invalid JSON (${res.status}).`);
+        }
+      } else {
+        data = { error: responseText.trim() };
+      }
+    }
     if (!res.ok) throw new Error(data.error || 'API Request Failed');
     return data;
   } catch (err) {
