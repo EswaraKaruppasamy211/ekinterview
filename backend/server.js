@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const { MongoClient } = require('mongodb');
 const { URL } = require('url');
 const { generateAICareerAdvice } = require('./ai_engine');
 const { 
@@ -38,8 +39,10 @@ if (fs.existsSync(envPath)) {
     fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
-        const [k, v] = trimmed.split('=');
-        process.env[k.trim()] = v.trim();
+        const separator = trimmed.indexOf('=');
+        const key = trimmed.slice(0, separator).trim();
+        const value = trimmed.slice(separator + 1).trim();
+        if (key && !process.env[key]) process.env[key] = value;
       }
     });
   } catch (e) {}
@@ -50,6 +53,11 @@ const repoRoot = path.resolve(__dirname, '..');
 const uploadsDir = path.join(repoRoot, 'uploads');
 if (require.main === module && !fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 const stateFile = path.join(__dirname, 'skillbridge-state.json');
+const mongoUri = String(process.env.MONGODB_URI || '').trim();
+const mongoDatabaseName = process.env.MONGODB_DATABASE || 'skillbridge';
+const mongoStateCollectionName = process.env.MONGODB_STATE_COLLECTION || 'application_state';
+let mongoStateCollection = null;
+let mongoInitialization = null;
 
 const JWT_SECRET = process.env.JWT_SECRET || 'skillbridge-unique-backend-secret-key-2026';
 
@@ -189,8 +197,61 @@ function normalizeIdentity(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
-function persistState() {
-  try { fs.writeFileSync(stateFile, JSON.stringify({ state, counters }, null, 2)); } catch (error) { console.error('State persistence failed:', error.message); }
+async function initializeMongoState() {
+  if (!mongoUri) return;
+  if (mongoInitialization) return mongoInitialization;
+
+  mongoInitialization = (async () => {
+    const client = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 10000 });
+    await client.connect();
+    const database = client.db(mongoDatabaseName);
+    mongoStateCollection = database.collection(mongoStateCollectionName);
+    const saved = await mongoStateCollection.findOne({ _id: 'skillbridge-state' });
+
+    if (saved && saved.state) {
+      state = { ...state, ...saved.state };
+      counters = { ...counters, ...(saved.counters || {}) };
+    } else {
+      await mongoStateCollection.replaceOne(
+        { _id: 'skillbridge-state' },
+        {
+        _id: 'skillbridge-state',
+        state,
+        counters,
+        updatedAt: new Date()
+        },
+        { upsert: true }
+      );
+    }
+
+    state.users = Array.isArray(state.users) ? state.users : [];
+    state.studentProfiles = state.studentProfiles || {};
+    if (!Array.isArray(state.campusDrives)) state.campusDrives = [];
+  })().catch(error => {
+    mongoInitialization = null;
+    mongoStateCollection = null;
+    throw new Error(`MongoDB initialization failed: ${error.message}`);
+  });
+
+  return mongoInitialization;
+}
+
+async function persistState() {
+  if (mongoUri) {
+    await initializeMongoState();
+    await mongoStateCollection.replaceOne(
+      { _id: 'skillbridge-state' },
+      { _id: 'skillbridge-state', state, counters, updatedAt: new Date() },
+      { upsert: true }
+    );
+    return;
+  }
+
+  try {
+    fs.writeFileSync(stateFile, JSON.stringify({ state, counters }, null, 2));
+  } catch (error) {
+    console.error('State persistence failed:', error.message);
+  }
 }
 
 function restoreState() {
@@ -489,8 +550,14 @@ const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
   const pathname = parsedUrl.pathname;
 
-  const sendJSON = (statusCode, data) => {
-    persistState();
+  const sendJSON = async (statusCode, data) => {
+    try {
+      await persistState();
+    } catch (error) {
+      console.error('Persistent storage request failed:', error.message);
+      statusCode = 503;
+      data = { error: 'Persistent storage is unavailable. Please try again shortly.' };
+    }
     res.writeHead(statusCode, {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
@@ -519,11 +586,19 @@ const server = http.createServer(async (req, res) => {
   };
 
   try {
+    await initializeMongoState();
+
     // ----------------------------------------------------
     // SYSTEM & HEALTH API ENDPOINTS
     // ----------------------------------------------------
     if (pathname === '/api/health' && req.method === 'GET') {
-      return sendJSON(200, { status: 'UP & RUNNING', uptime_seconds: process.uptime(), memory: process.memoryUsage(), timestamp: new Date().toISOString() });
+      return sendJSON(200, {
+        status: 'UP & RUNNING',
+        storage: mongoUri ? 'mongodb' : 'local-json',
+        uptime_seconds: process.uptime(),
+        memory: process.memoryUsage(),
+        timestamp: new Date().toISOString()
+      });
     }
 
     if (pathname === '/api/docs' && req.method === 'GET') {
@@ -660,7 +735,11 @@ const server = http.createServer(async (req, res) => {
             ? companyMatches[0]
             : companyMatches.find(candidate => identityMatches.includes(candidate)) || null;
         if (!user) {
-          return sendJSON(401, { error: 'Company account not found in this local database. Register this company on localhost:3000 first, then log in with the same email and password.' });
+          return sendJSON(401, {
+            error: mongoUri
+              ? 'Company account not found in the deployed database. Register this company on the deployed application first, then log in with the same email and password.'
+              : 'Company account not found in the local database. Register this company on localhost:3000 first, then log in with the same email and password.'
+          });
         }
 
       } else if (userRole === 'college') {

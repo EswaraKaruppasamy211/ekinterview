@@ -4,9 +4,11 @@
   "private": true,
   "description": "SkillBridge career dashboard with a small Node backend",
   "scripts": {
-      "start": "node backend/server.js"
+    "start": "node backend/server.js",
+    "migrate:mongodb": "node backend/migrate-to-mongodb.js"
   },
   "dependencies": {
+    "mongodb": "^6.21.0",
     "nodemailer": "^9.0.5",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.6"
