@@ -2310,12 +2310,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-if (require.main === module) {
-  server.listen(port, () => {
-    console.log(`================================================================`);
-    console.log(` SkillBridge Unique 3-Portal Backend Engine Running on Port ${port}`);
-    console.log(`================================================================`);
-  });
-}
-
-module.exports = server;
+server.listen(port, () => {
+  console.log(`================================================================`);
+  console.log(` SkillBridge Unique 3-Portal Backend Engine Running on Port ${port}`);
+  console.log(`================================================================`);
+});
