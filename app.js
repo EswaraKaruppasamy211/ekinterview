@@ -1885,8 +1885,26 @@ function renderMetricCard(label, value, accent) {
   `;
 }
 
-function renderCompanyDashboard() {
-  const overview = companyAIService.getOverview();
+async function renderCompanyDashboard() {
+  let dashboard;
+  try {
+    dashboard = await apiFetch('/company/dashboard');
+  } catch (error) {
+    console.error('Failed to load company dashboard:', error.message);
+    return;
+  }
+  const overview = {
+    metrics: [
+      { label: 'Open Positions', value: dashboard.total_jobs || 0, accent: 'blue' },
+      { label: 'Applications', value: dashboard.total_applicants || 0, accent: 'emerald' },
+      { label: 'Shortlisted', value: dashboard.shortlisted || 0, accent: 'purple' }
+    ],
+    applicationsOverTime: [],
+    hiringFunnel: [],
+    insight: dashboard.total_applicants
+      ? `${dashboard.total_applicants} candidate application(s) are currently linked to your company.`
+      : 'No applications have been received for your company yet.'
+  };
   const metricsGrid = document.getElementById('company-metrics-grid');
   if (metricsGrid) {
     metricsGrid.innerHTML = overview.metrics.map(metric => renderMetricCard(metric.label, metric.value, metric.accent)).join('');

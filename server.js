@@ -522,15 +522,26 @@ const server = http.createServer(async (req, res) => {
       }));
     }
     if (pathname === '/api/student/apply' && req.method === 'POST') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       const { jobId } = await parseJSON(req);
-      const targetJob = state.jobs.find(j => j.id === Number(jobId)) || state.jobs[0];
-      const newApp = { id: nextAppId(), student_id: userId, job_id: targetJob.id, companyId: targetJob.companyId || 'CMP-10001', company_name: targetJob.company_name, job_title: targetJob.title, candidate_name: 'Arjun Sharma', cgpa: 8.8, applied_at: new Date().toISOString().split('T')[0], status: 'Applied', last_updated: new Date().toISOString().split('T')[0], next_step: 'Application under recruiter review.' };
+      const targetJob = state.jobs.find(j => j.id === Number(jobId));
+      if (!targetJob) return sendJSON(404, { error: 'Job opportunity not found.' });
+      if (state.applications.some(application => application.student_id === userId && application.job_id === targetJob.id)) {
+        return sendJSON(409, { error: 'You have already applied for this job.' });
+      }
+      const profile = state.studentProfiles[userId] || {};
+      const newApp = { id: nextAppId(), student_id: userId, job_id: targetJob.id, companyId: targetJob.companyId, company_name: targetJob.company_name, job_title: targetJob.title, candidate_name: profile.name || authUser.username || authUser.email, cgpa: Number(profile.cgpa || 0), applied_at: new Date().toISOString().split('T')[0], status: 'Applied', last_updated: new Date().toISOString().split('T')[0], next_step: 'Application under recruiter review.' };
       state.applications.unshift(newApp);
+      state.notifications[userId] = state.notifications[userId] || [];
+      state.notifications[userId].unshift({ id: Date.now(), title: 'Application submitted', message: `Your application for ${targetJob.title} at ${targetJob.company_name} was submitted successfully.`, type: 'application', is_read: false, created_at: new Date().toISOString().split('T')[0] });
       return sendJSON(201, { success: true, application: newApp });
     }
     if (pathname === '/api/student/applications' && req.method === 'GET') {
-      return sendJSON(200, state.applications);
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      return sendJSON(200, state.applications.filter(application => application.student_id === authUser.id));
     }
     if (pathname === '/api/student/campus-drives' && req.method === 'GET') {
       const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
@@ -554,7 +565,18 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(200, { placement: (state.placements || {})[userId] || null });
     }
     if (pathname === '/api/student/notifications' && req.method === 'GET') {
-      return sendJSON(200, state.notifications[1] || []);
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      return sendJSON(200, state.notifications[authUser.id] || []);
+    }
+    if (pathname.match(/^\/api\/student\/notifications\/\d+\/read$/) && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const notificationId = Number(pathname.split('/')[4]);
+      const notification = (state.notifications[authUser.id] || []).find(item => item.id === notificationId);
+      if (!notification) return sendJSON(404, { error: 'Notification not found.' });
+      notification.is_read = true;
+      return sendJSON(200, { success: true, notification });
     }
 
     // UNIQUE AI ENGINES
@@ -593,6 +615,11 @@ const server = http.createServer(async (req, res) => {
 
       const newJob = { id: nextJobId(), company_id: comp.id, companyId: comp.companyId, company_name: comp.name, title: body.title, location: body.location || 'Remote', salary_stipend: body.salary_stipend || '₹ 12,00,000 P.A.', required_skills: (body.required_skills || 'Java,SQL').split(','), min_cgpa: Number(body.min_cgpa || 7.5), deadline: body.deadline || '2026-11-30' };
       state.jobs.unshift(newJob);
+      const students = state.users.filter(user => user.role === 'student');
+      students.forEach(student => {
+        state.notifications[student.id] = state.notifications[student.id] || [];
+        state.notifications[student.id].unshift({ id: Date.now() + student.id, title: 'New job opportunity', message: `${newJob.company_name} published ${newJob.title}. Review the opportunity and apply from the Student Portal.`, type: 'job', jobId: newJob.id, is_read: false, created_at: new Date().toISOString().split('T')[0] });
+      });
       return sendJSON(201, { success: true, job: newJob });
     }
 
@@ -601,6 +628,7 @@ const server = http.createServer(async (req, res) => {
       if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Access Denied. Company Auth Required.' });
       const { applicationId, newStage } = await parseJSON(req);
       const app = state.applications.find(a => a.id === Number(applicationId));
+      if (!app || app.companyId !== authUser.companyId) return sendJSON(404, { error: 'Application not found for this company.' });
       if (app) {
         app.status = newStage;
         app.last_updated = new Date().toISOString().split('T')[0];
