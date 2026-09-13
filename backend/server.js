@@ -769,8 +769,24 @@ const server = http.createServer(async (req, res) => {
         ));
       }
 
-      if (!user || !verifyPassword(password, user.salt, user.password_hash)) {
-        return sendJSON(401, { error: `Invalid ${userRole.toUpperCase()} credentials.` });
+      if (!user) {
+        const matchingAccount = state.users.find(candidate => [
+          normalizeIdentity(candidate.email),
+          normalizeIdentity(candidate.username || ''),
+          normalizeIdentity(candidate.companyName || ''),
+          normalizeIdentity(candidate.collegeName || ''),
+          normalizeIdentity(candidate.companyId || '')
+        ].includes(normalizedIdentity));
+        if (matchingAccount && matchingAccount.role !== userRole) {
+          const portalName = matchingAccount.role === 'company' ? 'Company Recruiter' : 'University Admin';
+          return sendJSON(401, { error: `This account belongs to the ${portalName} portal. Use that portal to sign in.` });
+        }
+        const accountType = userRole === 'student' ? 'Student account not found. Register a student account first, then sign in with the same username or email.' : `Invalid ${userRole.toUpperCase()} credentials.`;
+        return sendJSON(401, { error: accountType });
+      }
+
+      if (!verifyPassword(password, user.salt, user.password_hash)) {
+        return sendJSON(401, { error: `Incorrect password for this ${userRole} account.` });
       }
 
       const token = generateToken({ id: user.id, email: user.email, companyId: user.companyId, role: user.role });
