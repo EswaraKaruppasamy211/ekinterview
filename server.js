@@ -441,12 +441,15 @@ const server = http.createServer(async (req, res) => {
 
       if (userRole === 'company') {
         if (!companyName) return sendJSON(400, { error: 'Company Name is REQUIRED for Recruiter Login.' });
-        user = state.users.find(u => u.role === 'company' && (u.companyName.toLowerCase() === companyName.toLowerCase() || u.companyId === companyName) && (u.email.toLowerCase() === (identity || '').toLowerCase() || u.username === identity));
-        if (!user && (companyName === 'TechCorp Solutions' || companyName === 'CMP-10001')) user = state.users.find(u => u.role === 'company' && u.companyId === 'CMP-10001');
+        const normalizedCompanyName = normalizeIdentity(companyName);
+        const normalizedIdentity = normalizeIdentity(identity);
+        user = state.users.find(u => u.role === 'company' && (normalizeIdentity(u.companyName) === normalizedCompanyName || normalizeIdentity(u.companyId) === normalizedCompanyName) && (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity));
+        if (!user && (normalizedCompanyName === 'techcorp solutions' || normalizedCompanyName === 'cmp-10001')) user = state.users.find(u => u.role === 'company' && normalizeIdentity(u.companyId) === 'cmp-10001');
 
       } else if (userRole === 'college') {
-        user = state.users.find(u => u.role === 'college' && (u.email.toLowerCase() === (identity || '').toLowerCase() || u.username === identity));
-        if (!user && (identity === 'anna_univ_admin' || identity === 'admin@annauniv.edu')) user = state.users.find(u => u.role === 'college');
+        const normalizedIdentity = normalizeIdentity(identity);
+        user = state.users.find(u => u.role === 'college' && (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity));
+        if (!user && (normalizedIdentity === 'anna_univ_admin' || normalizedIdentity === 'admin@annauniv.edu')) user = state.users.find(u => u.role === 'college');
 
       } else {
         const normalizedIdentity = normalizeIdentity(identity);
