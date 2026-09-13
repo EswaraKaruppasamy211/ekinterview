@@ -104,11 +104,11 @@ function showAppWorkspace() {
 async function initializeRoleAwareUI() {
   try {
     // Load AI context for the current role
-    const contextData = await apiFetch('/api/ai/context');
+    const contextData = await apiFetch('/ai/context');
     updateAIAssistantContext(contextData);
     
     // Load role-specific suggestions
-    const suggestionsData = await apiFetch('/api/ai/suggestions');
+    const suggestionsData = await apiFetch('/ai/suggestions');
     updateAISuggestions(suggestionsData.suggestions);
     
     // Load and render role-specific navigation
@@ -121,7 +121,7 @@ async function initializeRoleAwareUI() {
 // Load and render role-specific navigation
 async function loadRoleSpecificNavigation() {
   try {
-    const navData = await apiFetch('/api/navigation');
+    const navData = await apiFetch('/navigation');
     renderRoleNavigation(navData);
   } catch (err) {
     console.warn('Failed to load role-specific navigation:', err.message);
@@ -938,7 +938,7 @@ async function handleAiChatSubmit(event) {
   log.insertAdjacentHTML('beforeend', `<div class="chat-bubble user">${message}</div>`); 
   input.value = ''; 
   try { 
-    const data = await apiFetch('/api/ai/chat', { method: 'POST', body: JSON.stringify({ message }) }); 
+    const data = await apiFetch('/ai/chat', { method: 'POST', body: JSON.stringify({ message }) }); 
     log.insertAdjacentHTML('beforeend', `<div class="chat-bubble bot">${data.reply}</div>`); 
     log.scrollTop = log.scrollHeight; 
   } catch (err) { 
@@ -1926,7 +1926,7 @@ async function loadTalentFinder() {
 // Student Talent Finder - Show matched jobs
 async function loadStudentTalentFinder() {
   try {
-    const data = await apiFetch('/api/talent-finder/matched-jobs');
+    const data = await apiFetch('/talent-finder/matched-jobs');
     const container = document.getElementById('view-talent-finder');
     
     if (!container) return;
@@ -2037,7 +2037,7 @@ async function loadCompanyJobCandidates() {
   if (!jobId || !container) return;
 
   try {
-    const data = await apiFetch(`/api/talent-finder/job/${jobId}/candidates`);
+    const data = await apiFetch(`/talent-finder/job/${jobId}/candidates`);
     const candidates = data.candidates || [];
 
     if (candidates.length === 0) {

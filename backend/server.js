@@ -227,6 +227,18 @@ async function initializeMongoState() {
     state.users = Array.isArray(state.users) ? state.users : [];
     state.studentProfiles = state.studentProfiles || {};
     if (!Array.isArray(state.campusDrives)) state.campusDrives = [];
+
+    // Preserve the documented demo accounts when an older MongoDB snapshot
+    // predates the seeded users.
+    const userCountBeforeSeeding = state.users.length;
+    ensureDemoUsers();
+    if (state.users.length !== userCountBeforeSeeding) {
+      await mongoStateCollection.replaceOne(
+        { _id: 'skillbridge-state' },
+        { _id: 'skillbridge-state', state, counters, updatedAt: new Date() },
+        { upsert: true }
+      );
+    }
   })().catch(error => {
     mongoInitialization = null;
     mongoStateCollection = null;
