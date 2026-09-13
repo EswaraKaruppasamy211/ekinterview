@@ -2318,4 +2318,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = (req, res) => server.emit('request', req, res);
+module.exports = server;
