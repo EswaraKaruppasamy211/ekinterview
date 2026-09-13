@@ -1885,14 +1885,8 @@ function renderMetricCard(label, value, accent) {
   `;
 }
 
-async function renderCompanyDashboard() {
-  let overview;
-  try {
-    overview = await apiFetch('/company/dashboard');
-  } catch (err) {
-    console.error('Company dashboard data load failed:', err);
-    return;
-  }
+function renderCompanyDashboard() {
+  const overview = companyAIService.getOverview();
   const metricsGrid = document.getElementById('company-metrics-grid');
   if (metricsGrid) {
     metricsGrid.innerHTML = overview.metrics.map(metric => renderMetricCard(metric.label, metric.value, metric.accent)).join('');
