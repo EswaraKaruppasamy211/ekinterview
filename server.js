@@ -37,6 +37,12 @@ function normalizeIdentity(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
+function sanitizeUser(user) {
+  if (!user) return null;
+  const { password_hash, salt, ...safeUser } = user;
+  return safeUser;
+}
+
 // Unique Security Cryptographic Functions
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -461,14 +467,14 @@ const server = http.createServer(async (req, res) => {
         const newUser = { id: newId, email: normalizedEmail, username: normalizedEmail.split('@')[0], companyName, companyId: assignedCompId, password_hash: hash, salt, role: 'company' };
         state.users.push(newUser);
         const token = generateToken({ id: newUser.id, email: normalizedEmail, companyId: assignedCompId, role: 'company' });
-        return sendJSON(201, { token, user: newUser, company: newComp });
+        return sendJSON(201, { token, user: sanitizeUser(newUser), company: newComp });
 
       } else if (userRole === 'college') {
         if (!collegeName || !email || !password) return sendJSON(400, { error: 'University Name, Email, and Password required.' });
         const newUser = { id: newId, email: normalizedEmail, username: normalizedEmail.split('@')[0], collegeName, adminName: adminName || 'University Admin', password_hash: hash, salt, role: 'college' };
         state.users.push(newUser);
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'college' });
-        return sendJSON(201, { token, user: newUser });
+        return sendJSON(201, { token, user: sanitizeUser(newUser) });
 
       } else {
         const otpEntry = otpStore[normalizedEmail];
@@ -482,7 +488,7 @@ const server = http.createServer(async (req, res) => {
         state.studentProfiles[newId] = { user_id: newId, name: fullName || 'New Student', email: normalizedEmail, phone: mobile || '+91 9876543210', student_id: assignedStuId, college: 'Anna University', department: 'Computer Science & Engg', cgpa: 8.5 };
         delete otpStore[normalizedEmail];
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'student' });
-        return sendJSON(201, { token, user: newUser, profile: state.studentProfiles[newId] });
+        return sendJSON(201, { token, user: sanitizeUser(newUser), profile: state.studentProfiles[newId] });
       }
     }
 
@@ -513,13 +519,13 @@ const server = http.createServer(async (req, res) => {
       }
 
       const token = generateToken({ id: user.id, email: user.email, companyId: user.companyId, role: user.role });
-      return sendJSON(200, { token, user, profile: state.studentProfiles[user.id] || state.studentProfiles[1] });
+      return sendJSON(200, { token, user: sanitizeUser(user), profile: state.studentProfiles[user.id] || state.studentProfiles[1] });
     }
 
     if (pathname === '/api/auth/me' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser) return sendJSON(401, { error: 'Not authenticated' });
-      return sendJSON(200, { user: authUser, profile: state.studentProfiles[authUser.id] || state.studentProfiles[1] });
+      return sendJSON(200, { user: sanitizeUser(authUser), profile: state.studentProfiles[authUser.id] || state.studentProfiles[1] });
     }
 
     // ----------------------------------------------------
