@@ -608,11 +608,11 @@
       <form id="student-login-form" onsubmit="handleStudentLoginSubmit(event)">
         <div class="mb-3">
           <label class="block text-xs font-bold mb-1">Username / Email *</label>
-          <input type="text" id="stu-login-id" class="saas-input" placeholder="Username or email" required />
+          <input type="text" id="stu-login-id" class="saas-input" value="arjun@skillbridge.ai" placeholder="Username or email" autocomplete="username" required />
         </div>
         <div class="mb-4">
           <label class="block text-xs font-bold mb-1">Password *</label>
-          <input type="password" id="stu-login-pass" class="saas-input" required />
+          <input type="password" id="stu-login-pass" class="saas-input" value="Student@123" autocomplete="current-password" required />
           <span class="text-xs" style="color:var(--text-muted);">Demo: <strong>arjun@skillbridge.ai</strong> / <strong>Student@123</strong></span>
         </div>
         <button type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Sign In to Student Portal</button>

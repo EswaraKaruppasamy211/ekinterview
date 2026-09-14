@@ -525,6 +525,31 @@ const server = http.createServer(async (req, res) => {
     // ----------------------------------------------------
     // STUDENT MODULE APIs
     // ----------------------------------------------------
+    if (pathname === '/api/student/dashboard' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      const userId = authUser ? authUser.id : 1;
+      const profile = state.studentProfiles[userId] || state.studentProfiles[1];
+      const technicalSkills = (state.userSkills[userId] || state.userSkills[1] || []).length;
+      const projects = (state.projects[userId] || state.projects[1] || []).length;
+      const certificates = (state.certifications[userId] || state.certifications[1] || []).length;
+      const applications = state.applications.filter(application => application.student_id === userId).length;
+      const recommendedJobs = state.jobs.map(job => {
+        const company = state.companies.find(item => item.companyId === job.companyId) || state.companies[0];
+        const match = calculateCompanyMatch(userId, company);
+        return { ...job, match_percentage: match.matchPercentage };
+      });
+
+      return sendJSON(200, {
+        profile,
+        profileCompletion: { percentage: 80, missingItems: [] },
+        technicalSkills,
+        projects,
+        certificates,
+        applications,
+        skillScore: calculateSkillScore(userId),
+        recommendedJobs
+      });
+    }
     if (pathname === '/api/student/profile' && req.method === 'GET') {
       const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
       return sendJSON(200, { profile: state.studentProfiles[userId] || state.studentProfiles[1], completion: { percentage: 80, missingItems: [] }, resume: state.resumes[userId] || state.resumes[1] });
