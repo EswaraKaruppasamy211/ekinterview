@@ -344,6 +344,12 @@ function parseJSON(req) {
   });
 }
 
+const otpStore = {};
+
+function generateOtpCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
 // HTTP SERVER ENGINE
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -398,6 +404,46 @@ const server = http.createServer(async (req, res) => {
     // ----------------------------------------------------
     // AUTHENTICATION APIs
     // ----------------------------------------------------
+    if (pathname === '/api/auth/send-otp' && req.method === 'POST') {
+      const { email } = await parseJSON(req);
+      const normalizedEmail = normalizeIdentity(email);
+      if (!normalizedEmail || !normalizedEmail.includes('@')) {
+        return sendJSON(400, { error: 'A valid email address is required.' });
+      }
+
+      const code = generateOtpCode();
+      otpStore[normalizedEmail] = {
+        code,
+        expiresAt: Date.now() + 3 * 60 * 1000,
+        verified: false,
+        requestedAt: Date.now()
+      };
+
+      return sendJSON(200, {
+        success: true,
+        message: 'OTP sent successfully.',
+        devCode: code
+      });
+    }
+
+    if (pathname === '/api/auth/verify-otp' && req.method === 'POST') {
+      const { email, otp } = await parseJSON(req);
+      const normalizedEmail = normalizeIdentity(email);
+      const entry = otpStore[normalizedEmail];
+
+      if (!entry) return sendJSON(400, { error: 'OTP has not been requested for this email.' });
+      if (Date.now() > entry.expiresAt) {
+        delete otpStore[normalizedEmail];
+        return sendJSON(400, { error: 'OTP expired. Please request a new one.' });
+      }
+      if (String(otp) !== String(entry.code)) {
+        return sendJSON(400, { error: 'Invalid OTP.' });
+      }
+
+      otpStore[normalizedEmail] = { ...entry, verified: true, verifiedAt: Date.now() };
+      return sendJSON(200, { success: true, message: 'Email verified successfully.' });
+    }
+
     if (pathname === '/api/auth/register' && req.method === 'POST') {
       const { fullName, username, email, mobile, studentId, companyName, managerName, collegeName, adminName, role, password } = await parseJSON(req);
       const userRole = role || 'student';
@@ -425,10 +471,16 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(201, { token, user: newUser });
 
       } else {
+        const otpEntry = otpStore[normalizedEmail];
+        if (!otpEntry || !otpEntry.verified || Date.now() > otpEntry.expiresAt) {
+          return sendJSON(400, { error: 'Email verification is required before creating a student account.' });
+        }
+
         const assignedStuId = studentId || nextStudentId();
         const newUser = { id: newId, email: normalizedEmail, username: normalizedUsername, student_id: assignedStuId, password_hash: hash, salt, role: 'student' };
         state.users.push(newUser);
         state.studentProfiles[newId] = { user_id: newId, name: fullName || 'New Student', email: normalizedEmail, phone: mobile || '+91 9876543210', student_id: assignedStuId, college: 'Anna University', department: 'Computer Science & Engg', cgpa: 8.5 };
+        delete otpStore[normalizedEmail];
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'student' });
         return sendJSON(201, { token, user: newUser, profile: state.studentProfiles[newId] });
       }

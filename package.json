@@ -4,7 +4,7 @@
   "private": true,
   "description": "SkillBridge career dashboard with a small Node backend",
   "scripts": {
-      "start": "node backend/server.js"
+      "start": "node server.js"
   },
   "dependencies": {
     "nodemailer": "^9.0.5",
