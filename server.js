@@ -498,11 +498,17 @@ const server = http.createServer(async (req, res) => {
       let user = null;
 
       if (userRole === 'company') {
-        if (!companyName) return sendJSON(400, { error: 'Company Name is REQUIRED for Recruiter Login.' });
         const normalizedCompanyName = normalizeIdentity(companyName);
         const normalizedIdentity = normalizeIdentity(identity);
-        user = state.users.find(u => u.role === 'company' && (normalizeIdentity(u.companyName) === normalizedCompanyName || normalizeIdentity(u.companyId) === normalizedCompanyName) && (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity));
-        if (!user && (normalizedCompanyName === 'techcorp solutions' || normalizedCompanyName === 'cmp-10001')) user = state.users.find(u => u.role === 'company' && normalizeIdentity(u.companyId) === 'cmp-10001');
+        const identityMatches = state.users.filter(u =>
+          u.role === 'company' &&
+          (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity)
+        );
+        user = identityMatches.find(u =>
+          !normalizedCompanyName ||
+          normalizeIdentity(u.companyName) === normalizedCompanyName ||
+          normalizeIdentity(u.companyId) === normalizedCompanyName
+        );
 
       } else if (userRole === 'college') {
         const normalizedIdentity = normalizeIdentity(identity);

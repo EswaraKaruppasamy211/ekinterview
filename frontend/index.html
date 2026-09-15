@@ -664,8 +664,8 @@
       <!-- COMPANY LOGIN FORM -->
       <form id="company-login-form" onsubmit="handleCompanyLoginSubmit(event)">
         <div class="mb-3">
-          <label class="block text-xs font-bold mb-1">Company Name * (REQUIRED)</label>
-          <input type="text" id="comp-login-name" class="saas-input" placeholder="e.g. TechCorp Solutions or CMP-10001" required />
+          <label class="block text-xs font-bold mb-1">Company Name <span style="color:var(--text-muted);">(optional)</span></label>
+          <input type="text" id="comp-login-name" class="saas-input" value="TechCorp Solutions" placeholder="e.g. TechCorp Solutions or CMP-10001" />
         </div>
         <div class="mb-3">
           <label class="block text-xs font-bold mb-1">Recruiter Username / Email *</label>
@@ -674,7 +674,7 @@
         <div class="mb-4">
           <label class="block text-xs font-bold mb-1">Password *</label>
           <input type="password" id="comp-login-pass" class="saas-input" required />
-          <span class="text-xs" style="color:var(--text-muted);">Demo: <strong>recruiter@techcorp.com</strong> / <strong>Company@123</strong></span>
+          <span class="text-xs" style="color:var(--text-muted);">Demo: <strong>recruiter@techcorp.com</strong> / <strong>Company@123</strong>. Company name may be left blank.</span>
         </div>
         <button type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Access Recruiter ATS Workspace</button>
         <p class="text-xs text-center" style="color:var(--text-muted);">Don't have a corporate account? <a href="#" onclick="switchCompanyAuthTab('register')" style="color:var(--text-blue); font-weight:700;">Register Company Here</a></p>
