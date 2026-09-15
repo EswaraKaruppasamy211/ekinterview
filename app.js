@@ -388,7 +388,8 @@ async function handleStudentRegisterSubmit(e) {
 // COMPANY AUTH HANDLERS
 function openCompanyAuthModal(tab = 'login') {
   openModal('company-auth-modal');
-  switchCompanyAuthTab(tab);
+  const hasCompanyAccount = localStorage.getItem('sb_company_registered') === 'true';
+  switchCompanyAuthTab(tab === 'login' && !hasCompanyAccount ? 'register' : tab);
 }
 
 function switchCompanyAuthTab(tab) {
@@ -421,6 +422,7 @@ async function handleCompanyLoginSubmit(e) {
     authToken = data.token;
     localStorage.setItem('sb_token', authToken);
     currentUser = data.user;
+    localStorage.setItem('sb_company_registered', 'true');
     closeModal('company-auth-modal');
     switchPortalRole('company');
     showAppWorkspace();
@@ -444,6 +446,7 @@ async function handleCompanyRegisterSubmit(e) {
     authToken = data.token;
     localStorage.setItem('sb_token', authToken);
     currentUser = data.user;
+    localStorage.setItem('sb_company_registered', 'true');
     closeModal('company-auth-modal');
     alert(`Company Account Registered Successfully! Your Company ID is: ${data.company.companyId}`);
     switchPortalRole('company');
