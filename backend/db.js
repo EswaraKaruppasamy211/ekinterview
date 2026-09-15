@@ -375,6 +375,12 @@ async function getUserById(id) {
   } catch (e) { console.error('getUserById error', e && e.message); return null; }
 }
 
+async function getAllUsers() {
+  const db = await init();
+  try { return await db.all('SELECT * FROM users ORDER BY id'); }
+  catch (e) { console.error('getAllUsers error', e && e.message); return []; }
+}
+
 // Profile Helpers
 async function createOrUpdateStudentProfile(userId, profile) {
   const db = await init();
@@ -409,10 +415,10 @@ async function createOrUpdateStudentProfile(userId, profile) {
         `INSERT INTO student_profiles 
         (user_id, name, college, university, degree, department, year_of_study, graduation_year, cgpa, phone, location, photo_url, resume_url, bio, goal, portfolio_visibility)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        userId, profile.name || 'Student User', profile.college || '', profile.university || '', profile.degree || '',
-        profile.department || '', profile.year_of_study || '', profile.graduation_year || 2026, profile.cgpa || 8.5,
+        userId, profile.name || '', profile.college || '', profile.university || '', profile.degree || '',
+        profile.department || '', profile.year_of_study || '', profile.graduation_year || null, profile.cgpa ?? null,
         profile.phone || '', profile.location || '', profile.photo_url || '', profile.resume_url || '',
-        profile.bio || '', profile.goal || 'Full Stack Developer', profile.portfolio_visibility || 'public'
+        profile.bio || '', profile.goal || '', profile.portfolio_visibility || 'public'
       );
     }
     return await getStudentProfileByUserId(userId);
@@ -432,6 +438,7 @@ module.exports = {
   getUserByEmail,
   getUserByUsername,
   getUserById,
+  getAllUsers,
   createOrUpdateStudentProfile,
   getStudentProfileByUserId
 };
