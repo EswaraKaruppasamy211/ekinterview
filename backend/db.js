@@ -3,7 +3,8 @@ const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
 const fs = require('fs');
 const root = __dirname;
-const dbFile = path.join(root, 'skillmap.db');
+const dbFile = process.env.DB_FILE_PATH ||
+  (process.env.VERCEL ? path.join('/tmp', 'skillmap.db') : path.join(root, 'skillmap.db'));
 
 let _db = null;
 
