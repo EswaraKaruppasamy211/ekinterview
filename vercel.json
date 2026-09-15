@@ -10,14 +10,14 @@
       "use": "@vercel/static"
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "https://interview-wc6b.onrender.com/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://interview-wc6b.onrender.com/api/:path*"
     },
     {
-      "src": "/(.*)",
-      "dest": "frontend/$1"
+      "source": "/:path*",
+      "destination": "/frontend/:path*"
     }
   ]
 }
