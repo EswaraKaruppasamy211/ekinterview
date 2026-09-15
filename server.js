@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
+const userDb = require('./backend/db');
 
 // Environment Setup
 const envPath = path.join(__dirname, '.env');
@@ -273,16 +274,48 @@ function seedData() {
 
 seedData();
 
+// Authentication and student profiles are backed by SQLite. The in-memory state
+// remains the source for demo/catalog data, but never for account credentials.
+async function initializePersistentUsers() {
+  await userDb.init();
+  let users = await userDb.getAllUsers();
+  if (!users.length) {
+    const seeds = state.users.slice();
+    for (const seed of seeds) {
+      const created = await userDb.createUser({
+        email: seed.email, username: seed.username, passwordHash: seed.password_hash,
+        salt: seed.salt, role: seed.role
+      });
+      if (created) {
+        const profile = state.studentProfiles[seed.id];
+        if (profile && seed.role === 'student') {
+          await userDb.createOrUpdateStudentProfile(created.id, profile);
+        }
+      }
+    }
+    users = await userDb.getAllUsers();
+  }
+  const oldUsers = state.users;
+  state.users = users.map(user => {
+    const old = oldUsers.find(item => normalizeIdentity(item.email) === normalizeIdentity(user.email)) || {};
+    return { ...old, ...user };
+  });
+  for (const user of state.users.filter(item => item.role === 'student')) {
+    const profile = await userDb.getStudentProfileByUserId(user.id);
+    if (profile) state.studentProfiles[user.id] = { ...profile, email: user.email };
+  }
+}
+
 // Unique AI Employability Skill Score Engine
 function calculateSkillScore(studentId) {
-  const profile = state.studentProfiles[studentId || 1] || {};
-  const skills = state.userSkills[studentId || 1] || [];
-  const certs = state.certifications[studentId || 1] || [];
-  const backlog = state.backlogs[studentId || 1] || {};
+  const profile = state.studentProfiles[studentId] || {};
+  const skills = state.userSkills[studentId] || [];
+  const certs = state.certifications[studentId] || [];
+  const backlog = state.backlogs[studentId] || {};
 
   let score = 0;
   // 1. CGPA Weightage (Max 40 points)
-  const cgpa = Number(profile.cgpa || 8.0);
+  const cgpa = Number(profile.cgpa || 0);
   score += Math.min(40, (cgpa / 10) * 40);
 
   // 2. Skills Count & Proficiency Weightage (Max 30 points)
@@ -307,8 +340,8 @@ function calculateSkillScore(studentId) {
 
 // Unique Company-Student Eligibility & Match Engine
 function calculateCompanyMatch(studentId, company) {
-  const profile = state.studentProfiles[studentId || 1] || {};
-  const skills = state.userSkills[studentId || 1] || [];
+  const profile = state.studentProfiles[studentId] || {};
+  const skills = state.userSkills[studentId] || [];
   const studentSkillNames = skills.map(s => s.skill_name.toLowerCase());
   const reqSkills = company.required_skills || [];
 
@@ -326,7 +359,7 @@ function calculateCompanyMatch(studentId, company) {
   });
 
   const skillMatchPct = reqSkills.length > 0 ? (matchedSkills / reqSkills.length) * 100 : 100;
-  const cgpaMatch = (Number(profile.cgpa || 8.8) >= Number(company.min_cgpa || 7.5)) ? 100 : 50;
+  const cgpaMatch = (profile.cgpa != null && Number(profile.cgpa) >= Number(company.min_cgpa || 7.5)) ? 100 : 50;
   const overallMatchPct = Math.round((skillMatchPct * 0.7) + (cgpaMatch * 0.3));
 
   return {
@@ -457,6 +490,12 @@ const server = http.createServer(async (req, res) => {
       const { salt, hash } = hashPassword(password || 'Password@123');
       const normalizedEmail = normalizeIdentity(email);
       const normalizedUsername = normalizeIdentity(username) || normalizedEmail.split('@')[0];
+      if (!normalizedEmail || !normalizedEmail.includes('@') || !password) {
+        return sendJSON(400, { error: 'A valid email and password are required.' });
+      }
+      if (await userDb.getUserByEmail(normalizedEmail) || await userDb.getUserByUsername(normalizedUsername)) {
+        return sendJSON(409, { error: 'An account with this email or username already exists.' });
+      }
 
       if (userRole === 'company') {
         if (!companyName || !email || !password) return sendJSON(400, { error: 'Company Name, Email, and Password required.' });
@@ -464,14 +503,18 @@ const server = http.createServer(async (req, res) => {
         const newComp = { id: newId, companyId: assignedCompId, name: companyName, logo: '🏢', industry: 'Corporate Partner', manager_name: managerName || 'Recruitment Manager', min_cgpa: 7.0, min_ai_score: 70, required_skills: ['Java', 'SQL'] };
         state.companies.push(newComp);
 
-        const newUser = { id: newId, email: normalizedEmail, username: normalizedEmail.split('@')[0], companyName, companyId: assignedCompId, password_hash: hash, salt, role: 'company' };
+        const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'company' });
+        if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
+        const newUser = { ...stored, companyName, companyId: assignedCompId, password_hash: hash, salt };
         state.users.push(newUser);
         const token = generateToken({ id: newUser.id, email: normalizedEmail, companyId: assignedCompId, role: 'company' });
         return sendJSON(201, { token, user: sanitizeUser(newUser), company: newComp });
 
       } else if (userRole === 'college') {
         if (!collegeName || !email || !password) return sendJSON(400, { error: 'University Name, Email, and Password required.' });
-        const newUser = { id: newId, email: normalizedEmail, username: normalizedEmail.split('@')[0], collegeName, adminName: adminName || 'University Admin', password_hash: hash, salt, role: 'college' };
+        const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'college' });
+        if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
+        const newUser = { ...stored, collegeName, adminName: adminName || 'University Admin', password_hash: hash, salt };
         state.users.push(newUser);
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'college' });
         return sendJSON(201, { token, user: sanitizeUser(newUser) });
@@ -483,9 +526,13 @@ const server = http.createServer(async (req, res) => {
         }
 
         const assignedStuId = studentId || nextStudentId();
-        const newUser = { id: newId, email: normalizedEmail, username: normalizedUsername, student_id: assignedStuId, password_hash: hash, salt, role: 'student' };
+        const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'student' });
+        if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
+        const newUser = { ...stored, student_id: assignedStuId, password_hash: hash, salt };
         state.users.push(newUser);
-        state.studentProfiles[newId] = { user_id: newId, name: fullName || 'New Student', email: normalizedEmail, phone: mobile || '+91 9876543210', student_id: assignedStuId, college: 'Anna University', department: 'Computer Science & Engg', cgpa: 8.5 };
+        const profile = { user_id: stored.id, name: fullName || '', email: normalizedEmail, phone: mobile || '', student_id: assignedStuId, college: '', department: '', cgpa: null };
+        await userDb.createOrUpdateStudentProfile(stored.id, profile);
+        state.studentProfiles[stored.id] = profile;
         delete otpStore[normalizedEmail];
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'student' });
         return sendJSON(201, { token, user: sanitizeUser(newUser), profile: state.studentProfiles[newId] });
@@ -493,13 +540,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/auth/login' && req.method === 'POST') {
-      const { identity, companyName, password, role } = await parseJSON(req);
+      const { identity, companyName, password, role, email, username } = await parseJSON(req);
       const userRole = role || 'student';
       let user = null;
+      const loginIdentity = identity || email || username;
 
       if (userRole === 'company') {
         const normalizedCompanyName = normalizeIdentity(companyName);
-        const normalizedIdentity = normalizeIdentity(identity);
+        const normalizedIdentity = normalizeIdentity(loginIdentity);
         const identityMatches = state.users.filter(u =>
           u.role === 'company' &&
           (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity)
@@ -511,12 +559,11 @@ const server = http.createServer(async (req, res) => {
         );
 
       } else if (userRole === 'college') {
-        const normalizedIdentity = normalizeIdentity(identity);
+        const normalizedIdentity = normalizeIdentity(loginIdentity);
         user = state.users.find(u => u.role === 'college' && (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity));
-        if (!user && (normalizedIdentity === 'anna_univ_admin' || normalizedIdentity === 'admin@annauniv.edu')) user = state.users.find(u => u.role === 'college');
 
       } else {
-        const normalizedIdentity = normalizeIdentity(identity);
+        const normalizedIdentity = normalizeIdentity(loginIdentity);
         user = state.users.find(u => u.role === 'student' && (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.student_id) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity));
       }
 
@@ -525,13 +572,15 @@ const server = http.createServer(async (req, res) => {
       }
 
       const token = generateToken({ id: user.id, email: user.email, companyId: user.companyId, role: user.role });
-      return sendJSON(200, { token, user: sanitizeUser(user), profile: state.studentProfiles[user.id] || state.studentProfiles[1] });
+      const profile = user.role === 'student' ? (await userDb.getStudentProfileByUserId(user.id)) : null;
+      return sendJSON(200, { token, user: sanitizeUser(user), ...(profile ? { profile: { ...profile, email: user.email } } : {}) });
     }
 
     if (pathname === '/api/auth/me' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser) return sendJSON(401, { error: 'Not authenticated' });
-      return sendJSON(200, { user: sanitizeUser(authUser), profile: state.studentProfiles[authUser.id] || state.studentProfiles[1] });
+      const profile = authUser.role === 'student' ? await userDb.getStudentProfileByUserId(authUser.id) : null;
+      return sendJSON(200, { user: sanitizeUser(authUser), ...(profile ? { profile: { ...profile, email: authUser.email } } : {}) });
     }
 
     // ----------------------------------------------------
@@ -539,17 +588,20 @@ const server = http.createServer(async (req, res) => {
     // ----------------------------------------------------
     if (pathname === '/api/student/dashboard' && req.method === 'GET') {
       const authUser = getAuthUser();
-      const userId = authUser ? authUser.id : 1;
-      const profile = state.studentProfiles[userId] || state.studentProfiles[1];
-      const technicalSkills = (state.userSkills[userId] || state.userSkills[1] || []).length;
-      const projects = (state.projects[userId] || state.projects[1] || []).length;
-      const certificates = (state.certifications[userId] || state.certifications[1] || []).length;
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
+      const profile = await userDb.getStudentProfileByUserId(userId);
+      if (!profile) return sendJSON(404, { error: 'Student profile not found.' });
+      const technicalSkills = (state.userSkills[userId] || []).length;
+      const projects = (state.projects[userId] || []).length;
+      const certificates = (state.certifications[userId] || []).length;
       const applications = state.applications.filter(application => application.student_id === userId).length;
       const recommendedJobs = state.jobs.map(job => {
-        const company = state.companies.find(item => item.companyId === job.companyId) || state.companies[0];
+        const company = state.companies.find(item => item.companyId === job.companyId);
+        if (!company) return null;
         const match = calculateCompanyMatch(userId, company);
         return { ...job, match_percentage: match.matchPercentage };
-      });
+      }).filter(Boolean);
 
       return sendJSON(200, {
         profile,
@@ -563,11 +615,17 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (pathname === '/api/student/profile' && req.method === 'GET') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
-      return sendJSON(200, { profile: state.studentProfiles[userId] || state.studentProfiles[1], completion: { percentage: 80, missingItems: [] }, resume: state.resumes[userId] || state.resumes[1] });
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
+      const profile = await userDb.getStudentProfileByUserId(userId);
+      if (!profile) return sendJSON(404, { error: 'Student profile not found.' });
+      return sendJSON(200, { profile: { ...profile, email: authUser.email }, completion: { percentage: 80, missingItems: [] }, resume: state.resumes[userId] || null });
     }
     if (pathname === '/api/student/resume' && req.method === 'POST') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       const body = await parseJSON(req);
       if (!body.fileUrl && !body.resumeUrl) return sendJSON(400, { error: 'Resume file or URL is required.' });
       state.resumes[userId] = {
@@ -580,35 +638,51 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(201, { success: true, resume: state.resumes[userId] });
     }
     if (pathname === '/api/student/profile' && req.method === 'PUT') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       const body = await parseJSON(req);
-      state.studentProfiles[userId] = { ...(state.studentProfiles[userId] || {}), ...body };
+      const updated = await userDb.createOrUpdateStudentProfile(userId, body);
+      if (!updated) return sendJSON(500, { error: 'Unable to save profile.' });
+      state.studentProfiles[userId] = { ...updated, email: authUser.email };
       return sendJSON(200, { success: true, profile: state.studentProfiles[userId] });
     }
     if (pathname === '/api/student/academics' && req.method === 'GET') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
-      return sendJSON(200, { cgpa: 8.8, records: state.academicRecords[userId] || state.academicRecords[1], school: state.schoolEducation[userId] || state.schoolEducation[1], backlog: state.backlogs[userId] || state.backlogs[1] });
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
+      const profile = await userDb.getStudentProfileByUserId(userId);
+      return sendJSON(200, { cgpa: profile && profile.cgpa != null ? profile.cgpa : null, records: state.academicRecords[userId] || [], school: state.schoolEducation[userId] || null, backlog: state.backlogs[userId] || null });
     }
     if (pathname === '/api/student/skills' && req.method === 'GET') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
-      return sendJSON(200, { technical: state.userSkills[userId] || state.userSkills[1], coding: state.codingSkills[userId] || state.codingSkills[1] });
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
+      return sendJSON(200, { technical: state.userSkills[userId] || [], coding: state.codingSkills[userId] || null });
     }
     if (pathname === '/api/student/assessments' && req.method === 'GET') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       const computedScore = calculateSkillScore(userId);
-      return sendJSON(200, { ...(state.assessments[userId] || state.assessments[1]), overall_score: computedScore });
+      return sendJSON(200, { ...(state.assessments[userId] || { tests: [], breakdown: {} }), overall_score: computedScore });
     }
     if (pathname === '/api/student/portfolio' && req.method === 'GET') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
-      return sendJSON(200, { projects: state.projects[userId] || state.projects[1], internships: state.internships[userId] || state.internships[1], certifications: state.certifications[userId] || state.certifications[1], seminars: state.seminars[userId] || state.seminars[1], workshops: state.workshops[userId] || state.workshops[1], hackathons: state.hackathons[userId] || state.hackathons[1], achievements: state.achievements[userId] || state.achievements[1] });
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
+      return sendJSON(200, { projects: state.projects[userId] || [], internships: state.internships[userId] || [], certifications: state.certifications[userId] || [], seminars: state.seminars[userId] || [], workshops: state.workshops[userId] || [], hackathons: state.hackathons[userId] || [], achievements: state.achievements[userId] || [] });
     }
     if (pathname === '/api/opportunities' && req.method === 'GET') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       return sendJSON(200, state.jobs.map(j => {
-        const comp = state.companies.find(c => c.companyId === j.companyId) || state.companies[0];
+        const comp = state.companies.find(c => c.companyId === j.companyId);
+        if (!comp) return null;
         const match = calculateCompanyMatch(userId, comp);
         return { ...j, match_percentage: match.matchPercentage, is_eligible: match.isEligible };
-      }));
+      }).filter(Boolean));
     }
     if (pathname === '/api/student/apply' && req.method === 'POST') {
       const authUser = getAuthUser();
@@ -633,7 +707,9 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(200, state.applications.filter(application => application.student_id === authUser.id));
     }
     if (pathname === '/api/student/campus-drives' && req.method === 'GET') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       const drives = state.campusDrives || [
         { id: 1, company: 'TechCorp Solutions', role: 'Software Engineer', location: 'Chennai / Hybrid', date: '2026-09-18', deadline: '2026-09-15', minimumCGPA: 7.5, salary: 'INR 8-12 LPA', eligible: true, registered: false, reason: 'Matches your academic and skill profile.' },
         { id: 2, company: 'DataSoft Systems', role: 'Data Analyst', location: 'Bengaluru', date: '2026-09-24', deadline: '2026-09-20', minimumCGPA: 8.0, salary: 'INR 6-9 LPA', eligible: true, registered: false, reason: 'Eligible based on your CGPA and technical skills.' },
@@ -642,7 +718,9 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(200, drives.map(drive => ({ ...drive, registered: Boolean((state.campusRegistrations || {})[userId]?.includes(drive.id)) })));
     }
     if (pathname.match(/^\/api\/student\/campus-drives\/\d+\/register$/) && req.method === 'POST') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       const driveId = Number(pathname.split('/')[4]);
       const registrations = state.campusRegistrations || (state.campusRegistrations = {});
       registrations[userId] = registrations[userId] || [];
@@ -650,7 +728,9 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(200, { success: true, driveId, registered: true });
     }
     if (pathname === '/api/student/placement' && req.method === 'GET') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       return sendJSON(200, { placement: (state.placements || {})[userId] || null });
     }
     if (pathname === '/api/student/notifications' && req.method === 'GET') {
@@ -670,13 +750,16 @@ const server = http.createServer(async (req, res) => {
 
     // UNIQUE AI ENGINES
     if (pathname === '/api/ai/calculate-skill-score' && req.method === 'POST') {
-      const authUser = getAuthUser(); const userId = authUser ? authUser.id : 1;
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
       const score = calculateSkillScore(userId);
       return sendJSON(200, { studentId: userId, employability_score: score, status: score >= 80 ? 'Highly Qualified' : 'Qualified' });
     }
     if (pathname.startsWith('/api/ai/company/') && req.method === 'GET') {
       const compId = Number(pathname.split('/').pop());
-      const comp = state.companies.find(c => c.id === compId) || state.companies[0];
+      const comp = state.companies.find(c => c.id === compId);
+      if (!comp) return sendJSON(404, { error: 'Company not found.' });
       const match = calculateCompanyMatch(1, comp);
       return sendJSON(200, match);
     }
@@ -687,8 +770,9 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/company/dashboard' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Access Denied. Company Auth Required.' });
-      const compId = authUser.companyId || 'CMP-10001';
-      const company = state.companies.find(c => c.companyId === compId) || state.companies[0];
+      const compId = authUser.companyId;
+      const company = state.companies.find(c => c.companyId === compId);
+      if (!company) return sendJSON(404, { error: 'Company profile not found.' });
       const compJobs = state.jobs.filter(j => j.companyId === compId);
       const compApps = state.applications.filter(a => a.companyId === compId);
 
@@ -698,8 +782,9 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/company/jobs' && req.method === 'POST') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Access Denied. Company Auth Required.' });
-      const compId = authUser.companyId || 'CMP-10001';
-      const comp = state.companies.find(c => c.companyId === compId) || state.companies[0];
+      const compId = authUser.companyId;
+      const comp = state.companies.find(c => c.companyId === compId);
+      if (!comp) return sendJSON(404, { error: 'Company profile not found.' });
       const body = await parseJSON(req);
 
       const newJob = { id: nextJobId(), company_id: comp.id, companyId: comp.companyId, company_name: comp.name, title: body.title, location: body.location || 'Remote', salary_stipend: body.salary_stipend || '₹ 12,00,000 P.A.', required_skills: (body.required_skills || 'Java,SQL').split(','), min_cgpa: Number(body.min_cgpa || 7.5), deadline: body.deadline || '2026-11-30' };
@@ -759,10 +844,15 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  server.listen(port, () => {
-    console.log(`================================================================`);
-    console.log(` SkillBridge Unique 3-Portal Backend Engine Running on Port ${port}`);
-    console.log(`================================================================`);
+  initializePersistentUsers().then(() => {
+    server.listen(port, () => {
+      console.log(`================================================================`);
+      console.log(` SkillBridge Unique 3-Portal Backend Engine Running on Port ${port}`);
+      console.log(`================================================================`);
+    });
+  }).catch(error => {
+    console.error('Persistent authentication initialization failed:', error);
+    process.exitCode = 1;
   });
 }
 
