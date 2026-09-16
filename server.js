@@ -184,7 +184,7 @@ function seedData() {
   };
 
   state.projects[1] = [
-    { id: 201, title: 'SkillBridge Academia–Industry Platform', description: 'Multi-tenant collaboration ecosystem connecting students with recruiters and university admins.', technologies: ['React', 'Node.js', 'REST API', 'CSS Glassmorphism'], github_url: 'https://github.com/EswaraKaruppasamy211/Skillmap', live_url: 'http://localhost:3000' }
+    { id: 201, title: 'SkillBridge Academia–Industry Platform', description: 'Multi-tenant collaboration ecosystem connecting students with recruiters and university admins.', technologies: ['React', 'Node.js', 'REST API', 'CSS Glassmorphism'], github_url: 'https://github.com/EswaraKaruppasamy211/Skillmap', live_url: 'https://ekinterview.vercel.app' }
   ];
   state.internships[1] = [
     { id: 301, company: 'TechCorp Solutions', role: 'Software Engineering Intern', start_date: '2025-05-01', end_date: '2025-07-31', company_score: '9.4 / 10', summary: 'Developed RESTful microservices and optimized database queries.' }
@@ -391,7 +391,9 @@ function generateOtpCode() {
 
 // HTTP SERVER ENGINE
 const server = http.createServer(async (req, res) => {
-  const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
+  const requestProtocol = req.headers['x-forwarded-proto'] || 'https';
+  const requestHost = req.headers.host || 'interview-wc6b.onrender.com';
+  const parsedUrl = new URL(req.url, `${requestProtocol}://${requestHost}`);
   const pathname = parsedUrl.pathname;
 
   const sendJSON = (statusCode, data) => {
@@ -546,16 +548,10 @@ const server = http.createServer(async (req, res) => {
       const loginIdentity = identity || email || username;
 
       if (userRole === 'company') {
-        const normalizedCompanyName = normalizeIdentity(companyName);
         const normalizedIdentity = normalizeIdentity(loginIdentity);
-        const identityMatches = state.users.filter(u =>
+        user = state.users.find(u =>
           u.role === 'company' &&
           (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity)
-        );
-        user = identityMatches.find(u =>
-          !normalizedCompanyName ||
-          normalizeIdentity(u.companyName) === normalizedCompanyName ||
-          normalizeIdentity(u.companyId) === normalizedCompanyName
         );
 
       } else if (userRole === 'college') {

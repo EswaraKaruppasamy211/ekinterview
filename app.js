@@ -388,8 +388,7 @@ async function handleStudentRegisterSubmit(e) {
 // COMPANY AUTH HANDLERS
 function openCompanyAuthModal(tab = 'login') {
   openModal('company-auth-modal');
-  const hasCompanyAccount = localStorage.getItem('sb_company_registered') === 'true';
-  switchCompanyAuthTab(tab === 'login' && !hasCompanyAccount ? 'register' : tab);
+  switchCompanyAuthTab(tab);
 }
 
 function switchCompanyAuthTab(tab) {
