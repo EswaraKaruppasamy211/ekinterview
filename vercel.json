@@ -13,7 +13,7 @@
   "redirects": [
     {
       "source": "/",
-      "destination": "/index.html",
+      "destination": "https://ekinterview.vercel.app/index.html",
       "permanent": false
     }
   ],
