@@ -1,7 +1,7 @@
 // SkillBridge — Enforced Security Client Engine for Student, Company & College Modules
 
 // Use relative API path that works in both local and production environments
-const API_BASE = '/api';
+const API_BASE = 'https://interview-wc6b.onrender.com/api';
 
 let currentUser = null;
 let currentProfile = null;
