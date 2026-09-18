@@ -7,7 +7,6 @@
    ========================================================================== */
 
 const http = require('http');
-const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -390,44 +389,38 @@ function generateOtpCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-function fetchIndustryNews(topic) {
-  const query = encodeURIComponent(`${topic || 'technology careers'} jobs industry`);
-  const url = `https://news.google.com/rss/search?q=${query}&hl=en-IN&gl=IN&ceid=IN:en`;
+function getStudentModuleNews() {
+  const profile = state.studentProfiles[1];
+  const skills = (state.userSkills[1] || []).slice(0, 3).map(skill => skill.skill_name);
+  const project = (state.projects[1] || [])[0];
+  const internship = (state.internships[1] || [])[0];
+  const certification = (state.certifications[1] || [])[0];
 
-  return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'SkillBridge/1.0' } }, response => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', chunk => { body += chunk; });
-      response.on('end', () => {
-        if (response.statusCode !== 200) {
-          reject(new Error(`News provider returned HTTP ${response.statusCode}`));
-          return;
-        }
-        const decode = value => value
-          .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-          .replace(/<[^>]+>/g, '')
-          .replace(/&amp;/g, '&')
-          .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'")
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .trim();
-        const items = [...body.matchAll(/<item>([\s\S]*?)<\/item>/g)]
-          .slice(0, 6)
-          .map(match => {
-            const item = match[1];
-            const read = tag => {
-              const found = item.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
-              return found ? decode(found[1]) : '';
-            };
-            return { title: read('title'), link: read('link'), source: read('source'), publishedAt: read('pubDate') };
-          })
-          .filter(item => item.title && item.link);
-        resolve({ topic: topic || 'technology careers', items });
-      });
-    }).on('error', reject);
-  });
+  return {
+    source: 'Student Module',
+    items: [
+      {
+        title: `${profile.name} added ${skills.join(', ')} to the student skills profile`,
+        detail: `${profile.department} student profile • CGPA ${profile.cgpa}`,
+        type: 'Skills update'
+      },
+      {
+        title: `${profile.name} completed ${certification.name}`,
+        detail: `Verified certification from ${certification.organization}`,
+        type: 'Certification'
+      },
+      {
+        title: `${profile.name} showcased ${project.title}`,
+        detail: project.description,
+        type: 'Project highlight'
+      },
+      {
+        title: `${profile.name} completed an internship at ${internship.company}`,
+        detail: `${internship.role} • ${internship.summary}`,
+        type: 'Experience'
+      }
+    ]
+  };
 }
 
 // HTTP SERVER ENGINE
@@ -817,8 +810,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/company/news' && req.method === 'GET') {
-      const topic = String(parsedUrl.searchParams.get('topic') || '').slice(0, 120);
-      return sendJSON(200, await fetchIndustryNews(topic));
+      return sendJSON(200, getStudentModuleNews());
     }
 
     if (pathname === '/api/company/jobs' && req.method === 'POST') {

@@ -2455,6 +2455,32 @@ async function renderCompanyDashboard() {
       </div>
     `).join('');
   }
+
+  loadCompanyIndustryNews();
+}
+
+async function loadCompanyIndustryNews() {
+  const container = document.getElementById('company-industry-news');
+  if (!container) return;
+  container.innerHTML = '<p class="text-sm" style="color:var(--text-muted);">Loading student-module updates...</p>';
+
+  try {
+    const data = await apiFetch('/company/news');
+    if (!data.items || !data.items.length) {
+      container.innerHTML = '<p class="text-sm" style="color:var(--text-muted);">No student updates are available.</p>';
+      return;
+    }
+    container.innerHTML = data.items.map(item => `
+      <article class="mb-3" style="padding-bottom:0.75rem; border-bottom:1px solid rgba(148,163,184,.18);">
+        <div class="text-xs mb-1" style="color:var(--text-blue); font-weight:700;">${item.type}</div>
+        <div style="font-weight:700; color:var(--text-primary);">${item.title}</div>
+        <div class="text-xs mt-1" style="color:var(--text-muted);">${item.detail}</div>
+      </article>
+    `).join('');
+  } catch (error) {
+    container.innerHTML = '<p class="text-sm" style="color:var(--text-muted);">Student updates are temporarily unavailable.</p>';
+    console.error('Failed to load student-module updates:', error.message);
+  }
 }
 
 function renderCompanyProfile() {
