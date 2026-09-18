@@ -571,7 +571,7 @@ const server = http.createServer(async (req, res) => {
         state.studentProfiles[stored.id] = profile;
         delete otpStore[normalizedEmail];
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'student' });
-        return sendJSON(201, { token, user: sanitizeUser(newUser), profile: state.studentProfiles[newId] });
+        return sendJSON(201, { token, user: sanitizeUser(newUser), profile: state.studentProfiles[stored.id] });
       }
     }
 
@@ -580,6 +580,9 @@ const server = http.createServer(async (req, res) => {
       const userRole = role || 'student';
       let user = null;
       const loginIdentity = identity || email || username;
+      if (!normalizeIdentity(loginIdentity) || !password) {
+        return sendJSON(400, { error: 'Username or email and password are required.' });
+      }
 
       if (userRole === 'company') {
         const normalizedIdentity = normalizeIdentity(loginIdentity);
