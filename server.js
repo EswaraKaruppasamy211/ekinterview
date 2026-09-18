@@ -820,6 +820,35 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(200, { company, total_jobs: compJobs.length, total_applicants: compApps.length, shortlisted: compApps.filter(a => a.status === 'Shortlisted' || a.status === 'Technical Interview').length, pipeline: compApps });
     }
 
+    if (pathname === '/api/company/candidates' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Access Denied. Company Auth Required.' });
+      const persistedUsers = await userDb.getAllUsers();
+      const candidates = [];
+      for (const user of persistedUsers.filter(item => item.role === 'student')) {
+        const profile = {
+          ...(state.studentProfiles[user.id] || {}),
+          ...(await userDb.getStudentProfileByUserId(user.id) || {})
+        };
+        if (!profile) continue;
+        const skills = state.userSkills[user.id] || [];
+        const projects = state.projects[user.id] || [];
+        const certifications = state.certifications[user.id] || [];
+        candidates.push({
+          studentId: profile.student_id || user.username,
+          name: profile.name || user.username,
+          department: profile.department || 'Department not provided',
+          college: profile.college || 'College not provided',
+          cgpa: profile.cgpa,
+          skills: skills.map(skill => skill.skill_name),
+          projects: projects.length,
+          certifications: certifications.length,
+          goal: profile.goal || profile.degree || 'Career goal not provided'
+        });
+      }
+      return sendJSON(200, candidates);
+    }
+
     if (pathname === '/api/company/news' && req.method === 'GET') {
       return sendJSON(200, getStudentModuleNews());
     }

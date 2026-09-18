@@ -2579,7 +2579,7 @@ function renderCompanyProfile() {
   if (completionEl) completionEl.textContent = `Profile Completion: ${completion}%`;
 }
 
-function renderCompanyTalentDiscovery() {
+async function renderCompanyTalentDiscovery() {
   const container = document.getElementById('company-talent-results');
   if (!container) return;
 
@@ -2602,10 +2602,21 @@ function renderCompanyTalentDiscovery() {
   const department = (departmentInput?.value || '').toLowerCase();
   const availability = (availabilityInput?.value || '').toLowerCase();
 
-  const candidates = companyAIService.getTalentCandidates().filter(candidate => {
-    const matchesText = !query || candidate.matchingSkills.some(skill => skill.toLowerCase().includes(query)) || candidate.name.toLowerCase().includes(query);
+  let registeredStudents;
+  try {
+    const response = await apiFetch('/company/candidates');
+    registeredStudents = response || [];
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load registered student details.</div>';
+    console.error('Failed to load registered students:', error.message);
+    return;
+  }
+
+  const candidates = registeredStudents.filter(candidate => {
+    const skills = candidate.skills || [];
+    const matchesText = !query || skills.some(skill => skill.toLowerCase().includes(query)) || candidate.name.toLowerCase().includes(query);
     const matchesDepartment = !department || candidate.department.toLowerCase() === department;
-    const matchesAvailability = !availability || candidate.availability.toLowerCase().includes(availability);
+    const matchesAvailability = !availability;
     return matchesText && matchesDepartment && matchesAvailability;
   });
 
@@ -2614,41 +2625,52 @@ function renderCompanyTalentDiscovery() {
       <div class="flex-between mb-3">
         <div>
           <h4 style="font-weight:800; margin:0;">${candidate.name}</h4>
-          <div style="font-size:0.78rem; color:var(--text-muted);">${candidate.department} • ${candidate.cgpa} CGPA</div>
+          <div style="font-size:0.78rem; color:var(--text-muted);">${candidate.studentId} • ${candidate.department} • ${candidate.cgpa ?? 'CGPA not provided'}</div>
         </div>
-        <div class="badge-saas badge-${candidate.scoreColor}">${candidate.skillScore}% Match</div>
+        <div class="badge-saas badge-blue">Registered student</div>
       </div>
       <div class="grid-2 gap-2 text-xs mb-3" style="color:var(--text-muted);">
-        <div><strong>Matching skills:</strong> ${candidate.matchingSkills.join(', ')}</div>
+        <div><strong>Skills:</strong> ${candidate.skills.join(', ') || 'Not provided'}</div>
         <div><strong>Projects:</strong> ${candidate.projects}</div>
         <div><strong>Certifications:</strong> ${candidate.certifications}</div>
-        <div><strong>Experience:</strong> ${candidate.experience}</div>
-        <div><strong>Availability:</strong> ${candidate.availability}</div>
-        <div><strong>Skills score:</strong> ${candidate.skillScore}</div>
+        <div><strong>College:</strong> ${candidate.college}</div>
+        <div><strong>Goal:</strong> ${candidate.goal}</div>
       </div>
-      <div class="flex-align gap-2 flex-wrap">${candidate.matchingSkills.map(skill => `<span class="badge-saas badge-blue">${skill}</span>`).join('')}</div>
+      <div class="flex-align gap-2 flex-wrap">${(candidate.skills || []).map(skill => `<span class="badge-saas badge-blue">${skill}</span>`).join('')}</div>
     </div>
   `).join('') : '<div class="saas-card">No candidate matches found for the selected filters.</div>';
 }
 
-function runCompanyAIMatch() {
+async function runCompanyAIMatch() {
   const container = document.getElementById('company-ai-match-results');
   const text = document.getElementById('company-job-description')?.value || '';
   if (!container) return;
-  const matches = companyAIService.getAIRecommendations(text);
+  const candidates = await apiFetch('/company/candidates');
+  const keywords = text.toLowerCase().split(/[^a-z0-9+#.]+/).filter(Boolean);
+  const matches = candidates.map(candidate => {
+    const skills = candidate.skills || [];
+    const matchedSkills = skills.filter(skill => keywords.some(keyword => skill.toLowerCase().includes(keyword)));
+    const match = Math.min(99, 60 + (matchedSkills.length * 8) + Math.min(20, candidate.projects * 4) + Math.min(10, candidate.certifications * 3));
+    return {
+      ...candidate,
+      match,
+      skillScore: Math.min(99, matchedSkills.length ? Math.round((matchedSkills.length / Math.max(skills.length, 1)) * 100) : 0),
+      why: `${candidate.name} has ${skills.slice(0, 3).join(', ') || 'student profile'} with ${candidate.projects} project(s) and ${candidate.certifications} certification(s).`
+    };
+  }).sort((a, b) => b.match - a.match);
   container.innerHTML = matches.slice(0, 3).map((candidate, index) => `
     <div class="saas-card mb-4">
       <div class="flex-between mb-3">
         <div>
-          <div class="badge-saas badge-${candidate.scoreColor}">${index + 1}. ${candidate.name}</div>
+          <div class="badge-saas badge-blue">${index + 1}. ${candidate.name}</div>
         </div>
         <div style="font-size:1.4rem; font-weight:800; color:var(--text-blue);">${candidate.match}%</div>
       </div>
       <div class="grid-2 gap-3 text-sm" style="color:var(--text-secondary);">
         <div><strong>Skill Match:</strong> ${candidate.skillScore}%</div>
-        <div><strong>Project Match:</strong> ${candidate.projects * 18}%</div>
+        <div><strong>Project Match:</strong> ${Math.min(99, candidate.projects * 18)}%</div>
         <div><strong>Education Match:</strong> ${Math.min(98, candidate.cgpa * 10)}%</div>
-        <div><strong>Experience Match:</strong> ${Math.min(97, 72 + candidate.projects * 5)}%</div>
+        <div><strong>Experience Match:</strong> ${Math.min(97, 60 + candidate.projects * 5)}%</div>
       </div>
       <div class="mt-3"><strong>Why this candidate is recommended:</strong> ${candidate.why}</div>
     </div>
@@ -2805,24 +2827,34 @@ function companySendCampusRequest() {
   alert('Campus hiring request sent to the selected university partnerships.');
 }
 
-function renderCompanyShortlist() {
+async function renderCompanyShortlist() {
   const container = document.getElementById('company-shortlist-content');
   if (!container) return;
-  container.innerHTML = companyRecruitmentMock.shortlist.map(candidate => `
+  let candidates;
+  try {
+    candidates = await apiFetch('/company/candidates');
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load registered student details.</div>';
+    console.error('Failed to load registered students:', error.message);
+    return;
+  }
+  container.innerHTML = candidates.map(candidate => `
     <div class="saas-card mb-3">
       <div class="flex-between mb-2">
         <div><h4 style="font-weight:800; margin:0;">${candidate.name}</h4></div>
-        <span class="badge-saas badge-blue">AI ${candidate.aiScore}%</span>
+        <span class="badge-saas badge-blue">Registered student</span>
       </div>
       <div class="grid-2 gap-3 text-sm" style="color:var(--text-muted);">
-        <div><strong>Skills:</strong> ${candidate.skillMatch}%</div>
-        <div><strong>CGPA:</strong> ${candidate.cgpa}</div>
+        <div><strong>Student ID:</strong> ${candidate.studentId}</div>
+        <div><strong>Department:</strong> ${candidate.department}</div>
+        <div><strong>Skills:</strong> ${(candidate.skills || []).join(', ') || 'Not provided'}</div>
+        <div><strong>CGPA:</strong> ${candidate.cgpa ?? 'Not provided'}</div>
         <div><strong>Projects:</strong> ${candidate.projects}</div>
-        <div><strong>Assessment:</strong> ${candidate.assessment}%</div>
+        <div><strong>Certifications:</strong> ${candidate.certifications}</div>
       </div>
-      <div class="mt-3"><strong>Notes:</strong> ${candidate.notes}</div>
+      <div class="mt-3"><strong>Career goal:</strong> ${candidate.goal}</div>
     </div>
-  `).join('');
+  `).join('') || '<div class="saas-card">No registered students are available.</div>';
 }
 
 function companyCompareCandidates() {
