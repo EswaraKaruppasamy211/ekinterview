@@ -429,6 +429,12 @@ async function handleStudentRegisterSubmit(e) {
     switchPortalRole('student');
     showAppWorkspace();
   } catch (err) {
+    if (/already (exists|registered)/i.test(err.message || '')) {
+      document.getElementById('stu-login-id').value = email;
+      switchStudentAuthTab('login');
+      alert('This email is already registered. Please enter your password to sign in.');
+      return;
+    }
     alert(err.message || 'Student Registration Failed.');
   }
 }
@@ -499,6 +505,12 @@ async function handleCompanyRegisterSubmit(e) {
     switchPortalRole('company');
     showAppWorkspace();
   } catch (err) {
+    if (/already (exists|registered)/i.test(err.message || '')) {
+      document.getElementById('comp-login-user').value = email;
+      switchCompanyAuthTab('login');
+      alert('This email is already registered. Please enter your password to sign in.');
+      return;
+    }
     alert(err.message || 'Company Registration Failed.');
   }
 }
@@ -567,6 +579,12 @@ async function handleCollegeRegisterSubmit(e) {
     switchPortalRole('college');
     showAppWorkspace();
   } catch (err) {
+    if (/already (exists|registered)/i.test(err.message || '')) {
+      document.getElementById('col-login-user').value = email;
+      switchCollegeAuthTab('login');
+      alert('This email is already registered. Please enter your password to sign in.');
+      return;
+    }
     alert(err.message || 'University Registration Failed.');
   }
 }
