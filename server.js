@@ -7,6 +7,7 @@
    ========================================================================== */
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -387,6 +388,46 @@ const otpStore = {};
 
 function generateOtpCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function fetchIndustryNews(topic) {
+  const query = encodeURIComponent(`${topic || 'technology careers'} jobs industry`);
+  const url = `https://news.google.com/rss/search?q=${query}&hl=en-IN&gl=IN&ceid=IN:en`;
+
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'SkillBridge/1.0' } }, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`News provider returned HTTP ${response.statusCode}`));
+          return;
+        }
+        const decode = value => value
+          .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+          .replace(/<[^>]+>/g, '')
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .trim();
+        const items = [...body.matchAll(/<item>([\s\S]*?)<\/item>/g)]
+          .slice(0, 6)
+          .map(match => {
+            const item = match[1];
+            const read = tag => {
+              const found = item.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+              return found ? decode(found[1]) : '';
+            };
+            return { title: read('title'), link: read('link'), source: read('source'), publishedAt: read('pubDate') };
+          })
+          .filter(item => item.title && item.link);
+        resolve({ topic: topic || 'technology careers', items });
+      });
+    }).on('error', reject);
+  });
 }
 
 // HTTP SERVER ENGINE
@@ -773,6 +814,11 @@ const server = http.createServer(async (req, res) => {
       const compApps = state.applications.filter(a => a.companyId === compId);
 
       return sendJSON(200, { company, total_jobs: compJobs.length, total_applicants: compApps.length, shortlisted: compApps.filter(a => a.status === 'Shortlisted' || a.status === 'Technical Interview').length, pipeline: compApps });
+    }
+
+    if (pathname === '/api/company/news' && req.method === 'GET') {
+      const topic = String(parsedUrl.searchParams.get('topic') || '').slice(0, 120);
+      return sendJSON(200, await fetchIndustryNews(topic));
     }
 
     if (pathname === '/api/company/jobs' && req.method === 'POST') {

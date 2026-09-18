@@ -2011,6 +2011,35 @@ async function renderCompanyDashboard() {
       </div>
     `).join('');
   }
+
+  loadCompanyIndustryNews();
+}
+
+async function loadCompanyIndustryNews() {
+  const container = document.getElementById('company-industry-news');
+  if (!container) return;
+  const topic = companyRecruitmentMock.demandSkills
+    .slice(0, 3)
+    .map(item => item.name)
+    .join(', ');
+  container.innerHTML = '<p class="text-sm" style="color:var(--text-muted);">Loading current industry coverage...</p>';
+
+  try {
+    const data = await apiFetch(`/company/news?topic=${encodeURIComponent(topic)}`);
+    if (!data.items || !data.items.length) {
+      container.innerHTML = '<p class="text-sm" style="color:var(--text-muted);">No current articles found for this skill area.</p>';
+      return;
+    }
+    container.innerHTML = data.items.map(item => `
+      <article class="mb-3" style="padding-bottom:0.75rem; border-bottom:1px solid rgba(148,163,184,.18);">
+        <a href="${item.link}" target="_blank" rel="noopener noreferrer" style="font-weight:700; color:var(--text-primary);">${item.title}</a>
+        <div class="text-xs mt-1" style="color:var(--text-muted);">${item.source || 'External source'}${item.publishedAt ? ` · ${new Date(item.publishedAt).toLocaleDateString()}` : ''}</div>
+      </article>
+    `).join('');
+  } catch (error) {
+    container.innerHTML = '<p class="text-sm" style="color:var(--text-muted);">Industry news is temporarily unavailable.</p>';
+    console.error('Failed to load industry news:', error.message);
+  }
 }
 
 function renderCompanyProfile() {
