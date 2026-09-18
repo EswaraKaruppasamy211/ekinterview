@@ -617,14 +617,14 @@
       <!-- STUDENT LOGIN FORM -->
       <form id="student-login-form" onsubmit="handleStudentLoginSubmit(event)">
         <div class="mb-3">
-          <label class="block text-xs font-bold mb-1">Username / Email *</label>
-          <input type="text" id="stu-login-id" class="saas-input" placeholder="Username or email" autocomplete="username" required />
+          <label class="block text-xs font-bold mb-1">Email Address *</label>
+          <input type="email" id="stu-login-id" class="saas-input" placeholder="you@example.com" autocomplete="email" required />
         </div>
-        <div class="mb-4">
+        <div id="stu-login-password-block" class="mb-4 hidden">
           <label class="block text-xs font-bold mb-1">Password *</label>
-          <input type="password" id="stu-login-pass" class="saas-input" autocomplete="current-password" required />
+          <input type="password" id="stu-login-pass" class="saas-input" autocomplete="current-password" />
         </div>
-        <button type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Sign In to Student Portal</button>
+        <button id="stu-login-submit" type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Continue</button>
         <p class="text-xs text-center" style="color:var(--text-muted);">Don't have an account? <a href="#" onclick="switchStudentAuthTab('register')" style="color:var(--text-blue); font-weight:700;">Register Student Account</a></p>
       </form>
 
@@ -673,18 +673,14 @@
       <!-- COMPANY LOGIN FORM -->
       <form id="company-login-form" onsubmit="handleCompanyLoginSubmit(event)">
         <div class="mb-3">
-          <label class="block text-xs font-bold mb-1">Company Name <span style="color:var(--text-muted);">(optional)</span></label>
-          <input type="text" id="comp-login-name" class="saas-input" placeholder="e.g. TechCorp Solutions or CMP-10001" required />
+          <label class="block text-xs font-bold mb-1">Email Address *</label>
+          <input type="email" id="comp-login-user" class="saas-input" placeholder="recruiter@company.com" autocomplete="email" required />
         </div>
-        <div class="mb-3">
-          <label class="block text-xs font-bold mb-1">Recruiter Username / Email *</label>
-          <input type="text" id="comp-login-user" class="saas-input" required />
-        </div>
-        <div class="mb-4">
+        <div id="comp-login-password-block" class="mb-4 hidden">
           <label class="block text-xs font-bold mb-1">Password *</label>
-          <input type="password" id="comp-login-pass" class="saas-input" required />
+          <input type="password" id="comp-login-pass" class="saas-input" />
         </div>
-        <button type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Access Recruiter ATS Workspace</button>
+        <button id="comp-login-submit" type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Continue</button>
         <p class="text-xs text-center" style="color:var(--text-muted);">Don't have a corporate account? <a href="#" onclick="switchCompanyAuthTab('register')" style="color:var(--text-blue); font-weight:700;">Register Company Here</a></p>
       </form>
 
@@ -723,18 +719,14 @@
       <!-- COLLEGE LOGIN FORM -->
       <form id="college-login-form" onsubmit="handleCollegeLoginSubmit(event)">
         <div class="mb-3">
-          <label class="block text-xs font-bold mb-1">University / College Name *</label>
-          <input type="text" id="col-login-name" class="saas-input" placeholder="e.g. Anna University" required />
+          <label class="block text-xs font-bold mb-1">Email Address *</label>
+          <input type="email" id="col-login-user" class="saas-input" placeholder="admin@university.edu" autocomplete="email" required />
         </div>
-        <div class="mb-3">
-          <label class="block text-xs font-bold mb-1">Admin Username / Email *</label>
-          <input type="text" id="col-login-user" class="saas-input" required />
-        </div>
-        <div class="mb-4">
+        <div id="col-login-password-block" class="mb-4 hidden">
           <label class="block text-xs font-bold mb-1">Password *</label>
-          <input type="password" id="col-login-pass" class="saas-input" required />
+          <input type="password" id="col-login-pass" class="saas-input" />
         </div>
-        <button type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Access Placement Analytics</button>
+        <button id="col-login-submit" type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Continue</button>
         <p class="text-xs text-center" style="color:var(--text-muted);">Don't have an admin account? <a href="#" onclick="switchCollegeAuthTab('register')" style="color:var(--text-purple); font-weight:700;">Register University Admin</a></p>
       </form>
 

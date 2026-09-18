@@ -356,12 +356,36 @@ function switchStudentAuthTab(tab) {
   }
 }
 
+async function checkLoginEmail(formId, email, role, passwordBlockId, passwordId, submitId, switchTab, registerEmailId) {
+  const form = document.getElementById(formId);
+  if (form.dataset.emailChecked === email) return true;
+  const result = await apiFetch('/auth/check-email', {
+    method: 'POST',
+    body: JSON.stringify({ email, role })
+  });
+  if (!result.registeredForRole) {
+    document.getElementById(registerEmailId).value = email;
+    if (result.registered) {
+      alert('This email is already registered for another account type. Please use that login portal.');
+    } else {
+      switchTab('register');
+    }
+    return false;
+  }
+  form.dataset.emailChecked = email;
+  document.getElementById(passwordBlockId).classList.remove('hidden');
+  document.getElementById(passwordId).required = true;
+  document.getElementById(submitId).textContent = 'Sign In';
+  return false;
+}
+
 async function handleStudentLoginSubmit(e) {
   e.preventDefault();
-  const identity = document.getElementById('stu-login-id').value.trim();
+  const identity = document.getElementById('stu-login-id').value.trim().toLowerCase();
   const password = document.getElementById('stu-login-pass').value.trim();
 
   try {
+    if (!await checkLoginEmail('student-login-form', identity, 'student', 'stu-login-password-block', 'stu-login-pass', 'stu-login-submit', switchStudentAuthTab, 'stu-reg-email')) return;
     const data = await apiFetch('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identity, password, role: 'student' })
@@ -448,14 +472,14 @@ function switchCompanyAuthTab(tab) {
 
 async function handleCompanyLoginSubmit(e) {
   e.preventDefault();
-  const companyName = document.getElementById('comp-login-name').value.trim();
-  const identity = document.getElementById('comp-login-user').value.trim();
+  const identity = document.getElementById('comp-login-user').value.trim().toLowerCase();
   const password = document.getElementById('comp-login-pass').value.trim();
 
   try {
+    if (!await checkLoginEmail('company-login-form', identity, 'company', 'comp-login-password-block', 'comp-login-pass', 'comp-login-submit', switchCompanyAuthTab, 'comp-reg-email')) return;
     const data = await apiFetch('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ companyName, identity, password, role: 'company' })
+      body: JSON.stringify({ identity, password, role: 'company' })
     });
     authToken = data.token;
     localStorage.setItem('sb_token', authToken);
@@ -518,10 +542,11 @@ function switchCollegeAuthTab(tab) {
 
 async function handleCollegeLoginSubmit(e) {
   e.preventDefault();
-  const identity = document.getElementById('col-login-user').value.trim();
+  const identity = document.getElementById('col-login-user').value.trim().toLowerCase();
   const password = document.getElementById('col-login-pass').value.trim();
 
   try {
+    if (!await checkLoginEmail('college-login-form', identity, 'college', 'col-login-password-block', 'col-login-pass', 'col-login-submit', switchCollegeAuthTab, 'col-reg-email')) return;
     const data = await apiFetch('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identity, password, role: 'college' })

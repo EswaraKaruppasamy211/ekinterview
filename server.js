@@ -519,6 +519,20 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(200, { success: true, message: 'Email verified successfully.' });
     }
 
+    if (pathname === '/api/auth/check-email' && req.method === 'POST') {
+      const { email, role } = await parseJSON(req);
+      const normalizedEmail = normalizeIdentity(email);
+      if (!normalizedEmail || !normalizedEmail.includes('@')) {
+        return sendJSON(400, { error: 'A valid email address is required.' });
+      }
+      const user = await userDb.getUserByEmail(normalizedEmail);
+      return sendJSON(200, {
+        registered: Boolean(user),
+        registeredForRole: Boolean(user && (!role || user.role === role)),
+        role: user ? user.role : null
+      });
+    }
+
     if (pathname === '/api/auth/register' && req.method === 'POST') {
       const { fullName, username, email, mobile, studentId, companyName, managerName, collegeName, adminName, role, password } = await parseJSON(req);
       const userRole = role || 'student';
