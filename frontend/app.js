@@ -1624,23 +1624,32 @@ async function loadCollegePartnerships() {
   const container = document.getElementById('college-partnerships-content');
   if (!container) return;
 
+  let companies;
+  try {
+    companies = await apiFetch('/college/companies');
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load registered companies.</div>';
+    console.error('Failed to load registered companies:', error.message);
+    return;
+  }
+
   container.innerHTML = `
     <div class="grid-2 gap-4">
-      ${universityAdminMock.partnerships.map(item => `
+      ${companies.map(company => `
         <div class="saas-card">
           <div class="flex-between mb-3">
             <div>
-              <h3 style="font-weight:800; margin:0;">${item.company}</h3>
-              <div class="text-xs mt-1" style="color:var(--text-muted);">${item.type}</div>
+              <h3 style="font-weight:800; margin:0;">${company.name}</h3>
+              <div class="text-xs mt-1" style="color:var(--text-muted);">${company.companyId || 'Company ID pending'}</div>
             </div>
-            <span class="badge-saas ${item.status === 'Active' ? 'badge-emerald' : 'badge-orange'}">${item.status}</span>
+            <span class="badge-saas badge-emerald">Registered</span>
           </div>
           <div class="grid-2 gap-2 text-sm">
-            <div><strong>Engagement:</strong><br>${item.engagement}</div>
-            <div><strong>Reach:</strong><br>${item.reach}</div>
+            <div><strong>Industry:</strong><br>${company.industry}</div>
+            <div><strong>Location:</strong><br>${company.location}</div>
           </div>
         </div>
-      `).join('')}
+      `).join('') || '<div class="saas-card">No registered companies are available.</div>'}
     </div>
   `;
 }
@@ -1649,21 +1658,30 @@ async function loadCollegePlacements() {
   const container = document.getElementById('college-placements-content');
   if (!container) return;
 
+  let companies;
+  try {
+    companies = await apiFetch('/college/companies');
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load registered companies.</div>';
+    console.error('Failed to load registered companies:', error.message);
+    return;
+  }
+
   container.innerHTML = `
     <div class="grid-2 gap-4">
-      ${universityAdminMock.placements.map(item => `
+      ${companies.map(company => `
         <div class="saas-card">
           <div class="flex-between mb-2">
-            <h3 style="font-weight:800; margin:0;">${item.company}</h3>
-            <span class="badge-saas badge-purple">${item.role}</span>
+            <h3 style="font-weight:800; margin:0;">${company.name}</h3>
+            <span class="badge-saas badge-purple">${company.companyId || 'Registered company'}</span>
           </div>
           <div class="grid-3 gap-2 text-sm">
-            <div><strong>Offers</strong><br>${item.offers}</div>
-            <div><strong>Accepted</strong><br>${item.accepted}</div>
-            <div><strong>Avg Package</strong><br>${item.avgPackage}</div>
+            <div><strong>Industry</strong><br>${company.industry}</div>
+            <div><strong>Location</strong><br>${company.location}</div>
+            <div><strong>Status</strong><br>Registered</div>
           </div>
         </div>
-      `).join('')}
+      `).join('') || '<div class="saas-card">No registered companies are available.</div>'}
     </div>
   `;
 }
@@ -1672,19 +1690,28 @@ async function loadCollegeCampusDrives() {
   const container = document.getElementById('college-campus-drives-list');
   if (!container) return;
 
+  let companies;
+  try {
+    companies = await apiFetch('/college/companies');
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load registered companies.</div>';
+    console.error('Failed to load registered companies:', error.message);
+    return;
+  }
+
   container.innerHTML = `
     <div class="grid-2 gap-4">
-      ${universityAdminMock.campusDrives.map(item => `
+      ${companies.map(company => `
         <div class="saas-card">
           <div class="flex-between mb-2">
-            <h3 style="font-weight:800; margin:0;">${item.company}</h3>
-            <span class="badge-saas ${item.status === 'Scheduled' ? 'badge-blue' : item.status === 'Confirmed' ? 'badge-emerald' : item.status === 'Shortlisted' ? 'badge-purple' : 'badge-orange'}">${item.status}</span>
+            <h3 style="font-weight:800; margin:0;">${company.name}</h3>
+            <span class="badge-saas badge-emerald">Registered</span>
           </div>
-          <div class="text-sm" style="color: var(--text-muted);">${item.date}</div>
-          <div class="mt-2 text-sm"><strong>Department:</strong> ${item.department}</div>
-          <div class="mt-1 text-sm"><strong>Mode:</strong> ${item.mode}</div>
+          <div class="text-sm" style="color: var(--text-muted);">${company.companyId || 'Company ID pending'}</div>
+          <div class="mt-2 text-sm"><strong>Industry:</strong> ${company.industry}</div>
+          <div class="mt-1 text-sm"><strong>Location:</strong> ${company.location}</div>
         </div>
-      `).join('')}
+      `).join('') || '<div class="saas-card">No registered companies are available.</div>'}
     </div>
   `;
 }

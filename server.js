@@ -869,6 +869,25 @@ const server = http.createServer(async (req, res) => {
       if (!authUser || authUser.role !== 'college') return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
       return sendJSON(200, Object.values(state.studentProfiles));
     }
+    if (pathname === '/api/college/companies' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'college') return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
+      const persistedUsers = await userDb.getAllUsers();
+      const registeredCompanies = persistedUsers
+        .filter(user => user.role === 'company')
+        .map(user => {
+          const stateUser = state.users.find(item => item.id === user.id);
+          const company = state.companies.find(item => item.companyId === (user.companyId || (stateUser && stateUser.companyId)));
+          return {
+            companyId: user.companyId || (stateUser && stateUser.companyId) || (company && company.companyId) || null,
+            name: user.companyName || (stateUser && stateUser.companyName) || (company && company.name) || user.username,
+            industry: (company && company.industry) || 'Industry partner',
+            location: (company && company.location) || 'Location not provided',
+            website: (company && company.website) || ''
+          };
+        });
+      return sendJSON(200, registeredCompanies);
+    }
 
     // Static Asset Server Fallback (Supports root & frontend directory)
     let filePath = path.join(repoRoot, pathname === '/' ? 'index.html' : pathname);
