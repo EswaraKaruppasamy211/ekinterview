@@ -380,7 +380,8 @@ async function checkLoginEmail(formId, email, role, passwordBlockId, passwordId,
       });
       result = { registered: false, registeredForRole: false };
     } catch (probeError) {
-      result = { registered: probeError.message.includes('already exists'), registeredForRole: probeError.message.includes('already exists') };
+      const alreadyRegistered = /already (exists|registered)/i.test(probeError.message);
+      result = { registered: alreadyRegistered, registeredForRole: alreadyRegistered };
     }
   }
   if (!result.registeredForRole) {
