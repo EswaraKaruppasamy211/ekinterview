@@ -385,12 +385,15 @@ async function checkLoginEmail(formId, email, role, passwordBlockId, passwordId,
     }
   }
   if (!result.registeredForRole) {
-    document.getElementById(registerEmailId).value = email;
     if (result.registered) {
-      alert('This email is already registered for another account type. Please use that login portal.');
-    } else {
-      switchTab('register');
+      form.dataset.emailChecked = email;
+      document.getElementById(passwordBlockId).classList.remove('hidden');
+      document.getElementById(passwordId).required = true;
+      document.getElementById(submitId).textContent = 'Sign In';
+      return false;
     }
+    document.getElementById(registerEmailId).value = email;
+    switchTab('register');
     return false;
   }
   form.dataset.emailChecked = email;
