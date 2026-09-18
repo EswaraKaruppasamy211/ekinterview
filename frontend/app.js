@@ -1550,10 +1550,21 @@ async function loadCollegeStudentDirectory() {
   const statusFilter = document.getElementById('college-student-status')?.value || 'all';
   const searchValue = (document.getElementById('college-student-search')?.value || '').trim().toLowerCase();
 
-  const filtered = universityAdminMock.students.filter(student => {
+  let students;
+  try {
+    students = await apiFetch('/college/students');
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load registered student details.</div>';
+    console.error('Failed to load registered students:', error.message);
+    return;
+  }
+
+  const filtered = students.filter(student => {
+    const studentStatus = student.status || 'Available';
+    const studentId = student.student_id || student.studentId || '';
     const matchesDept = deptFilter === 'all' || student.department === deptFilter;
-    const matchesStatus = statusFilter === 'all' || student.status === statusFilter;
-    const searchText = `${student.name} ${student.department} ${student.id}`.toLowerCase();
+    const matchesStatus = statusFilter === 'all' || studentStatus === statusFilter;
+    const searchText = `${student.name} ${student.department} ${studentId}`.toLowerCase();
     const matchesSearch = !searchValue || searchText.includes(searchValue);
     return matchesDept && matchesStatus && matchesSearch;
   });
@@ -1562,12 +1573,12 @@ async function loadCollegeStudentDirectory() {
     <div class="saas-card">
       <div class="flex-between mb-2">
         <h4 style="font-weight:700; margin:0;">${student.name}</h4>
-        <span class="badge-saas ${student.status === 'Placed' ? 'badge-emerald' : student.status === 'Shortlisted' ? 'badge-blue' : 'badge-purple'}">${student.status}</span>
+        <span class="badge-saas badge-purple">${student.status || 'Available'}</span>
       </div>
-      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">${student.id} • ${student.department}</div>
+      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">${student.student_id || student.studentId || 'Student ID pending'} • ${student.department || 'Department pending'}</div>
       <div class="grid-2 gap-2 text-sm">
-        <div><strong>CGPA:</strong> ${student.cgpa}</div>
-        <div><strong>Track:</strong> ${student.specialization}</div>
+        <div><strong>CGPA:</strong> ${student.cgpa ?? 'Not available'}</div>
+        <div><strong>Track:</strong> ${student.goal || student.degree || 'Not specified'}</div>
       </div>
     </div>
   `).join('') || '<div class="saas-card">No students match the current filters.</div>';
