@@ -597,6 +597,17 @@ const server = http.createServer(async (req, res) => {
         user = state.users.find(u => u.role === 'student' && (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.student_id) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity));
       }
 
+      if (!user && loginIdentity) {
+        const persistedUser = await userDb.getUserByEmail(loginIdentity) ||
+          await userDb.getUserByUsername(loginIdentity);
+        if (persistedUser && persistedUser.role === userRole) {
+          user = persistedUser;
+          if (!state.users.some(existing => existing.id === persistedUser.id)) {
+            state.users.push(user);
+          }
+        }
+      }
+
       if (!user || !verifyPassword(password, user.salt, user.password_hash)) {
         return sendJSON(401, { error: `Invalid ${userRole.toUpperCase()} credentials.` });
       }
