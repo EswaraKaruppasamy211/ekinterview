@@ -441,6 +441,13 @@ function switchCompanyAuthTab(tab) {
     loginForm.classList.remove('hidden');
     regForm.classList.add('hidden');
     resetLoginForm('company-login-form', 'comp-login-password-block', 'comp-login-pass', 'comp-login-submit');
+    const companyBlock = document.getElementById('comp-login-company-block');
+    const companyField = document.getElementById('comp-login-company');
+    if (companyBlock) companyBlock.classList.add('hidden');
+    if (companyField) {
+      companyField.value = '';
+      companyField.required = false;
+    }
   } else {
     title.innerHTML = '<i class="fa-solid fa-building text-blue"></i> Register Company Account';
     regForm.classList.remove('hidden');
@@ -472,6 +479,17 @@ async function handleCompanyLoginSubmit(e) {
     switchPortalRole('company');
     showAppWorkspace();
   } catch (err) {
+    if (/company name.*required/i.test(err.message || '')) {
+      const companyBlock = document.getElementById('comp-login-company-block');
+      const companyField = document.getElementById('comp-login-company');
+      if (companyBlock && companyField) {
+        companyBlock.classList.remove('hidden');
+        companyField.required = true;
+        companyField.focus();
+      }
+      alert('Enter the registered company name, then click Sign In again.');
+      return;
+    }
     alert(err.message || 'Company Login Failed.');
   }
 }
