@@ -2114,7 +2114,7 @@ async function renderCompanyProfile(editMode = false) {
   if (!container) return;
   let profile;
   try {
-    profile = await apiFetch('/company/profile');
+    profile = normalizeCompanyProfile(await apiFetch('/company/profile'));
   } catch (error) {
     container.innerHTML = '<div class="saas-card">Unable to load the company profile.</div>';
     console.error('Failed to load company profile:', error.message);
@@ -2165,7 +2165,10 @@ async function saveCompanyProfile(event) {
   const form = event.target;
   const body = Object.fromEntries(new FormData(form).entries());
   try {
-    await apiFetch('/company/profile', { method: 'PUT', body: JSON.stringify(body) });
+    await apiFetch('/company/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ ...body, name: body.company_name, companyName: body.company_name })
+    });
     const savedName = String(body.company_name || '').trim();
     if (savedName && currentUser) {
       currentUser.companyName = savedName;
@@ -2177,6 +2180,24 @@ async function saveCompanyProfile(event) {
   } catch (error) {
     alert(error.message || 'Unable to save company profile.');
   }
+}
+
+function normalizeCompanyProfile(response) {
+  const profile = response && (response.profile || response.company || response);
+  return {
+    ...(profile || {}),
+    company_name: profile?.company_name || profile?.name || profile?.companyName || '',
+    industry: profile?.industry || '',
+    website: profile?.website || '',
+    location: profile?.location || '',
+    description: profile?.description || '',
+    company_size: profile?.company_size || '',
+    founded_year: profile?.founded_year || '',
+    technologies: profile?.technologies || '',
+    required_skills: profile?.required_skills || '',
+    benefits: profile?.benefits || '',
+    contact: profile?.contact || ''
+  };
 }
 
 async function renderCompanyTalentDiscovery() {
