@@ -93,6 +93,20 @@ async function init() {
           ON DELETE CASCADE
       )
     `);
+    for (const column of [
+      'company_size TEXT',
+      'founded_year INTEGER',
+      'technologies TEXT',
+      'required_skills TEXT',
+      'benefits TEXT',
+      'contact TEXT'
+    ]) {
+      try {
+        await _db.run(`ALTER TABLE company_profiles ADD COLUMN ${column}`);
+      } catch (error) {
+        if (!/duplicate column name/i.test(error.message || '')) throw error;
+      }
+    }
 
     // ----------------------------------------------------
     // COLLEGE PROFILES
@@ -885,6 +899,51 @@ async function getStudentProfileByUserId(userId) {
 
     return null;
   }
+
+}
+
+async function getCompanyProfileByUserId(userId) {
+  const db = await init();
+  if (!db) return null;
+  return db.get('SELECT * FROM company_profiles WHERE user_id = ?', userId);
+}
+
+async function createOrUpdateCompanyProfile(userId, profile) {
+  const db = await init();
+  if (!db) return null;
+  await db.run(
+    `INSERT INTO company_profiles
+      (user_id, company_name, logo_url, industry, description, website, location, company_size, founded_year, technologies, required_skills, benefits, contact, verified)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))
+     ON CONFLICT(user_id) DO UPDATE SET
+      company_name = excluded.company_name,
+      logo_url = excluded.logo_url,
+      industry = excluded.industry,
+      description = excluded.description,
+      website = excluded.website,
+      location = excluded.location,
+      company_size = excluded.company_size,
+      founded_year = excluded.founded_year,
+      technologies = excluded.technologies,
+      required_skills = excluded.required_skills,
+      benefits = excluded.benefits,
+      contact = excluded.contact`,
+    userId,
+    profile.company_name || 'Company',
+    profile.logo_url || null,
+    profile.industry || null,
+    profile.description || null,
+    profile.website || null,
+    profile.location || null,
+    profile.company_size || null,
+    profile.founded_year || null,
+    profile.technologies || null,
+    profile.required_skills || null,
+    profile.benefits || null,
+    profile.contact || null,
+    profile.verified || 0
+  );
+  return getCompanyProfileByUserId(userId);
 }
 // ========================================================
 // MODULE EXPORTS
@@ -902,5 +961,7 @@ module.exports = {
 
   // Student profile functions
   createOrUpdateStudentProfile,
-  getStudentProfileByUserId
+  getStudentProfileByUserId,
+  createOrUpdateCompanyProfile,
+  getCompanyProfileByUserId
 };

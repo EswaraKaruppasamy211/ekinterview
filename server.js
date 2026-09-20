@@ -701,6 +701,53 @@ const server = http.createServer(async (req, res) => {
 
       return sendJSON(200, { company, total_jobs: compJobs.length, total_applicants: compApps.length, shortlisted: compApps.filter(a => a.status === 'Shortlisted' || a.status === 'Technical Interview').length, pipeline: compApps });
     }
+    if (pathname === '/api/company/profile' && (req.method === 'GET' || req.method === 'PUT')) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const existing = await userDb.getCompanyProfileByUserId(authUser.id);
+      const company = state.companies.find(item => item.companyId === authUser.companyId);
+      if (req.method === 'GET') {
+        return sendJSON(200, {
+          ...(existing || {}),
+          user_id: authUser.id,
+          company_id: authUser.companyId || null,
+          company_name: existing?.company_name || company?.name || authUser.companyName || authUser.username,
+          industry: existing?.industry || company?.industry || '',
+          website: existing?.website || company?.website || '',
+          location: existing?.location || company?.location || '',
+          description: existing?.description || company?.description || '',
+          company_size: existing?.company_size || '',
+          founded_year: existing?.founded_year || '',
+          technologies: existing?.technologies || '',
+          required_skills: existing?.required_skills || '',
+          benefits: existing?.benefits || '',
+          contact: existing?.contact || ''
+        });
+      }
+      const body = await parseJSON(req);
+      const profile = await userDb.createOrUpdateCompanyProfile(authUser.id, {
+        company_name: String(body.company_name || '').trim(),
+        industry: String(body.industry || '').trim(),
+        description: String(body.description || '').trim(),
+        website: String(body.website || '').trim(),
+        location: String(body.location || '').trim(),
+        company_size: String(body.company_size || '').trim(),
+        founded_year: Number(body.founded_year) || null,
+        technologies: String(body.technologies || '').trim(),
+        required_skills: String(body.required_skills || '').trim(),
+        benefits: String(body.benefits || '').trim(),
+        contact: String(body.contact || '').trim()
+      });
+      if (company) {
+        company.name = profile.company_name;
+        company.industry = profile.industry;
+        company.website = profile.website;
+        company.location = profile.location;
+        company.description = profile.description;
+      }
+      authUser.companyName = profile.company_name;
+      return sendJSON(200, { success: true, profile });
+    }
     if (pathname === '/api/company/offers' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });

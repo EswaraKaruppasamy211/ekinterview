@@ -2109,61 +2109,62 @@ async function loadCompanyIndustryNews() {
   }
 }
 
-function renderCompanyProfile() {
+async function renderCompanyProfile() {
   const container = document.getElementById('company-profile-content');
   if (!container) return;
-  const completion = 78;
-  const profile = {
-    name: 'TechCorp Solutions',
-    industry: 'Software & Digital Products',
-    size: '500-1000 employees',
-    location: 'Bengaluru, India',
-    website: 'https://www.techcorp.example',
-    description: 'Builds enterprise productivity platforms, AI copilots, and product engineering solutions for global clients.',
-    technologies: ['React', 'Node.js', 'MongoDB', 'Kubernetes', 'Python', 'AWS'],
-    requiredSkills: ['Full Stack Development', 'Data Structures', 'AI/ML', 'System Design', 'Communication'],
-    benefits: ['Health insurance', 'Flexible hybrid work', 'Learning stipend', 'Stock options'],
-    foundedYear: 2012,
-    contact: 'recruiter@techcorp.com | +91 99887 76543'
-  };
+  let profile;
+  try {
+    profile = await apiFetch('/company/profile');
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load the company profile.</div>';
+    console.error('Failed to load company profile:', error.message);
+    return;
+  }
+  const fields = [
+    ['company_name', 'Company name', profile.company_name],
+    ['industry', 'Industry', profile.industry],
+    ['website', 'Website', profile.website],
+    ['location', 'Location', profile.location],
+    ['description', 'Description', profile.description],
+    ['company_size', 'Company size', profile.company_size],
+    ['founded_year', 'Founded year', profile.founded_year],
+    ['technologies', 'Technologies', profile.technologies],
+    ['required_skills', 'Required skills', profile.required_skills],
+    ['benefits', 'Benefits', profile.benefits],
+    ['contact', 'Contact', profile.contact]
+  ];
   container.innerHTML = `
-    <div class="grid-2 gap-4">
-      <div class="saas-card">
-        <h3 style="font-weight:700; margin-bottom:1rem;">Company Identity</h3>
-        <div class="flex-align gap-3 mb-3">
-          <div style="width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,#38bdf8,#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:900;color:white;">T</div>
-          <div>
-            <div style="font-size:1rem; font-weight:800;">${profile.name}</div>
-            <div style="font-size:0.8rem; color:var(--text-muted);">${profile.industry}</div>
-          </div>
+    <form class="saas-card" onsubmit="saveCompanyProfile(event)">
+      <h3 style="font-weight:700; margin-bottom:1rem;">Company Profile</h3>
+      ${fields.map(([name, label, value]) => `
+        <div class="mb-3">
+          <label class="block text-xs font-bold mb-1">${label}</label>
+          ${name === 'description'
+            ? `<textarea class="saas-input" rows="5" name="${name}">${value || ''}</textarea>`
+            : `<input class="saas-input" name="${name}" value="${String(value || '').replace(/"/g, '&quot;')}" />`}
         </div>
-        <div class="mb-3"><label class="block text-xs font-bold mb-1">Company name</label><input class="saas-input" value="${profile.name}" /></div>
-        <div class="mb-3"><label class="block text-xs font-bold mb-1">Industry</label><input class="saas-input" value="${profile.industry}" /></div>
-        <div class="mb-3"><label class="block text-xs font-bold mb-1">Website</label><input class="saas-input" value="${profile.website}" /></div>
-        <div class="mb-3"><label class="block text-xs font-bold mb-1">Location</label><input class="saas-input" value="${profile.location}" /></div>
+      `).join('')}
+      <div class="flex-align gap-2">
+        <button type="submit" class="btn-saas btn-primary">Save changes</button>
+        <button type="button" class="btn-saas btn-outline" onclick="renderCompanyProfile()">Cancel</button>
       </div>
-      <div class="saas-card">
-        <h3 style="font-weight:700; margin-bottom:1rem;">Profile completion</h3>
-        <div class="mb-3"><div class="flex-between"><span>Company Profile Completion</span><strong>${completion}%</strong></div><div style="height:12px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden; margin-top:0.75rem;"><div style="width:${completion}%; height:100%; background:linear-gradient(90deg,#38bdf8,#8b5cf6); border-radius:999px;"></div></div></div>
-        <div class="mb-3"><label class="block text-xs font-bold mb-1">Description</label><textarea class="saas-input" rows="5">${profile.description}</textarea></div>
-        <div class="mb-3"><label class="block text-xs font-bold mb-1">Company size</label><input class="saas-input" value="${profile.size}" /></div>
-        <div><label class="block text-xs font-bold mb-1">Founded year</label><input class="saas-input" value="${profile.foundedYear}" /></div>
-      </div>
-    </div>
-    <div class="grid-2 gap-4 mt-4">
-      <div class="saas-card">
-        <h3 style="font-weight:700; margin-bottom:1rem;">Technology & skills</h3>
-        <div class="flex-align gap-2 flex-wrap mb-3">${profile.technologies.map(item => `<span class="badge-saas badge-blue">${item}</span>`).join('')}</div>
-        <div class="flex-align gap-2 flex-wrap">${profile.requiredSkills.map(item => `<span class="badge-saas badge-purple">${item}</span>`).join('')}</div>
-      </div>
-      <div class="saas-card">
-        <h3 style="font-weight:700; margin-bottom:1rem;">Benefits & contact</h3>
-        <div class="flex-align gap-2 flex-wrap mb-3">${profile.benefits.map(item => `<span class="badge-saas badge-emerald">${item}</span>`).join('')}</div>
-        <div style="font-size:0.85rem; color:var(--text-muted);">${profile.contact}</div>
-      </div>
-    </div>
+    </form>
   `;
-  document.getElementById('company-profile-completion').textContent = `Profile Completion: ${completion}%`;
+  const completion = fields.filter(([, , value]) => String(value || '').trim()).length / fields.length * 100;
+  document.getElementById('company-profile-completion').textContent = `Profile Completion: ${Math.round(completion)}%`;
+}
+
+async function saveCompanyProfile(event) {
+  event.preventDefault();
+  const form = event.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    await apiFetch('/company/profile', { method: 'PUT', body: JSON.stringify(body) });
+    alert('Company profile saved successfully.');
+    await renderCompanyProfile();
+  } catch (error) {
+    alert(error.message || 'Unable to save company profile.');
+  }
 }
 
 async function renderCompanyTalentDiscovery() {
