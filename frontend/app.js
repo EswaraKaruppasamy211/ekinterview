@@ -45,7 +45,11 @@ async function apiFetch(endpoint, options = {}) {
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'API Request Failed');
+    if (!res.ok) {
+      const error = new Error(data.error || 'API Request Failed');
+      error.status = res.status;
+      throw error;
+    }
     return data;
   } catch (err) {
     console.error('API Error:', err.message);
@@ -450,7 +454,7 @@ async function handleStudentRegisterSubmit(e) {
     switchPortalRole('student');
     showAppWorkspace();
   } catch (err) {
-    if (/already (exists|registered)/i.test(err.message || '')) {
+    if (err.status === 409 || /already (exists|registered)/i.test(err.message || '')) {
       document.getElementById('stu-login-id').value = email;
       switchStudentAuthTab('login');
       alert('This email is already registered. Please enter your password to sign in.');
@@ -532,7 +536,7 @@ async function handleCompanyRegisterSubmit(e) {
     switchPortalRole('company');
     showAppWorkspace();
   } catch (err) {
-    if (/already (exists|registered)/i.test(err.message || '')) {
+    if (err.status === 409 || /already (exists|registered)/i.test(err.message || '')) {
       document.getElementById('comp-login-user').value = email;
       switchCompanyAuthTab('login');
       alert('This email is already registered. Please enter your password to sign in.');
@@ -612,7 +616,7 @@ async function handleCollegeRegisterSubmit(e) {
     switchPortalRole('college');
     showAppWorkspace();
   } catch (err) {
-    if (/already (exists|registered)/i.test(err.message || '')) {
+    if (err.status === 409 || /already (exists|registered)/i.test(err.message || '')) {
       document.getElementById('col-login-user').value = email;
       switchCollegeAuthTab('login');
       alert('This email is already registered. Please enter your password to sign in.');
