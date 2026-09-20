@@ -2109,7 +2109,7 @@ async function loadCompanyIndustryNews() {
   }
 }
 
-async function renderCompanyProfile() {
+async function renderCompanyProfile(editMode = false) {
   const container = document.getElementById('company-profile-content');
   if (!container) return;
   let profile;
@@ -2133,21 +2133,27 @@ async function renderCompanyProfile() {
     ['benefits', 'Benefits', profile.benefits],
     ['contact', 'Contact', profile.contact]
   ];
+  const actionButtons = editMode
+    ? `<div class="flex-align gap-2">
+        <button type="submit" class="btn-saas btn-primary">Save changes</button>
+        <button type="button" class="btn-saas btn-outline" onclick="renderCompanyProfile()">Cancel</button>
+      </div>`
+    : `<button type="button" class="btn-saas btn-primary" onclick="renderCompanyProfile(true)">Edit profile</button>`;
   container.innerHTML = `
     <form class="saas-card" onsubmit="saveCompanyProfile(event)">
-      <h3 style="font-weight:700; margin-bottom:1rem;">Company Profile</h3>
+      <div class="flex-between gap-2 mb-4">
+        <h3 style="font-weight:700; margin:0;">Company Profile</h3>
+        ${actionButtons}
+      </div>
       ${fields.map(([name, label, value]) => `
         <div class="mb-3">
           <label class="block text-xs font-bold mb-1">${label}</label>
           ${name === 'description'
-            ? `<textarea class="saas-input" rows="5" name="${name}">${value || ''}</textarea>`
-            : `<input class="saas-input" name="${name}" value="${String(value || '').replace(/"/g, '&quot;')}" />`}
+            ? `<textarea class="saas-input" rows="5" name="${name}" ${editMode ? '' : 'disabled'}>${value || ''}</textarea>`
+            : `<input class="saas-input" name="${name}" value="${String(value || '').replace(/"/g, '&quot;')}" ${editMode ? '' : 'disabled'} />`}
         </div>
       `).join('')}
-      <div class="flex-align gap-2">
-        <button type="submit" class="btn-saas btn-primary">Save changes</button>
-        <button type="button" class="btn-saas btn-outline" onclick="renderCompanyProfile()">Cancel</button>
-      </div>
+      ${editMode ? actionButtons : ''}
     </form>
   `;
   const completion = fields.filter(([, , value]) => String(value || '').trim()).length / fields.length * 100;
@@ -2160,6 +2166,12 @@ async function saveCompanyProfile(event) {
   const body = Object.fromEntries(new FormData(form).entries());
   try {
     await apiFetch('/company/profile', { method: 'PUT', body: JSON.stringify(body) });
+    const savedName = String(body.company_name || '').trim();
+    if (savedName && currentUser) {
+      currentUser.companyName = savedName;
+      const displayName = document.getElementById('user-display-name');
+      if (displayName) displayName.textContent = savedName;
+    }
     alert('Company profile saved successfully.');
     await renderCompanyProfile();
   } catch (error) {
