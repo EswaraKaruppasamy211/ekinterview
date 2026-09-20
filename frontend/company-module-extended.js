@@ -466,7 +466,7 @@ async function loadOfferManagement() {
       <div style="background: rgba(255,255,255,0.05); padding: 0.75rem; border-radius: 6px;">
         <div style="display: flex; justify-content: space-between; align-items: start;">
           <div>
-            <div style="font-weight: 600;">${offer.candidateName} - ${offer.position}</div>
+            <div style="font-weight: 600;">${offer.candidateName} - ${offer.jobTitle}</div>
             <div style="font-size: 0.85rem; color: var(--text-muted);">
               Salary: ${offer.salary} • Joining: ${new Date(offer.joiningDate).toLocaleDateString()}
             </div>
@@ -475,8 +475,8 @@ async function loadOfferManagement() {
             </div>
           </div>
           <div style="display: flex; gap: 0.5rem;">
-            <button class="btn-saas" onclick="viewOfferLetter('${offer.offerId}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">View</button>
-            <button class="btn-saas" onclick="resendOffer('${offer.offerId}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Resend</button>
+            <button class="btn-saas" onclick="viewOfferLetter('${offer.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">View</button>
+            <button class="btn-saas" onclick="resendOffer('${offer.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Resend</button>
           </div>
         </div>
       </div>
@@ -495,12 +495,17 @@ async function handleGenerateOffer(event) {
     salary: document.getElementById('offer-salary').value,
     joiningDate: document.getElementById('offer-joining').value,
     location: document.getElementById('offer-location').value,
-    benefits: document.getElementById('offer-benefits').value,
-    validUntil: document.getElementById('offer-expiry').value,
+    benefits: document.getElementById('offer-benefits').value.split(',').map(item => item.trim()).filter(Boolean),
+    offerExpiryDate: document.getElementById('offer-expiry').value,
+    candidateId: document.getElementById('offer-candidate').value.trim(),
+    jobTitle: document.getElementById('offer-position').value.trim(),
   };
   
   try {
-    await apiFetch('/api/company/offers', offerData, 'POST');
+    await apiFetch('/api/company/offers', {
+      method: 'POST',
+      body: JSON.stringify(offerData)
+    });
     alert('Offer generated and sent successfully!');
     document.getElementById('offer-form').reset();
     await loadOfferManagement();

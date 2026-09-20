@@ -1,6 +1,6 @@
 // SkillBridge — Enforced Security Client Engine for Student, Company & College Modules
 
-const API_BASE = 'https://interview-wc6b.onrender.com/api';
+const API_BASE = '/api';
 
 let currentUser = null;
 let currentProfile = null;
@@ -241,6 +241,7 @@ function switchStudentAuthTab(tab) {
     if (otpBlock) otpBlock.classList.add('hidden');
     if (submitButton) submitButton.textContent = 'Send OTP';
     if (otpCountdownTimer) clearInterval(otpCountdownTimer);
+    resetLoginForm('student-login-form', 'stu-login-password-block', 'stu-login-pass', 'stu-login-submit');
   } else {
     title.innerHTML = '<i class="fa-solid fa-user-plus text-blue"></i> Register Student Account';
     regForm.classList.remove('hidden');
@@ -252,51 +253,32 @@ function switchStudentAuthTab(tab) {
   }
 }
 
-async function checkLoginEmail(formId, email, role, passwordBlockId, passwordId, submitId, registerTab, registerEmailId) {
+async function checkLoginEmail(formId, email, role, passwordBlockId, passwordId, submitId) {
   const form = document.getElementById(formId);
   if (form.dataset.emailChecked === email) return true;
-  let result;
-  try {
-    result = await apiFetch('/auth/check-email', {
-      method: 'POST',
-      body: JSON.stringify({ email, role })
-    });
-  } catch (err) {
-    try {
-      await apiFetch('/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({
-          email,
-          password: 'EmailCheck@12345',
-          role,
-          fullName: 'Email Check',
-          username: `check_${Date.now()}`,
-          mobile: '0000000000'
-        })
-      });
-      result = { registered: false, registeredForRole: false };
-    } catch (probeError) {
-      const alreadyRegistered = /already (exists|registered)/i.test(probeError.message);
-      result = { registered: alreadyRegistered, registeredForRole: alreadyRegistered };
-    }
-  }
-  if (!result.registeredForRole) {
-    if (result.registered) {
-      form.dataset.emailChecked = email;
-      document.getElementById(passwordBlockId).classList.remove('hidden');
-      document.getElementById(passwordId).required = true;
-      document.getElementById(submitId).textContent = 'Sign In';
-      return false;
-    }
-    document.getElementById(registerEmailId).value = email;
-    switchTab('register');
-    return false;
+  if (form.dataset.emailChecked) {
+    document.getElementById(passwordId).value = '';
   }
   form.dataset.emailChecked = email;
   document.getElementById(passwordBlockId).classList.remove('hidden');
   document.getElementById(passwordId).required = true;
   document.getElementById(submitId).textContent = 'Sign In';
   return false;
+}
+
+function resetLoginForm(formId, passwordBlockId, passwordId, submitId) {
+  const form = document.getElementById(formId);
+  if (!form) return;
+  delete form.dataset.emailChecked;
+  const passwordBlock = document.getElementById(passwordBlockId);
+  const passwordInput = document.getElementById(passwordId);
+  const submitButton = document.getElementById(submitId);
+  if (passwordBlock) passwordBlock.classList.add('hidden');
+  if (passwordInput) {
+    passwordInput.value = '';
+    passwordInput.required = false;
+  }
+  if (submitButton) submitButton.textContent = 'Continue';
 }
 
 function setStudentOtpCountdown(seconds) {
@@ -364,7 +346,7 @@ async function handleStudentLoginSubmit(e) {
   const password = document.getElementById('stu-login-pass').value.trim();
 
   try {
-    if (!await checkLoginEmail('student-login-form', identity, 'student', 'stu-login-password-block', 'stu-login-pass', 'stu-login-submit', switchStudentAuthTab, 'stu-reg-email')) return;
+    if (!await checkLoginEmail('student-login-form', identity, 'student', 'stu-login-password-block', 'stu-login-pass', 'stu-login-submit')) return;
     const data = await apiFetch('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identity, password, role: 'student' })
@@ -454,6 +436,7 @@ function switchCompanyAuthTab(tab) {
     title.innerHTML = '<i class="fa-solid fa-building text-blue"></i> Company Recruiter Login';
     loginForm.classList.remove('hidden');
     regForm.classList.add('hidden');
+    resetLoginForm('company-login-form', 'comp-login-password-block', 'comp-login-pass', 'comp-login-submit');
   } else {
     title.innerHTML = '<i class="fa-solid fa-building text-blue"></i> Register Company Account';
     regForm.classList.remove('hidden');
@@ -467,10 +450,10 @@ async function handleCompanyLoginSubmit(e) {
   const password = document.getElementById('comp-login-pass').value.trim();
 
   try {
-    if (!await checkLoginEmail('company-login-form', identity, 'company', 'comp-login-password-block', 'comp-login-pass', 'comp-login-submit', switchCompanyAuthTab, 'comp-reg-email')) return;
+    if (!await checkLoginEmail('company-login-form', identity, 'company', 'comp-login-password-block', 'comp-login-pass', 'comp-login-submit')) return;
     const data = await apiFetch('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ identity, password, role: 'company' })
+      body: JSON.stringify({ identity, companyName: identity, password, role: 'company' })
     });
     authToken = data.token;
     localStorage.setItem('sb_token', authToken);
@@ -530,6 +513,7 @@ function switchCollegeAuthTab(tab) {
     title.innerHTML = '<i class="fa-solid fa-university text-purple"></i> University Admin Login';
     loginForm.classList.remove('hidden');
     regForm.classList.add('hidden');
+    resetLoginForm('college-login-form', 'col-login-password-block', 'col-login-pass', 'col-login-submit');
   } else {
     title.innerHTML = '<i class="fa-solid fa-university text-purple"></i> Register University Admin';
     regForm.classList.remove('hidden');
@@ -543,7 +527,7 @@ async function handleCollegeLoginSubmit(e) {
   const password = document.getElementById('col-login-pass').value.trim();
 
   try {
-    if (!await checkLoginEmail('college-login-form', identity, 'college', 'col-login-password-block', 'col-login-pass', 'col-login-submit', switchCollegeAuthTab, 'col-reg-email')) return;
+    if (!await checkLoginEmail('college-login-form', identity, 'college', 'col-login-password-block', 'col-login-pass', 'col-login-submit')) return;
     const data = await apiFetch('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identity, password, role: 'college' })
@@ -1834,12 +1818,7 @@ const companyRecruitmentMock = {
     { name: 'PSG Tech', value: 12 },
     { name: 'Others', value: 4 }
   ],
-  talentCandidates: [
-    { name: 'Aarav Nair', skillScore: 96, department: 'CSE', cgpa: 9.3, projects: 4, certifications: 3, experience: '2 internships', availability: 'Immediately', matchingSkills: ['React', 'Node.js', 'MongoDB'], scoreColor: 'emerald' },
-    { name: 'Meera Iyer', skillScore: 91, department: 'IT', cgpa: 9.1, projects: 3, certifications: 4, experience: '1 internship', availability: '1-3 Months', matchingSkills: ['Python', 'SQL', 'AI/ML'], scoreColor: 'blue' },
-    { name: 'Karthik Raman', skillScore: 87, department: 'ECE', cgpa: 8.9, projects: 2, certifications: 2, experience: 'Embedded systems', availability: 'Immediately', matchingSkills: ['C++', 'Embedded', 'IoT'], scoreColor: 'purple' },
-    { name: 'Nisha Patel', skillScore: 92, department: 'CSE', cgpa: 9.2, projects: 5, certifications: 5, experience: '2 internships', availability: 'Immediately', matchingSkills: ['React', 'Node.js', 'AWS'], scoreColor: 'emerald' }
-  ],
+  talentCandidates: [],
   internships: [
     { title: 'Frontend Engineer Intern', duration: '6 months', stipend: '₹25,000 / month', positions: 12, status: 'Applications Open', skills: ['React', 'TypeScript', 'UI Design'] },
     { title: 'Data Science Intern', duration: '4 months', stipend: '₹30,000 / month', positions: 8, status: 'Screening', skills: ['Python', 'SQL', 'ML'] },
@@ -1850,21 +1829,13 @@ const companyRecruitmentMock = {
     { name: 'Aptitude Benchmark', candidates: 41, score: 76, status: 'Completed' },
     { name: 'Technical Interview Readiness', candidates: 19, score: 89, status: 'In Progress' }
   ],
-  interviews: [
-    { candidate: 'Aarav Nair', stage: 'Technical Interview', interviewer: 'Priya Menon', type: 'Panel', date: '2026-09-12', score: 91 },
-    { candidate: 'Meera Iyer', stage: 'HR Interview', interviewer: 'Rohit Shah', type: 'Virtual', date: '2026-09-14', score: 88 },
-    { candidate: 'Nisha Patel', stage: 'Assessment', interviewer: 'Sameer Nair', type: 'Coding', date: '2026-09-11', score: 94 }
-  ],
+  interviews: [],
   universities: [
     { name: 'Anna University', departments: ['CSE', 'IT'], students: 480, topSkills: ['React', 'Python'], placementRate: '88%' },
     { name: 'VIT', departments: ['CSE', 'AI/ML'], students: 360, topSkills: ['AI/ML', 'Cloud'], placementRate: '91%' },
     { name: 'SRM', departments: ['ECE', 'CSE'], students: 310, topSkills: ['Cybersecurity', 'Java'], placementRate: '84%' }
   ],
-  shortlist: [
-    { name: 'Aarav Nair', skillMatch: 96, cgpa: 9.3, projects: 4, assessment: 92, aiScore: 96, notes: 'Strong product mindset and consistent internship exposure.' },
-    { name: 'Nisha Patel', skillMatch: 92, cgpa: 9.2, projects: 5, assessment: 90, aiScore: 92, notes: 'Excellent frontend and AWS exposure.' },
-    { name: 'Meera Iyer', skillMatch: 90, cgpa: 9.1, projects: 3, assessment: 88, aiScore: 91, notes: 'Strong analytical profile and data storytelling.' }
-  ],
+  shortlist: [],
   analytics: [
     { label: 'Total applicants', value: 1248 },
     { label: 'Hiring conversion rate', value: '21.4%' },
@@ -1873,11 +1844,7 @@ const companyRecruitmentMock = {
     { label: 'Internship conversion', value: '46%' },
     { label: 'Best source', value: 'Campus referrals' }
   ],
-  messages: [
-    { sender: 'Aarav Nair', topic: 'Interview scheduling', preview: 'Could you share the technical interview slot for Friday?', time: '2h ago' },
-    { sender: 'Anna University', topic: 'Campus Hiring Request', preview: 'We can host a campus drive for final-year CSE and IT students.', time: '1d ago' },
-    { sender: 'Recruiting Team', topic: 'Assessment completed', preview: 'The aptitude benchmark was submitted by 18 shortlisted candidates.', time: '3h ago' }
-  ],
+  messages: [],
   notifications: [
     { title: 'New application received', detail: '12 new candidates applied to Frontend Engineer roles today.', time: '10 mins ago' },
     { title: 'AI match update', detail: '3 new candidates crossed 90% match threshold.', time: '35 mins ago' },
@@ -1970,6 +1937,10 @@ async function renderCompanyDashboard() {
     ],
     applicationsOverTime: [],
     hiringFunnel: [],
+    skillDemand: [],
+    skillDistribution: [],
+    hiringSplit: { internship: 0, fullTime: 0 },
+    universities: [],
     insight: dashboard.total_applicants
       ? `${dashboard.total_applicants} candidate application(s) are currently linked to your company.`
       : 'No applications have been received for your company yet.'
@@ -2365,20 +2336,29 @@ function companyCreateAssessment() {
   `;
 }
 
-function renderCompanyInterviewPipeline() {
+async function renderCompanyInterviewPipeline() {
   const container = document.getElementById('company-interview-pipeline-content');
   if (!container) return;
   const stages = ['Applied', 'Screening', 'Shortlisted', 'Assessment', 'Technical Interview', 'HR Interview', 'Selected', 'Offer'];
+  let applications = [];
+  try {
+    const dashboard = await apiFetch('/company/dashboard');
+    applications = dashboard.pipeline || [];
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load the company interview pipeline.</div>';
+    console.error('Failed to load company interview pipeline:', error.message);
+    return;
+  }
   const candidateColumns = stages.map(stage => {
-    const matching = companyRecruitmentMock.interviews.filter(item => item.stage === stage || (stage === 'Technical Interview' && item.stage === 'Technical Interview') || (stage === 'Assessment' && item.stage === 'Assessment'));
+    const matching = applications.filter(item => item.status === stage || (stage === 'Screening' && item.status === 'AI Screening'));
     return `
       <div class="saas-card" style="min-width:180px;">
         <div class="flex-between mb-3"><strong>${stage}</strong><span class="badge-saas badge-blue">${matching.length}</span></div>
         ${matching.length ? matching.map(item => `
           <div style="border:1px solid rgba(56,189,248,.2); border-radius:12px; padding:0.7rem; background:rgba(15,23,42,.7); margin-bottom:0.75rem;">
-            <div style="font-weight:800; margin-bottom:0.2rem;">${item.candidate}</div>
-            <div style="font-size:0.75rem; color:var(--text-muted);">${item.interviewer} • ${item.type}</div>
-            <div style="font-size:0.75rem; color:var(--text-blue); margin-top:0.4rem;">Score: ${item.score}</div>
+            <div style="font-weight:800; margin-bottom:0.2rem;">${item.candidate_name || 'Student'}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted);">${item.job_title || 'Job application'}</div>
+            <div style="font-size:0.75rem; color:var(--text-blue); margin-top:0.4rem;">CGPA: ${item.cgpa ?? 'Not provided'}</div>
           </div>
         `).join('') : '<div style="font-size:0.75rem; color:var(--text-muted);">No candidates in this stage.</div>'}
       </div>
@@ -2440,22 +2420,33 @@ async function renderCompanyShortlist() {
   `).join('') || '<div class="saas-card">No registered students are available.</div>';
 }
 
-function companyCompareCandidates() {
+async function companyCompareCandidates() {
   const container = document.getElementById('company-shortlist-content');
   if (!container) return;
-  const first = companyRecruitmentMock.shortlist[0];
-  const second = companyRecruitmentMock.shortlist[1];
+  let candidates;
+  try {
+    candidates = await apiFetch('/company/candidates');
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load registered student details.</div>';
+    console.error('Failed to load candidates for comparison:', error.message);
+    return;
+  }
+  const [first, second] = candidates;
+  if (!first || !second) {
+    container.innerHTML = '<div class="saas-card">At least two registered students are required for comparison.</div>';
+    return;
+  }
   container.innerHTML = `
     <div class="saas-card">
       <h3 style="font-weight:800; margin-bottom:1rem;">Compare Candidates</h3>
       <table class="saas-table">
         <thead><tr><th>Metric</th><th>${first.name}</th><th>${second.name}</th></tr></thead>
         <tbody>
-          <tr><td>Skills</td><td>${first.skillMatch}%</td><td>${second.skillMatch}%</td></tr>
-          <tr><td>CGPA</td><td>${first.cgpa}</td><td>${second.cgpa}</td></tr>
+          <tr><td>Skills</td><td>${(first.skills || []).join(', ') || 'Not provided'}</td><td>${(second.skills || []).join(', ') || 'Not provided'}</td></tr>
+          <tr><td>CGPA</td><td>${first.cgpa ?? 'Not provided'}</td><td>${second.cgpa ?? 'Not provided'}</td></tr>
           <tr><td>Projects</td><td>${first.projects}</td><td>${second.projects}</td></tr>
-          <tr><td>Assessment score</td><td>${first.assessment}%</td><td>${second.assessment}%</td></tr>
-          <tr><td>AI Match score</td><td>${first.aiScore}%</td><td>${second.aiScore}%</td></tr>
+          <tr><td>Certifications</td><td>${first.certifications}</td><td>${second.certifications}</td></tr>
+          <tr><td>Career goal</td><td>${first.goal}</td><td>${second.goal}</td></tr>
         </tbody>
       </table>
     </div>
@@ -2547,6 +2538,19 @@ async function loadCollegeStudentDirectory() {
 function openModal(id) { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); }
 function closeModal(id) { const el = document.getElementById(id); if (el) el.classList.add('hidden'); }
 function openLogoutModal() { handleLogout(); }
-function handleLogout() { authToken = null; currentUser = null; currentProfile = null; localStorage.removeItem('sb_token'); showGuestLanding(); }
+function handleLogout() {
+  authToken = null;
+  currentUser = null;
+  currentProfile = null;
+  localStorage.removeItem('sb_token');
+  resetLoginForm('student-login-form', 'stu-login-password-block', 'stu-login-pass', 'stu-login-submit');
+  resetLoginForm('company-login-form', 'comp-login-password-block', 'comp-login-pass', 'comp-login-submit');
+  resetLoginForm('college-login-form', 'col-login-password-block', 'col-login-pass', 'col-login-submit');
+  ['stu-login-id', 'comp-login-user', 'col-login-user'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+  showGuestLanding();
+}
 function closeMobileDrawer() { const sidebar = document.getElementById('app-sidebar'); if (sidebar) sidebar.classList.remove('mobile-open'); }
 function toggleMobileDrawer() { const sidebar = document.getElementById('app-sidebar'); if (sidebar) sidebar.classList.toggle('mobile-open'); }

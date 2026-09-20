@@ -108,6 +108,7 @@ let state = {
   jobs: [],
   applications: [],
   notifications: {},
+  companyOffers: {},
   collegeAnalytics: {
     total_students: 450,
     placed_students: 382,
@@ -796,6 +797,14 @@ const server = http.createServer(async (req, res) => {
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       return sendJSON(200, state.notifications[authUser.id] || []);
     }
+    if (pathname === '/api/student/offers' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const offers = Object.values(state.companyOffers)
+        .flat()
+        .filter(offer => offer.studentId === authUser.id);
+      return sendJSON(200, offers);
+    }
     if (pathname.match(/^\/api\/student\/notifications\/\d+\/read$/) && req.method === 'PUT') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
@@ -835,6 +844,59 @@ const server = http.createServer(async (req, res) => {
       const compApps = state.applications.filter(a => a.companyId === compId);
 
       return sendJSON(200, { company, total_jobs: compJobs.length, total_applicants: compApps.length, shortlisted: compApps.filter(a => a.status === 'Shortlisted' || a.status === 'Technical Interview').length, pipeline: compApps });
+    }
+    if (pathname === '/api/company/offers' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      return sendJSON(200, state.companyOffers[authUser.companyId] || []);
+    }
+    if (pathname === '/api/company/offers' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const body = await parseJSON(req);
+      const candidateIdentity = String(body.candidateId || '').trim().toLowerCase();
+      const application = state.applications.find(item => {
+        if (item.companyId !== authUser.companyId || !item.student_id) return false;
+        if (body.applicationId && item.id === Number(body.applicationId)) return true;
+        const candidate = state.users.find(user => user.id === item.student_id);
+        return Boolean(candidate && [candidate.student_id, candidate.username, candidate.email]
+          .some(value => String(value || '').toLowerCase() === candidateIdentity));
+      });
+      if (!application) return sendJSON(404, { error: 'A valid company application is required to send an offer.' });
+      const student = state.users.find(item => item.id === application.student_id && item.role === 'student');
+      if (!student) return sendJSON(404, { error: 'Candidate account not found.' });
+      const company = state.companies.find(item => item.companyId === authUser.companyId);
+      const offer = {
+        id: Date.now(),
+        companyId: authUser.companyId,
+        companyName: company ? company.name : authUser.companyName,
+        studentId: student.id,
+        candidateName: application.candidate_name,
+        candidateEmail: student.email,
+        applicationId: application.id,
+        jobId: application.job_id,
+        jobTitle: application.job_title,
+        salary: body.salary || '',
+        benefits: Array.isArray(body.benefits) ? body.benefits : [],
+        joiningDate: body.joiningDate || '',
+        location: body.location || '',
+        offerExpiryDate: body.offerExpiryDate || '',
+        status: 'Sent',
+        createdAt: new Date().toISOString()
+      };
+      state.companyOffers[authUser.companyId] = state.companyOffers[authUser.companyId] || [];
+      state.companyOffers[authUser.companyId].push(offer);
+      state.notifications[student.id] = state.notifications[student.id] || [];
+      state.notifications[student.id].unshift({
+        id: Date.now() + 1,
+        title: 'Job offer received',
+        message: `${offer.companyName} sent you an offer for ${offer.jobTitle}.`,
+        type: 'offer',
+        offerId: offer.id,
+        is_read: false,
+        created_at: new Date().toISOString().split('T')[0]
+      });
+      return sendJSON(201, { success: true, offer });
     }
 
     if (pathname === '/api/company/candidates' && req.method === 'GET') {
