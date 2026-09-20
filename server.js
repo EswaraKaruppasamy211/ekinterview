@@ -447,7 +447,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/auth/login' && req.method === 'POST') {
-      const { identity, companyName, password, role, email, username } = await parseJSON(req);
+      const loginPayload = await parseJSON(req);
+      const { identity, password, role, email, username } = loginPayload;
+      // Company display names are profile data; authentication uses identity and password only.
       const userRole = role || 'student';
       let user = null;
       const loginIdentity = identity || email || username;
