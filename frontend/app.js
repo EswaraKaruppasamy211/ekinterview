@@ -2816,20 +2816,29 @@ function companyCreateAssessment() {
   `;
 }
 
-function renderCompanyInterviewPipeline() {
+async function renderCompanyInterviewPipeline() {
   const container = document.getElementById('company-interview-pipeline-content');
   if (!container) return;
   const stages = ['Applied', 'Screening', 'Shortlisted', 'Assessment', 'Technical Interview', 'HR Interview', 'Selected', 'Offer'];
+  let applications = [];
+  try {
+    const dashboard = await apiFetch('/company/dashboard');
+    applications = dashboard.pipeline || [];
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load the company interview pipeline.</div>';
+    console.error('Failed to load company interview pipeline:', error.message);
+    return;
+  }
   const candidateColumns = stages.map(stage => {
-    const matching = companyRecruitmentMock.interviews.filter(item => item.stage === stage || (stage === 'Technical Interview' && item.stage === 'Technical Interview') || (stage === 'Assessment' && item.stage === 'Assessment'));
+    const matching = applications.filter(item => item.status === stage || (stage === 'Screening' && item.status === 'AI Screening'));
     return `
       <div class="saas-card" style="min-width:180px;">
         <div class="flex-between mb-3"><strong>${stage}</strong><span class="badge-saas badge-blue">${matching.length}</span></div>
         ${matching.length ? matching.map(item => `
           <div style="border:1px solid rgba(56,189,248,.2); border-radius:12px; padding:0.7rem; background:rgba(15,23,42,.7); margin-bottom:0.75rem;">
-            <div style="font-weight:800; margin-bottom:0.2rem;">${item.candidate}</div>
-            <div style="font-size:0.75rem; color:var(--text-muted);">${item.interviewer} • ${item.type}</div>
-            <div style="font-size:0.75rem; color:var(--text-blue); margin-top:0.4rem;">Score: ${item.score}</div>
+            <div style="font-weight:800; margin-bottom:0.2rem;">${item.candidate_name || 'Student'}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted);">${item.job_title || 'Job application'}</div>
+            <div style="font-size:0.75rem; color:var(--text-blue); margin-top:0.4rem;">CGPA: ${item.cgpa ?? 'Not provided'}</div>
           </div>
         `).join('') : '<div style="font-size:0.75rem; color:var(--text-muted);">No candidates in this stage.</div>'}
       </div>
