@@ -1556,40 +1556,42 @@ async function loadCollegeDashboard() {
   const skillDemandList = document.getElementById('college-skill-demand-list');
   const strategyInsights = document.getElementById('college-strategy-insights');
 
-  if (overview) {
-    overview.innerHTML = universityAdminMock.overview.map(item => renderMetricCard(item.label, item.value, item.accent)).join('');
-  }
-
-  if (deptTable) {
-    deptTable.innerHTML = universityAdminMock.departments.map(item => `
-      <tr>
-        <td style="font-weight:700;">${item.department}</td>
-        <td>${item.total}</td>
-        <td>${item.placed}</td>
-        <td><span class="badge-saas badge-emerald">${item.rate}%</span></td>
-      </tr>
-    `).join('');
-  }
-
-  if (skillDemandList) {
-    skillDemandList.innerHTML = universityAdminMock.skillSignals.map(item => `
-      <div class="mb-3">
-        <div class="flex-between mb-1"><span style="font-weight:700; font-size:0.8rem;">${item.name}</span><span style="font-size:0.75rem; color:var(--text-muted);">${item.demand}% demand</span></div>
-        <div style="height:9px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden; margin-bottom:0.2rem;">
-          <div style="height:100%; width:${item.demand}%; background:linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius:999px;"></div>
+  try {
+    const data = await apiFetch('/college/dashboard');
+    if (overview) {
+      overview.innerHTML = [
+        ['Total Students', data.total_students, 'blue'],
+        ['Placed Students', data.placed_students, 'emerald'],
+        ['Placement Rate', `${data.placement_rate}%`, 'purple'],
+        ['Active Recruiters', (data.top_recruiters || []).length, 'orange']
+      ].map(([label, value, accent]) => renderMetricCard(label, value, accent)).join('');
+    }
+    if (deptTable) {
+      deptTable.innerHTML = (data.department_stats || []).map(item => `
+        <tr>
+          <td style="font-weight:700;">${item.name}</td>
+          <td>${item.total}</td>
+          <td>${item.placed}</td>
+          <td><span class="badge-saas badge-emerald">${item.percentage}%</span></td>
+        </tr>
+      `).join('') || '<tr><td colspan="4">No registered student data available.</td></tr>';
+    }
+    if (skillDemandList) {
+      const signals = data.skill_signals || [];
+      skillDemandList.innerHTML = signals.length ? signals.map(item => `
+        <div class="mb-3">
+          <div class="flex-between mb-1"><span style="font-weight:700; font-size:0.8rem;">${item.name}</span><span style="font-size:0.75rem; color:var(--text-muted);">${item.demand}% demand</span></div>
+          <div style="height:9px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden; margin-bottom:0.2rem;">
+            <div style="height:100%; width:${item.demand}%; background:linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius:999px;"></div>
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-muted);">Readiness: <strong>${item.readiness}%</strong></div>
         </div>
-        <div style="font-size:0.72rem; color:var(--text-muted);">Readiness: <strong>${item.readiness}%</strong></div>
-      </div>
-    `).join('');
-  }
-
-  if (strategyInsights) {
-    strategyInsights.innerHTML = universityAdminMock.recommendations.map(item => `
-      <div class="saas-card">
-        <div class="badge-saas badge-blue mb-2">Action</div>
-        <p style="margin:0; line-height:1.6; color:var(--text-secondary);">${item}</p>
-      </div>
-    `).join('');
+      `).join('') : '<div class="saas-card">No skill-demand data is available from registered records.</div>';
+    }
+    if (strategyInsights) strategyInsights.innerHTML = '<div class="saas-card">Analytics recommendations will appear when more registered placement data is available.</div>';
+  } catch (error) {
+    if (overview) overview.innerHTML = '<div class="saas-card">Unable to load university analytics.</div>';
+    console.error('Failed to load university analytics:', error.message);
   }
 }
 

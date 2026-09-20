@@ -970,7 +970,35 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/college/dashboard' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'college') return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
-      return sendJSON(200, state.collegeAnalytics);
+      const profiles = Object.values(state.studentProfiles);
+      const placedStatuses = new Set(['Selected', 'Offer', 'Placed']);
+      const placedStudentIds = new Set(
+        state.applications
+          .filter(application => placedStatuses.has(application.status))
+          .map(application => application.student_id)
+      );
+      const departments = {};
+      profiles.forEach(profile => {
+        const name = profile.department || 'Department not provided';
+        departments[name] = departments[name] || { name, total: 0, placed: 0 };
+        departments[name].total += 1;
+        if (placedStudentIds.has(profile.user_id)) departments[name].placed += 1;
+      });
+      const departmentStats = Object.values(departments).map(department => ({
+        ...department,
+        percentage: department.total ? Number(((department.placed / department.total) * 100).toFixed(1)) : 0
+      }));
+      const totalStudents = profiles.length;
+      const placedStudents = placedStudentIds.size;
+      const recruiterNames = [...new Set(state.jobs.map(job => job.company_name).filter(Boolean))];
+      return sendJSON(200, {
+        total_students: totalStudents,
+        placed_students: placedStudents,
+        placement_rate: totalStudents ? Number(((placedStudents / totalStudents) * 100).toFixed(1)) : 0,
+        top_recruiters: recruiterNames,
+        department_stats: departmentStats,
+        skill_signals: []
+      });
     }
     if (pathname === '/api/college/students' && req.method === 'GET') {
       const authUser = getAuthUser();
