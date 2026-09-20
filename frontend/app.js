@@ -492,7 +492,12 @@ async function handleCompanyLoginSubmit(e) {
     if (!await checkLoginEmail('company-login-form', identity, 'company', 'comp-login-password-block', 'comp-login-pass', 'comp-login-submit')) return;
     const data = await apiFetch('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ identity, companyName: identity, password, role: 'company' })
+      body: JSON.stringify({
+        identity,
+        companyName: document.getElementById('comp-login-company')?.value.trim() || undefined,
+        password,
+        role: 'company'
+      })
     });
     authToken = data.token;
     localStorage.setItem('sb_token', authToken);
@@ -569,7 +574,12 @@ async function handleCollegeLoginSubmit(e) {
     if (!await checkLoginEmail('college-login-form', identity, 'college', 'col-login-password-block', 'col-login-pass', 'col-login-submit')) return;
     const data = await apiFetch('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ identity, password, role: 'college' })
+      body: JSON.stringify({
+        identity,
+        collegeName: document.getElementById('col-login-college')?.value.trim() || undefined,
+        password,
+        role: 'college'
+      })
     });
     authToken = data.token;
     localStorage.setItem('sb_token', authToken);
