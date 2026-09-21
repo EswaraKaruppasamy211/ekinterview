@@ -15,7 +15,7 @@ function req(method,path,body,token){return new Promise((res,rej)=>{const header
    console.log('create invite:', create.status, create.body);
    // read emailQueue.json for the pending invite job
    await new Promise(r=>setTimeout(r,500));
-   const queue = JSON.parse(fs.readFileSync(path.join(__dirname,'emailQueue.json'),'utf8')||'[]');
+   const queue = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'emailQueue.json'),'utf8')||'[]');
    const job = (queue || []).slice().reverse().find(j=>j.type==='invite' && (j.inviteeEmail===invitee || (j.mailOpts && j.mailOpts.to===invitee)));
    if(!job){ console.error('Invite job not found in queue'); return; }
    const text = job.mailOpts && job.mailOpts.text || '';

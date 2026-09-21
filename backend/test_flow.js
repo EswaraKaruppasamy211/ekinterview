@@ -48,7 +48,7 @@ function req(method, pathname, body, headers = {}){
     // Wait briefly for server to persist queue
     await new Promise(r=>setTimeout(r,1200));
 
-    const qPath = path.join(__dirname,'emailQueue.json');
+    const qPath = path.join(__dirname, '..', 'data', 'emailQueue.json');
     let queue = [];
     try { queue = JSON.parse(fs.readFileSync(qPath,'utf8')||'[]'); } catch(e){ console.error('Failed read queue', e.message); }
     console.log('Found', queue.length, 'queued email jobs');
