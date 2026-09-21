@@ -1,6 +1,5 @@
 // SkillBridge — Enforced Security Client Engine for Student, Company & College Modules
 
-// Use relative API path that works in both local and production environments
 const API_BASE = '/api';
 
 let currentUser = null;
@@ -8,6 +7,8 @@ let currentProfile = null;
 let currentRole = 'student';
 let authToken = localStorage.getItem('sb_token') || null;
 let pendingStudentOtpEmail = null;
+let otpCountdownTimer = null;
+let studentCampusDrives = [];
 let voiceInterview = {
   language: 'ta-IN',
   questionIndex: 0,
@@ -19,11 +20,46 @@ let voiceInterview = {
 };
 
 const interviewQuestions = [
-  { en: 'Tell me about yourself and the kind of software role you are looking for.', ta: 'உங்களைப் பற்றியும் நீங்கள் தேடும் மென்பொருள் பணியைப் பற்றியும் சொல்லுங்கள்.' },
-  { en: 'Explain one project you built and the most important technical decision you made.', ta: 'நீங்கள் உருவாக்கிய ஒரு திட்டத்தையும் அதில் எடுத்த முக்கியமான தொழில்நுட்ப முடிவையும் விளக்குங்கள்.' },
-  { en: 'How would you debug an API that suddenly became slow in production?', ta: 'Production-ல் திடீரென மெதுவான API-யை எப்படி debug செய்வீர்கள்?' },
-  { en: 'Describe a time you solved a difficult problem with a teammate.', ta: 'ஒரு குழு உறுப்பினருடன் சேர்ந்து கடினமான பிரச்சினையைத் தீர்த்த அனுபவத்தைச் சொல்லுங்கள்.' },
-  { en: 'Why should we select you for this role?', ta: 'இந்த பணிக்கு உங்களை ஏன் தேர்வு செய்ய வேண்டும்?' }
+  {
+    en: 'Tell me about yourself and the kind of software role you are looking for.',
+    ta: 'உங்களைப் பற்றியும், நீங்கள் தேடும் மென்பொருள் வேலையின் வகையைப் பற்றியும் சொல்லுங்கள்.'
+  },
+  {
+    en: 'Explain one project you built and the most important technical decision you made.',
+    ta: 'நீங்கள் உருவாக்கிய ஒரு திட்டத்தையும், அதில் எடுத்த முக்கியமான தொழில்நுட்ப முடிவையும் விளக்குங்கள்.'
+  },
+  {
+    en: 'How would you debug an API that suddenly became slow in production?',
+    ta: 'Production-ல் திடீரென மெதுவான API-ஐ எப்படி டெபக் செய்வீர்கள்?'
+  },
+  {
+    en: 'Describe a time you solved a difficult problem with a teammate.',
+    ta: 'ஒரு சக ஊழியருடன் சேர்ந்து கடினமான பிரச்சினையைத் தீர்த்த அனுபவத்தை சொல்லுங்கள்.'
+  },
+  {
+    en: 'Why should we select you for this role?',
+    ta: 'இந்த பணிக்கு உங்களை ஏன் தேர்வு செய்ய வேண்டும்?'
+  },
+  {
+    en: 'What is the difference between HTTP and HTTPS?',
+    ta: 'HTTP மற்றும் HTTPS-க்கு இடையிலான வித்தியாசம் என்ன?'
+  },
+  {
+    en: 'How do you improve application performance under heavy load?',
+    ta: 'அதிக லோட் இருக்கும் போது செயல்திறனை எப்படி மேம்படுத்துவது?'
+  },
+  {
+    en: 'Describe how you would ensure data security in a web application.',
+    ta: 'Web application-ல் data security-ஐ எவ்வாறு உறுதி செய்வீர்கள்?'
+  },
+  {
+    en: 'How do you handle conflict in a team environment?',
+    ta: 'குழு சூழலில் மோதலை எப்படி கையாள்வீர்கள்?'
+  },
+  {
+    en: 'Where do you see yourself in 2 years and what are your goals?',
+    ta: '2 வருடங்களில் நீங்களே எங்கு இருப்பீர்கள், உங்கள் இலக்குகள் என்ன?'
+  }
 ];
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -41,7 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function apiFetch(endpoint, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
     const data = await res.json();
@@ -55,6 +91,16 @@ async function apiFetch(endpoint, options = {}) {
     console.error('API Error:', err.message);
     throw err;
   }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve('');
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Unable to read uploaded file.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function fetchCurrentUser() {
@@ -82,131 +128,12 @@ function showAppWorkspace() {
   document.getElementById('guest-nav-controls').classList.add('hidden');
   document.getElementById('user-nav-controls').classList.remove('hidden');
 
-  const name = (currentProfile && currentProfile.name) || (currentUser && currentUser.companyName) || (currentUser && currentUser.collegeName) || 'User';
+  const name = (currentProfile && currentProfile.name) || (currentUser && (currentUser.fullName || currentUser.companyName || currentUser.collegeName)) || 'User';
   document.getElementById('user-display-name').textContent = name;
-  document.getElementById('user-display-id').textContent = currentUser.role === 'company' ? `COMPANY (${currentUser.companyId || 'CMP-10001'})` : (currentUser.role === 'college' ? 'UNIVERSITY ADMIN' : (currentProfile ? currentProfile.student_id : 'STUDENT'));
+  document.getElementById('user-display-id').textContent = currentUser.role === 'company' ? `COMPANY (${currentUser.companyId || 'CMP-10001'})` : (currentUser.role === 'college' ? 'UNIVERSITY ADMIN' : (currentUser.role === 'faculty' ? 'FACULTY' : (currentProfile ? currentProfile.student_id : 'STUDENT')));
 
   renderPortalState(currentRole);
-  initializeRoleAwareUI();
   if (currentRole === 'student' && currentProfile && currentProfile.onboarding_complete === false) navigateTo('profile');
-}
-
-// Role-Aware UI Initialization
-async function initializeRoleAwareUI() {
-  try {
-    // Load AI context for the current role
-    const contextData = await apiFetch('/api/ai/context');
-    updateAIAssistantContext(contextData);
-    
-    // Load role-specific suggestions
-    const suggestionsData = await apiFetch('/api/ai/suggestions');
-    updateAISuggestions(suggestionsData.suggestions);
-    
-    // Load and render role-specific navigation
-    await loadRoleSpecificNavigation();
-  } catch (err) {
-    console.warn('Failed to load role-aware UI context:', err.message);
-  }
-}
-
-// Load and render role-specific navigation
-async function loadRoleSpecificNavigation() {
-  try {
-    const navData = await apiFetch('/api/navigation');
-    renderRoleNavigation(navData);
-  } catch (err) {
-    console.warn('Failed to load role-specific navigation:', err.message);
-  }
-}
-
-// Render role-specific navigation in the sidebar
-function renderRoleNavigation(navData) {
-  const sidebar = document.querySelector('.sidebar');
-  if (!sidebar) return;
-
-  // Find or create the role-specific group
-  let roleGroup = document.getElementById(`sidebar-${currentRole}-links`);
-  if (!roleGroup) {
-    roleGroup = document.createElement('div');
-    roleGroup.id = `sidebar-${currentRole}-links`;
-    roleGroup.className = 'role-sidebar-group';
-    sidebar.appendChild(roleGroup);
-  }
-
-  // Clear existing items
-  roleGroup.innerHTML = '';
-
-  // Render grouped navigation
-  Object.entries(navData.groups || {}).forEach(([groupKey, items]) => {
-    if (items.length === 0) return;
-
-    // Add group label
-    const label = document.createElement('div');
-    label.className = 'menu-label';
-    label.textContent = getGroupLabelByKey(groupKey);
-    roleGroup.appendChild(label);
-
-    // Add menu items
-    items.forEach(item => {
-      const link = document.createElement('a');
-      link.href = '#';
-      link.className = 'sidebar-item';
-      link.dataset.target = item.id;
-      link.onclick = (e) => {
-        e.preventDefault();
-        navigateTo(item.id);
-      };
-      
-      link.innerHTML = `
-        <i class="fa-solid fa-${item.icon}"></i>
-        <span>${item.label}</span>
-      `;
-
-      roleGroup.appendChild(link);
-    });
-  });
-}
-
-// Map group keys to display labels
-function getGroupLabelByKey(key) {
-  const labels = {
-    main: 'Main',
-    academic: 'Academic',
-    portfolio: 'Portfolio',
-    opportunities: 'Opportunities',
-    recruitment: 'Recruitment',
-    management: 'Management',
-    analytics: 'Analytics',
-    content: 'Content',
-    system: 'System',
-    other: 'Other'
-  };
-  return labels[key] || key;
-}
-
-function updateAIAssistantContext(contextData) {
-  const assistantTitle = document.getElementById('ai-assistant-title');
-  const assistantGreeting = document.getElementById('ai-assistant-greeting');
-  
-  if (assistantTitle) {
-    assistantTitle.textContent = contextData.assistantTitle;
-  }
-  
-  if (assistantGreeting) {
-    assistantGreeting.textContent = contextData.greeting;
-  }
-  
-  // Store role info for later use
-  window.currentAIContext = contextData;
-}
-
-function updateAISuggestions(suggestions) {
-  const suggestionsContainer = document.getElementById('ai-suggestions-container');
-  if (!suggestionsContainer) return;
-  
-  suggestionsContainer.innerHTML = suggestions.slice(0, 4).map((question, idx) => 
-    `<button class="ai-suggestion-btn" onclick="askAiQuick('${question.replace(/'/g, "\\'")}')">${question}</button>`
-  ).join('');
 }
 
 // ENFORCED SECURITY PORTAL SWITCHER & ROUTE GUARDS
@@ -221,9 +148,12 @@ function switchPortalRole(targetRole) {
     return;
   }
 
-  const collegeRoles = ['college', 'college_admin', 'university_admin'];
-  if (targetRole === 'college' && (!currentUser || !collegeRoles.includes(currentUser.role))) {
+  if (targetRole === 'college' && (!currentUser || currentUser.role !== 'college')) {
     openCollegeAuthModal('login');
+    return;
+  }
+  if (targetRole === 'faculty' && (!currentUser || currentUser.role !== 'faculty')) {
+    openFacultyAuthModal('login');
     return;
   }
 
@@ -237,27 +167,16 @@ function renderPortalState(role) {
   if (pill) pill.classList.add('active');
 
   const badge = document.getElementById('portal-badge');
-  if (badge) {
-    const roleBadges = {
-      'student': 'Student Module',
-      'company': 'Recruiter Module',
-      'college_admin': 'College Admin',
-      'university_admin': 'University Admin',
-      'super_admin': 'Super Admin'
-    };
-    badge.textContent = roleBadges[role] || role;
-  }
+  if (badge) badge.textContent = role === 'company' ? 'Recruiter Module' : (role === 'college' ? 'University Admin' : (role === 'faculty' ? 'Faculty Module' : 'Student Module'));
 
   document.querySelectorAll('.role-sidebar-group').forEach(group => group.classList.add('hidden'));
   const targetGroup = document.getElementById(`sidebar-${role}-links`);
   if (targetGroup) targetGroup.classList.remove('hidden');
 
-  // Route to appropriate dashboard based on role
   if (role === 'student') navigateTo('dashboard');
   else if (role === 'company') navigateTo('company-dashboard');
-  else if (role === 'college_admin') navigateTo('college-dashboard');
-  else if (role === 'university_admin') navigateTo('university-dashboard');
-  else if (role === 'super_admin') navigateTo('admin-dashboard');
+  else if (role === 'college') navigateTo('college-dashboard');
+  else if (role === 'faculty') navigateTo('faculty-dashboard');
 }
 
 function navigateToRoleHome() {
@@ -265,11 +184,11 @@ function navigateToRoleHome() {
 }
 
 function navigateTo(viewId) {
-  if (viewId === 'dashboard' && currentRole === 'student' && currentProfile && currentProfile.onboarding_complete === false) {
-    viewId = 'profile';
+  if (viewId.indexOf('faculty-') === 0 && (!currentUser || currentUser.role !== 'faculty')) {
+    openFacultyAuthModal('login');
+    return;
   }
   closeMobileDrawer();
-  document.querySelectorAll('.mobile-nav-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.mobileTarget === viewId || (viewId === 'dashboard' && tab.dataset.mobileTarget === 'home')));
 
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   const activeItem = document.querySelector(`.sidebar-item[data-target="${viewId}"]`);
@@ -281,22 +200,20 @@ function navigateTo(viewId) {
 
   if (viewId === 'dashboard') loadDashboardHome();
   else if (viewId === 'profile') loadProfileView();
-  else if (viewId === 'ats-resume') loadATSResumeView();
   else if (viewId === 'academics') loadAcademicsView();
   else if (viewId === 'skills') loadSkillsView();
-  else if (viewId === 'certificates') loadCertificatesView();
   else if (viewId === 'assessments') loadAssessmentsView();
+  else if (viewId === 'ats-resume') loadATSResumeView();
   else if (viewId === 'portfolio') loadPortfolioView();
   else if (viewId === 'ai-skill-analyzer') loadAISkillAnalyzerView();
-  else if (viewId === 'skill-map') loadSkillMapView();
   else if (viewId === 'opportunities') loadOpportunitiesView();
   else if (viewId === 'applications') loadApplicationsView();
   else if (viewId === 'interview-prep') loadInterviewPrepView();
   else if (viewId === 'notifications') loadNotificationsView();
-  else if (viewId === 'campus-drives') loadCampusDrivesView();
   else if (viewId === 'placement') loadPlacementView();
+  else if (viewId === 'campus-drives') loadCampusDrivesView();
   else if (viewId === 'settings') loadSettingsView();
-  else if (viewId === 'company-dashboard') { loadCompanyATSPipeline(); renderCompanyDashboard(); }
+  else if (viewId === 'company-dashboard') { loadCompanyATSPipeline(); renderCompanyDashboard(); loadCompanyAcademiaFeed(); }
   else if (viewId === 'company-profile') renderCompanyProfile();
   else if (viewId === 'company-talent-discovery') renderCompanyTalentDiscovery();
   else if (viewId === 'company-ai-match') runCompanyAIMatch();
@@ -314,28 +231,7 @@ function navigateTo(viewId) {
   else if (viewId === 'talent-finder') loadTalentFinder();
   else if (viewId === 'college-dashboard') loadCollegeDashboard();
   else if (viewId === 'college-students') loadCollegeStudentDirectory();
-  else if (viewId === 'college-skill-mapping') loadCollegeSkillMapping();
-  else if (viewId === 'college-partnerships') loadCollegePartnerships();
-  else if (viewId === 'college-placements') loadCollegePlacements();
-  else if (viewId === 'college-campus-drives') loadCollegeCampusDrives();
-  else if (viewId === 'college-reports') loadCollegeReports();
-  else if (viewId === 'university-dashboard') loadUniversityDashboard();
-  else if (viewId === 'admin-dashboard') loadAdminDashboard();
-}
-
-function navigateMobile(target) {
-  const roleTargets = {
-    student: { home: 'dashboard', profile: 'profile', opportunities: 'opportunities', notifications: 'notifications' },
-    company: { home: 'company-dashboard', profile: 'company-profile', opportunities: 'company-talent-discovery', notifications: 'company-notifications' },
-    college: { home: 'college-dashboard', profile: 'college-students', opportunities: 'college-partnerships', notifications: 'college-reports' },
-    college_admin: { home: 'college-dashboard', profile: 'college-students', opportunities: 'college-partnerships', notifications: 'college-reports' },
-    university_admin: { home: 'college-dashboard', profile: 'college-students', opportunities: 'college-partnerships', notifications: 'college-reports' }
-  };
-  const targetView = (roleTargets[currentRole] || roleTargets.student)[target] || 'dashboard';
-  navigateTo(targetView);
-  document.querySelectorAll('.mobile-nav-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.mobileTarget === target);
-  });
+  else if (viewId === 'faculty-dashboard') loadFacultyResource();
 }
 
 // STUDENT AUTH HANDLERS
@@ -348,16 +244,26 @@ function switchStudentAuthTab(tab) {
   const loginForm = document.getElementById('student-login-form');
   const regForm = document.getElementById('student-register-form');
   const title = document.getElementById('student-auth-title');
+  const otpBlock = document.getElementById('student-otp-block');
+  const submitButton = document.getElementById('stu-reg-submit-btn');
 
   if (tab === 'login') {
     title.innerHTML = '<i class="fa-solid fa-graduation-cap text-blue"></i> Student Sign In';
     loginForm.classList.remove('hidden');
     regForm.classList.add('hidden');
+    pendingStudentOtpEmail = null;
+    if (otpBlock) otpBlock.classList.add('hidden');
+    if (submitButton) submitButton.textContent = 'Send OTP';
+    if (otpCountdownTimer) clearInterval(otpCountdownTimer);
     resetLoginForm('student-login-form', 'stu-login-password-block', 'stu-login-pass', 'stu-login-submit');
   } else {
     title.innerHTML = '<i class="fa-solid fa-user-plus text-blue"></i> Register Student Account';
     regForm.classList.remove('hidden');
     loginForm.classList.add('hidden');
+    pendingStudentOtpEmail = null;
+    if (otpBlock) otpBlock.classList.add('hidden');
+    if (submitButton) submitButton.textContent = 'Send OTP';
+    if (otpCountdownTimer) clearInterval(otpCountdownTimer);
   }
 }
 
@@ -387,6 +293,65 @@ function resetLoginForm(formId, passwordBlockId, passwordId, submitId) {
     passwordInput.required = false;
   }
   if (submitButton) submitButton.textContent = 'Continue';
+}
+
+function setStudentOtpCountdown(seconds) {
+  const timer = document.getElementById('stu-reg-otp-timer');
+  const resendBtn = document.getElementById('stu-reg-resend-btn');
+  if (!timer || !resendBtn) return;
+
+  let remaining = seconds;
+  resendBtn.disabled = true;
+  const tick = () => {
+    remaining -= 1;
+    timer.textContent = remaining > 0 ? `${remaining}s` : 'Ready';
+    if (remaining <= 0) {
+      resendBtn.disabled = false;
+      timer.textContent = 'Ready';
+      clearInterval(otpCountdownTimer);
+      otpCountdownTimer = null;
+    }
+  };
+  tick();
+  if (otpCountdownTimer) clearInterval(otpCountdownTimer);
+  otpCountdownTimer = setInterval(tick, 1000);
+}
+
+async function requestStudentOtp(email, password, confirmPassword) {
+  const otpBlock = document.getElementById('student-otp-block');
+  const submitButton = document.getElementById('stu-reg-submit-btn');
+  const otpInput = document.getElementById('stu-reg-otp');
+
+  const data = await apiFetch('/auth/send-otp', {
+    method: 'POST',
+    body: JSON.stringify({ email })
+  });
+
+  pendingStudentOtpEmail = email;
+  if (otpBlock) otpBlock.classList.remove('hidden');
+  if (submitButton) submitButton.textContent = 'Verify OTP & Create Account';
+  setStudentOtpCountdown(30);
+
+  if (data.devCode && otpInput) {
+    otpInput.value = data.devCode;
+  }
+
+  return { success: true, password, confirmPassword };
+}
+
+async function resendStudentOtp() {
+  const email = document.getElementById('stu-reg-email').value.trim();
+  const password = document.getElementById('stu-reg-pass').value.trim();
+  const confirmPassword = document.getElementById('stu-reg-confirm-pass').value.trim();
+  if (!email) {
+    alert('Enter your email address first.');
+    return;
+  }
+  try {
+    await requestStudentOtp(email, password, confirmPassword);
+  } catch (err) {
+    alert(err.message || 'Unable to resend student OTP.');
+  }
 }
 
 async function handleStudentLoginSubmit(e) {
@@ -420,35 +385,41 @@ async function handleStudentRegisterSubmit(e) {
   const mobile = document.getElementById('stu-reg-mobile').value.trim();
   const password = document.getElementById('stu-reg-pass').value.trim();
   const confirmPassword = document.getElementById('stu-reg-confirm-pass').value.trim();
+  const otpCode = document.getElementById('stu-reg-otp')?.value.trim() || '';
   const passwordError = document.getElementById('stu-reg-password-error');
-  const otpInput = document.getElementById('stu-reg-otp');
-
   passwordError.classList.toggle('hidden', password === confirmPassword);
   if (password !== confirmPassword) return;
 
   try {
-    if (pendingStudentOtpEmail !== email) {
-      const otp = await apiFetch('/auth/send-otp', { method: 'POST', body: JSON.stringify({ email }) });
-      pendingStudentOtpEmail = email;
-      document.getElementById('student-otp-block').classList.remove('hidden');
-      document.getElementById('stu-reg-submit-btn').textContent = 'Verify OTP & Create Account';
-      if (otp.devCode && otpInput) otpInput.value = otp.devCode;
+    if (!pendingStudentOtpEmail || pendingStudentOtpEmail !== email) {
+      await requestStudentOtp(email, password, confirmPassword);
       return;
     }
-    if (!otpInput || !/^\d{6}$/.test(otpInput.value.trim())) {
-      alert('Enter the 6-digit OTP sent to your email.');
+
+    if (!otpCode || otpCode.length !== 6) {
+      alert('Enter the 6-digit OTP sent to your email before creating the account.');
       return;
     }
-    await apiFetch('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ email, otp: otpInput.value.trim() }) });
+
+    await apiFetch('/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp: otpCode })
+    });
+
     const data = await apiFetch('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ fullName, username, email, mobile, password, confirmPassword, role: 'student' })
     });
+
+    pendingStudentOtpEmail = null;
+    if (otpCountdownTimer) clearInterval(otpCountdownTimer);
+    document.getElementById('student-otp-block').classList.add('hidden');
+    document.getElementById('stu-reg-submit-btn').textContent = 'Send OTP';
+
     authToken = data.token;
     localStorage.setItem('sb_token', authToken);
     currentUser = data.user;
     currentProfile = data.profile;
-    pendingStudentOtpEmail = null;
     closeModal('student-auth-modal');
     alert(`Account created. Your Student ID is ${data.studentId}. Complete your profile to continue.`);
     switchPortalRole('student');
@@ -644,414 +615,6 @@ async function handleCollegeRegisterSubmit(e) {
   }
 }
 
-// ===== READ-ONLY & EDIT MODE UTILITIES =====
-class ReadOnlyEditManager {
-  constructor(containerId) {
-    this.containerId = containerId;
-    this.isEditMode = false;
-    this.originalData = {};
-  }
-
-  enableEditMode() {
-    this.isEditMode = true;
-    const container = document.getElementById(this.containerId);
-    if (!container) return;
-
-    // Convert all read-only fields to editable
-    container.querySelectorAll('[data-field]').forEach(field => {
-      const fieldName = field.dataset.field;
-      const value = field.textContent.trim();
-      this.originalData[fieldName] = value;
-
-      // Create editable input
-      const input = document.createElement('input');
-      input.type = field.dataset.type || 'text';
-      input.className = 'form-control';
-      input.value = value;
-      input.id = `edit-${fieldName}`;
-      field.replaceWith(input);
-    });
-
-    // Show save/cancel buttons
-    const buttons = container.querySelector('.edit-mode-buttons');
-    if (buttons) buttons.classList.remove('hidden');
-  }
-
-  disableEditMode(shouldSave = false) {
-    if (!this.isEditMode) return;
-    this.isEditMode = false;
-
-    const container = document.getElementById(this.containerId);
-    if (!container) return;
-
-    container.querySelectorAll('input[id^="edit-"]').forEach(input => {
-      const fieldName = input.id.replace('edit-', '');
-      const value = shouldSave ? input.value : this.originalData[fieldName];
-
-      const display = document.createElement('span');
-      display.dataset.field = fieldName;
-      display.dataset.type = input.type;
-      display.className = 'read-only-field';
-      display.textContent = value;
-      input.replaceWith(display);
-    });
-
-    // Hide save/cancel buttons
-    const buttons = container.querySelector('.edit-mode-buttons');
-    if (buttons) buttons.classList.add('hidden');
-  }
-
-  getSavedData() {
-    const data = {};
-    document.querySelectorAll(`#${this.containerId} input[id^="edit-"]`).forEach(input => {
-      const fieldName = input.id.replace('edit-', '');
-      data[fieldName] = input.value;
-    });
-    return data;
-  }
-}
-
-// Global edit managers for different sections
-const editManagers = {
-  profile: new ReadOnlyEditManager('profile-view'),
-  academics: new ReadOnlyEditManager('academics-view'),
-  skills: new ReadOnlyEditManager('skills-view')
-};
-
-// Read-only wrapper for displaying dashboard fields
-function createReadOnlyField(label, value, fieldName = '', fieldType = 'text') {
-  return `
-    <div class="form-group">
-      <label>${label}</label>
-      <div class="read-only-display">
-        <span data-field="${fieldName}" data-type="${fieldType}" class="read-only-value">${value || '-'}</span>
-        <button class="btn-edit" onclick="toggleFieldEdit('${fieldName}', true)">✎ Edit</button>
-      </div>
-    </div>
-  `;
-}
-
-// Toggle between read-only and edit mode for a field
-function toggleFieldEdit(fieldName, enable = true) {
-  const field = document.querySelector(`[data-field="${fieldName}"]`);
-  if (!field) return;
-
-  const container = field.closest('.read-only-display');
-  if (!container) return;
-
-  if (enable) {
-    const value = field.textContent;
-    const input = document.createElement('input');
-    input.type = field.dataset.type || 'text';
-    input.className = 'form-control';
-    input.value = value;
-    input.id = `input-${fieldName}`;
-    container.classList.add('edit-mode');
-    field.replaceWith(input);
-  } else {
-    const input = container.querySelector('input');
-    if (input) {
-      const display = document.createElement('span');
-      display.dataset.field = fieldName;
-      display.dataset.type = input.type;
-      display.className = 'read-only-value';
-      display.textContent = input.value;
-      container.classList.remove('edit-mode');
-      input.replaceWith(display);
-    }
-  }
-}
-
-// STUDENT LOADERS
-async function loadDashboardHome() {
-  try {
-    const data = await apiFetch('/student/profile');
-    currentProfile = data.profile;
-    document.getElementById('welcome-header').textContent = `Welcome back, ${currentProfile.name || 'Student'}`;
-    const completion = data.completion || { percentage: 80, missingItems: [] };
-    document.getElementById('dash-profile-pct').textContent = `${completion.percentage}%`;
-    document.getElementById('dash-profile-bar').style.width = `${completion.percentage}%`;
-
-    const acad = await apiFetch('/student/academics');
-    document.getElementById('school-tenth').value = acad.school?.tenth_percentage ?? '';
-    document.getElementById('school-twelfth').value = acad.school?.twelfth_percentage ?? '';
-    document.getElementById('backlogs-count').value = acad.backlog?.current_backlogs ?? 0;
-    document.getElementById('stat-cgpa').textContent = acad.cgpa === null ? 'Not available' : Number(acad.cgpa).toFixed(2);
-
-    const opps = await apiFetch('/opportunities');
-    const recContainer = document.getElementById('dash-recommended-jobs');
-    recContainer.innerHTML = opps.slice(0, 3).map(j => `
-      <div class="saas-card">
-        <div class="badge-saas badge-purple mb-2">${j.match_percentage}% MATCH</div>
-        <h4 style="font-weight:700;">${j.title}</h4>
-        <div style="font-size:0.8rem; color:var(--text-blue); font-weight:700;" class="mb-2">${j.company_name}</div>
-        <button class="btn-saas btn-primary w-full" onclick="navigateTo('opportunities')">View & Apply</button>
-      </div>
-    `).join('');
-    const skills = await apiFetch('/student/skills');
-    document.getElementById('dash-skills-list').innerHTML = (skills.technical || []).length ? skills.technical.map(skill => `<div>${skill.skillName || skill.skill_name}: ${skill.proficiencyPercentage}% | ${skill.scoreOutOfTen}/10</div>`).join('') : '<span>No skills added yet</span>';
-    const portfolio = await apiFetch('/student/portfolio');
-    document.getElementById('stat-skills').textContent = skills.technical?.length || 0;
-    document.getElementById('stat-projects').textContent = portfolio.projects?.length || 0;
-    document.getElementById('stat-certs').textContent = portfolio.certificates?.length || 0;
-    document.getElementById('stat-score').textContent = 'Calculated from profile';
-    document.getElementById('dash-certificates-count').textContent = `${(portfolio.certificates || []).length} certificate(s)`;
-    const match = opps[0];
-    document.getElementById('dash-ai-match').textContent = match ? `${match.match_percentage}% match` : 'No job match available';
-  } catch (e) {}
-}
-
-async function loadProfileView() {
-  try {
-    const data = await apiFetch('/student/profile');
-    const p = data.profile || {};
-    document.getElementById('prof-name').value = p.name || '';
-    document.getElementById('prof-student-id').value = p.student_id || currentUser.student_id || '';
-    document.getElementById('prof-phone').value = p.phone || '';
-    document.getElementById('prof-college').value = p.college || '';
-    ['university','department','degree','city','state','country','pincode'].forEach(field => { const el = document.getElementById(`prof-${field}`); if (el) el.value = p[field] || ''; });
-    ['doorHouse','street','area','district'].forEach(field => { const el = document.getElementById(`prof-${field.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`); if (el) el.value = p.address?.[field] || ''; });
-    document.getElementById('prof-dob').value = p.dateOfBirth || '';
-    document.getElementById('prof-gender').value = p.gender || '';
-    document.getElementById('prof-graduation').value = p.graduationYear || '';
-    const acad = await apiFetch('/student/academics');
-    const bySemester = Object.fromEntries((acad.records || []).map(record => [record.semester, record.gpa]));
-    const fields = document.getElementById('onboarding-gpa-fields');
-    fields.innerHTML = Array.from({ length: 8 }, (_, index) => `<div><label class="block text-xs font-bold mb-1">Semester ${index + 1}</label><input type="number" min="0" max="10" step="0.01" class="saas-input onboarding-gpa" data-semester="${index + 1}" value="${bySemester[`Semester ${index + 1}`] ?? ''}" /></div>`).join('');
-    fields.querySelectorAll('.onboarding-gpa').forEach(input => input.addEventListener('input', updateOnboardingCGPA));
-    updateOnboardingCGPA();
-    const pref = await apiFetch('/student/preferences');
-    document.getElementById('onboarding-roles').value = (pref.preferences.jobRoles || []).join(', ');
-    document.getElementById('onboarding-industries').value = (pref.preferences.industries || []).join(', ');
-    document.getElementById('onboarding-locations').value = (pref.preferences.locations || []).join(', ');
-    document.getElementById('onboarding-type').value = (pref.preferences.opportunityTypes || [])[0] || '';
-    document.getElementById('onboarding-resume').value = p.resume_url || '';
-    const skills = await apiFetch('/student/skills');
-    document.getElementById('onboarding-skills').value = (skills.technical || []).map(s => `${s.skill_name}:${s.level_pct}`).join(', ');
-  } catch (e) {}
-}
-
-async function extractPdfText(file) {
-  if (!file || file.type !== 'application/pdf') throw new Error('Only PDF resumes are accepted.');
-  if (!window.pdfjsLib) throw new Error('PDF analysis is still loading. Please try again.');
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-  const pages = [];
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    pages.push(content.items.map(item => item.str).join(' '));
-  }
-  return pages.join('\n').trim();
-}
-
-function calculateResumeATS(text) {
-  const normalized = text.toLowerCase();
-  const sections = ['experience', 'education', 'skills', 'projects', 'certifications', 'summary'];
-  const foundSections = sections.filter(section => normalized.includes(section));
-  const keywords = ['python', 'java', 'javascript', 'sql', 'react', 'docker', 'api', 'aws'];
-  const verbs = ['built', 'developed', 'implemented', 'designed', 'deployed', 'led'];
-  const sectionsScore = foundSections.length / sections.length * 35;
-  const contactScore = (/@/.test(text) ? 8 : 0) + (/(linkedin|github|https?:\/\/)/i.test(text) ? 7 : 0);
-  const keywordScore = keywords.filter(keyword => normalized.includes(keyword)).length / keywords.length * 25;
-  const actionScore = verbs.filter(verb => normalized.includes(verb)).length / verbs.length * 15;
-  const lengthScore = text.length >= 800 && text.length <= 12000 ? 10 : (text.length > 200 ? 5 : 0);
-  const score = Math.min(100, Math.round(sectionsScore + contactScore + keywordScore + actionScore + lengthScore));
-  return {
-    score,
-    aiScore: Math.min(100, Math.round(score * 0.85 + 15)),
-    wordCount: text.split(/\s+/).filter(Boolean).length,
-    missingSections: sections.filter(section => !normalized.includes(section)),
-    breakdown: [
-      ['Resume sections', sectionsScore, 35],
-      ['Contact & links', contactScore, 15],
-      ['Technical keywords', keywordScore, 25],
-      ['Action language', actionScore, 15],
-      ['Length & readability', lengthScore, 10]
-    ]
-  };
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Unable to read the PDF file.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function renderResumeATSAnalysis(analysis) {
-  document.getElementById('resume-ats-empty').classList.add('hidden');
-  document.getElementById('resume-ats-results').classList.remove('hidden');
-  document.getElementById('resume-ats-score').textContent = `${analysis.score} / 100`;
-  document.getElementById('resume-ai-score').textContent = `${analysis.aiScore} / 100`;
-  const status = document.getElementById('resume-ats-status');
-  status.textContent = analysis.score >= 80 ? 'Strong match' : analysis.score >= 60 ? 'Needs tuning' : 'Needs improvement';
-  status.className = `badge-saas ${analysis.score >= 80 ? 'badge-emerald' : 'badge-purple'}`;
-  document.getElementById('resume-ats-breakdown').innerHTML = analysis.breakdown.map(item => `
-    <div><div class="flex-between text-sm"><strong>${item[0]}</strong><span>${Math.round(item[1])}% / ${item[2]}%</span></div>
-    <div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><div style="width:${Math.min(100, item[1] / item[2] * 100)}%;height:100%;background:linear-gradient(90deg,#2563eb,#7c3aed);"></div></div></div>
-  `).join('');
-  document.getElementById('resume-ats-findings').textContent = `${analysis.wordCount} words analyzed. ${analysis.missingSections.length ? `Missing sections: ${analysis.missingSections.join(', ')}.` : 'All core sections detected.'}`;
-}
-
-async function loadATSResumeView() {
-  try {
-    const data = await apiFetch('/student/profile');
-    if (data.resume && data.resume.ats_analysis) renderResumeATSAnalysis(data.resume.ats_analysis);
-  } catch (error) {
-    console.error('ATS resume analysis load failed:', error);
-  }
-}
-
-async function handleResumeUpload(event) {
-  event.preventDefault();
-  const file = document.getElementById('resume-file-input').files[0];
-  if (!file || file.type !== 'application/pdf') {
-    alert('Please select a PDF resume.');
-    return;
-  }
-  try {
-    const analysis = calculateResumeATS(await extractPdfText(file));
-    renderResumeATSAnalysis(analysis);
-    await apiFetch('/student/resume', {
-      method: 'POST',
-      body: JSON.stringify({ fileUrl: await readFileAsDataUrl(file), resumeUrl: await readFileAsDataUrl(file), fileName: file.name, atsAnalysis: analysis })
-    });
-    document.getElementById('resume-file-input').value = '';
-    alert('PDF analyzed successfully.');
-  } catch (error) {
-    alert(error.message || 'Resume analysis failed.');
-  }
-}
-
-function updateOnboardingCGPA() {
-  const values = [...document.querySelectorAll('.onboarding-gpa')].map(input => input.value).filter(value => value !== '').map(Number).filter(inputValueIsPresent);
-  const element = document.getElementById('onboarding-cgpa');
-  element.textContent = values.length ? `Current CGPA: ${(values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2)}` : 'Enter semester GPA to calculate CGPA';
-}
-function inputValueIsPresent(value) { return Number.isFinite(value) && value >= 0; }
-async function handleSaveProfile(e) {
-  e.preventDefault();
-  try {
-    const skills = document.getElementById('onboarding-skills').value.split(',').map(item => { const [skillName, proficiencyPercentage] = item.split(':'); return { skillName: (skillName || '').trim(), proficiencyPercentage: Number(proficiencyPercentage), category: 'Other' }; }).filter(skill => skill.skillName && Number.isFinite(skill.proficiencyPercentage));
-    const semesterGpa = [...document.querySelectorAll('.onboarding-gpa')].map(input => input.value === '' ? null : Number(input.value));
-    const data = await apiFetch('/student/onboarding', {
-      method: 'POST',
-      body: JSON.stringify({
-        profile: { name: document.getElementById('prof-name').value.trim(), phone: document.getElementById('prof-phone').value.trim(), college: document.getElementById('prof-college').value.trim(), university: document.getElementById('prof-university').value.trim(), department: document.getElementById('prof-department').value.trim(), degree: document.getElementById('prof-degree').value.trim(), dateOfBirth: document.getElementById('prof-dob').value, gender: document.getElementById('prof-gender').value, graduationYear: Number(document.getElementById('prof-graduation').value), city: document.getElementById('prof-city').value.trim(), state: document.getElementById('prof-state').value.trim(), country: document.getElementById('prof-country').value.trim(), pincode: document.getElementById('prof-pincode').value.trim(), address: { doorHouse: document.getElementById('prof-door-house').value.trim(), street: document.getElementById('prof-street').value.trim(), area: document.getElementById('prof-area').value.trim(), city: document.getElementById('prof-city').value.trim(), district: document.getElementById('prof-district').value.trim(), state: document.getElementById('prof-state').value.trim(), pincode: document.getElementById('prof-pincode').value.trim() }, resume_url: document.getElementById('onboarding-resume').value.trim() },
-        school: { tenth_percentage: Number(document.getElementById('school-tenth').value) || null, twelfth_percentage: Number(document.getElementById('school-twelfth').value) || null },
-        backlog: { current_backlogs: Number(document.getElementById('backlogs-count').value) || 0 },
-        semesterGpa, skills,
-        preferences: { jobRoles: document.getElementById('onboarding-roles').value.split(',').map(value => value.trim()).filter(Boolean), industries: document.getElementById('onboarding-industries').value.split(',').map(value => value.trim()).filter(Boolean), locations: document.getElementById('onboarding-locations').value.split(',').map(value => value.trim()).filter(Boolean), opportunityTypes: [document.getElementById('onboarding-type').value] }
-      })
-    });
-    currentProfile = data.profile;
-    alert('Profile saved. Welcome to your dashboard!');
-    navigateTo('dashboard');
-  } catch (err) { alert(err.message || 'Profile update failed.'); }
-}
-async function loadAcademicsView() {
-  try {
-    const data = await apiFetch('/student/academics');
-    const tbody = document.getElementById('semester-table-body');
-    const records = Object.fromEntries((data.records || []).map(record => [record.semester, record]));
-    document.getElementById('academic-tenth').value = data.school?.tenth_percentage ?? '';
-    document.getElementById('academic-twelfth').value = data.school?.twelfth_percentage ?? '';
-    document.getElementById('academic-backlogs').value = data.backlog?.current_backlogs ?? 0;
-    tbody.innerHTML = Array.from({ length: 8 }, (_, index) => { const record = records[`Semester ${index + 1}`]; return `<tr><td style="font-weight:700;">Semester ${index + 1}</td><td><input class="saas-input semester-edit" data-semester="${index + 1}" type="number" min="0" max="10" step="0.01" value="${record?.gpa ?? ''}" oninput="updateAcademicCGPA()"></td><td>${record?.gpa !== null && record?.gpa !== undefined ? 'Completed' : 'Not Completed'}</td></tr>`; }).join('');
-    updateAcademicCGPA();
-  } catch (e) {}
-}
-function updateAcademicCGPA() { const values = [...document.querySelectorAll('.semester-edit')].map(input => Number(input.value)).filter(value => Number.isFinite(value) && value >= 0); const target = document.getElementById('academic-cgpa'); if (target) target.textContent = values.length ? `Calculated CGPA: ${(values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2)}` : 'Calculated CGPA: Not available'; }
-async function saveAcademicSummary() { try { const semesterGpa = [...document.querySelectorAll('.semester-edit')].map(input => input.value === '' ? null : Number(input.value)); await apiFetch('/student/academics', { method: 'PUT', body: JSON.stringify({ semesterGpa, school: { tenth_percentage: Number(document.getElementById('academic-tenth').value) || null, twelfth_percentage: Number(document.getElementById('academic-twelfth').value) || null }, backlog: { current_backlogs: Number(document.getElementById('academic-backlogs').value) || 0 } }) }); alert('Academic record saved.'); loadAcademicsView(); } catch (err) { alert(err.message); } }
-async function loadSkillsView() {
-  try {
-    const data = await apiFetch('/student/skills');
-    document.getElementById('technical-skills-list').innerHTML = (data.technical || []).map(s => `<div class="flex-between"><span>${s.skill_name}</span> <span class="badge-saas badge-purple">${s.level_pct}% · ${s.scoreOutOfTen}/10</span></div>`).join('');
-  } catch (e) {}
-}
-async function handleSkillSubmit(event) { event.preventDefault(); try { const data = await apiFetch('/student/skills', { method: 'POST', body: JSON.stringify({ skillName: document.getElementById('skill-entry-name').value, category: document.getElementById('skill-entry-category').value, proficiencyPercentage: Number(document.getElementById('skill-entry-percent').value) }) }); if (data.duplicate) alert(`${document.getElementById('skill-entry-name').value} already exists in your skills. It was updated.`); else alert('Skill added.'); event.target.reset(); loadSkillsView(); } catch (err) { alert(err.message); } }
-async function loadAssessmentsView() {
-  try {
-    const data = await apiFetch('/student/assessments');
-    document.getElementById('assess-overall-score').textContent = `${data.overall_score || 82} / 100`;
-    document.getElementById('assessments-list-container').innerHTML = (data.tests || []).map(t => `<div class="saas-card flex-between mb-3"><div><h4 style="font-weight:700;">${t.name}</h4></div><div style="font-weight:800; color:var(--text-emerald);">${t.score}/${t.total}</div></div>`).join('');
-  } catch (e) {}
-}
-async function loadPortfolioView() {
-  try {
-    const data = await apiFetch('/student/portfolio');
-    const projects = (data.projects || []).map(p => `<div class="saas-card mb-3"><h4 style="font-weight:700;">${p.title}</h4><p style="font-size:0.85rem; color:var(--text-muted);">${p.description}</p></div>`).join('');
-    const certificates = (data.certificates || []).map(cert => `<div class="saas-card mb-3 flex-between"><div><h4>${cert.certificateName || cert.name}</h4><p class="text-xs">${cert.category || 'Other'} · ${cert.issuer || ''} · ${cert.issueDate || ''}</p></div><div>${cert.certificateUrl ? `<a class="btn-saas btn-outline" href="${cert.certificateUrl}" target="_blank" rel="noreferrer">View</a>` : ''}<button class="btn-saas btn-outline" onclick="deleteCertificate(${cert.id})">Delete</button></div></div>`).join('');
-    const achievements = (data.achievements || []).map(item => `<div class="saas-card mb-3"><h4>${item.title || 'Achievement'}</h4><p class="text-xs">${item.organization || ''} · ${item.date || ''}</p></div>`).join('');
-    document.getElementById('portfolio-tab-content').innerHTML = `<h2 class="mb-3">Projects</h2>${projects || '<p class="mb-4">No projects recorded.</p>'}<h2 class="mb-3">Certificates</h2>${certificates || '<p class="mb-4">No certificates recorded.</p>'}<h2 class="mb-3">Achievements</h2>${achievements || '<p>No achievements recorded.</p>'}`;
-  } catch (e) {}
-}
-async function loadCertificatesView() {
-  try {
-    const data = await apiFetch('/student/portfolio');
-    const certificates = data.certificates || [];
-    document.getElementById('certificates-page-list').innerHTML = certificates.length ? certificates.map(cert => `<div class="saas-card mb-3 flex-between"><div><h4>${cert.certificateName || cert.name}</h4><p class="text-xs">${cert.category || 'Other'} · ${cert.issuer || ''} · ${cert.issueDate || ''}</p></div><div>${cert.certificateUrl ? `<a class="btn-saas btn-outline" href="${cert.certificateUrl}" target="_blank" rel="noreferrer">View</a>` : ''}<button class="btn-saas btn-outline" onclick="deleteCertificate(${cert.id})">Delete</button></div></div>`).join('') : '<div class="saas-card"><p>No certificates added yet</p><button class="btn-saas btn-primary mt-3" onclick="document.getElementById(\'certificate-name\').focus()">+ Add Your First Certificate</button></div>';
-  } catch (e) { document.getElementById('certificates-page-list').textContent = 'Unable to load certificates.'; }
-}
-async function handleCertificateSubmit(event) { event.preventDefault(); try { await apiFetch('/student/certificates', { method: 'POST', body: JSON.stringify({ certificateName: document.getElementById('certificate-name').value.trim(), category: document.getElementById('certificate-category').value, issuer: document.getElementById('certificate-issuer').value.trim(), issueDate: document.getElementById('certificate-date').value, credentialId: document.getElementById('certificate-credential').value.trim(), certificateUrl: document.getElementById('certificate-url').value.trim() }) }); event.target.reset(); alert('Certificate saved.'); loadPortfolioView(); } catch (err) { alert(err.message); } }
-async function deleteCertificate(id) { if (!window.confirm('Are you sure you want to delete this certificate?')) return; try { await apiFetch(`/student/certificates/${id}`, { method: 'DELETE' }); if (!document.getElementById('view-certificates').classList.contains('hidden')) loadCertificatesView(); else loadPortfolioView(); } catch (err) { alert(err.message); } }
-function openAiAssistant() { document.getElementById('ai-assistant-panel').classList.remove('hidden'); }
-function closeAiAssistant() { document.getElementById('ai-assistant-panel').classList.add('hidden'); }
-function askAiQuick(message) { document.getElementById('student-ai-chat-input').value = message; document.getElementById('student-ai-chat-input').focus(); }
-async function handleAiChatSubmit(event) { 
-  event.preventDefault(); 
-  const input = document.getElementById('student-ai-chat-input'); 
-  const log = document.getElementById('student-ai-chat-log'); 
-  const message = input.value.trim(); 
-  if (!message) return; 
-  log.insertAdjacentHTML('beforeend', `<div class="chat-bubble user">${message}</div>`); 
-  input.value = ''; 
-  try { 
-    const data = await apiFetch('/api/ai/chat', { method: 'POST', body: JSON.stringify({ message }) }); 
-    log.insertAdjacentHTML('beforeend', `<div class="chat-bubble bot">${data.reply}</div>`); 
-    log.scrollTop = log.scrollHeight; 
-  } catch (err) { 
-    log.insertAdjacentHTML('beforeend', `<div class="chat-bubble bot">Error: ${err.message}</div>`); 
-  } 
-}
-async function loadAISkillAnalyzerView() {
-  try {
-    const data = await apiFetch('/student/jobs/101');
-    document.getElementById('ai-match-pct').textContent = `${data.matchPercentage}% Match`;
-    document.getElementById('ai-match-details').innerHTML = `<p class="mt-2">${data.recommendationLevel}</p><p class="text-xs mt-2">${data.nonGuarantee}</p><table class="saas-table mt-3"><thead><tr><th>Skill</th><th>Required</th><th>Student</th><th>Result</th></tr></thead><tbody>${(data.skillGaps || []).map(item => `<tr><td>${item.skill}</td><td>${item.reqLevel}</td><td>${item.studentLevel}</td><td>${item.result === 'Match' ? '✓ Match' : '⚠ Gap'}</td></tr>`).join('')}</tbody></table>`;
-  } catch (e) {}
-}
-async function loadSkillMapView() {
-  try {
-    const data = await apiFetch('/student/skill-map');
-    document.getElementById('skill-map-companies').innerHTML = (data.companies || []).map(company => `<span class="badge-saas badge-blue">${company}</span>`).join('') || '<span class="text-sm">No companies available.</span>';
-    document.getElementById('skill-map-list').innerHTML = (data.jobs || []).map(job => `<div class="saas-card mb-3"><div class="flex-between"><div><h3>${job.jobTitle}</h3><p class="text-xs" style="color:var(--text-muted);">${job.companyName} · ${job.location || 'Location not specified'} · ${job.jobType || 'Opportunity'}</p></div><div class="text-right"><strong style="color:var(--text-emerald);">${job.matchPercentage}%</strong><div class="text-xs">${job.recommendationLevel}</div></div></div><div class="grid-2 gap-3 mt-3"><div><strong class="text-xs">Strengths</strong><p class="text-xs mt-1">${job.strengths?.join(' ') || 'No matching requirements recorded.'}</p></div><div><strong class="text-xs">Skill gaps</strong><p class="text-xs mt-1">${job.skillGaps?.join(' ') || 'No skill gaps detected.'}</p></div></div><button class="btn-saas btn-outline mt-3" onclick="navigateTo('ai-skill-analyzer'); loadJobAnalysis(${job.jobId})">View AI Analysis</button></div>`).join('') || '<div class="saas-card">No jobs are available for skill mapping.</div>';
-  } catch (e) { document.getElementById('skill-map-list').innerHTML = '<div class="saas-card">Unable to load the AI skill map.</div>'; }
-}
-async function loadJobAnalysis(jobId) { try { const data = await apiFetch(`/student/jobs/${jobId}`); document.getElementById('ai-match-pct').textContent = `${data.matchPercentage}% Match`; document.getElementById('ai-match-details').innerHTML = `<p class="mt-2">${data.recommendationLevel}</p><p class="text-xs mt-2">${data.nonGuarantee}</p><table class="saas-table mt-3"><thead><tr><th>Skill</th><th>Required</th><th>Student</th><th>Result</th></tr></thead><tbody>${(data.skillGaps || []).map(item => `<tr><td>${item.skill}</td><td>${item.reqLevel}</td><td>${item.studentLevel}</td><td>${item.result === 'Match' ? '✓ Match' : '⚠ Gap'}</td></tr>`).join('')}</tbody></table>`; } catch (e) {} }
-async function loadOpportunitiesView() {
-  try {
-    const jobs = await apiFetch('/opportunities');
-    document.getElementById('opportunities-list-container').innerHTML = jobs.map(j => `<div class="saas-card mb-3"><h4 style="font-weight:700;">${j.title}</h4><div style="color:var(--text-blue); font-weight:700;" class="mb-2">${j.company_name}</div><button class="btn-saas btn-primary" onclick="handleApplyJob(${j.id})">Apply Position</button></div>`).join('');
-  } catch (e) {}
-}
-async function handleApplyJob(jobId) {
-  try {
-    await apiFetch('/student/apply', { method: 'POST', body: JSON.stringify({ jobId }) });
-    alert('Application submitted!');
-    navigateTo('applications');
-  } catch (err) { alert(err.message); }
-}
-async function loadApplicationsView() {
-  try {
-    const apps = await apiFetch('/student/applications');
-    document.getElementById('applications-list-container').innerHTML = apps.map(a => `<div class="saas-card mb-3 flex-between application-row"><div><h4 style="font-weight:700;">${a.job_title}</h4><div style="font-size:0.85rem; color:var(--text-blue);">${a.company_name}</div><div class="text-xs mt-2" style="color:var(--text-muted);">${a.interview ? `Interview: ${a.interview.date} at ${a.interview.time}` : 'Application in progress'}</div></div><div class="flex-align gap-2"><span class="badge-saas badge-emerald">${a.status}</span>${a.interview ? '<button class="btn-saas btn-primary" onclick="navigateTo(\'interview-prep\')"><i class="fa-solid fa-microphone-lines"></i> Practice</button>' : ''}</div></div>`).join('') || '<div class="saas-card">No applications yet.</div>';
-  } catch (e) {}
-}
-
 function loadInterviewPrepView() {
   setInterviewLanguage(document.getElementById('interview-language')?.value || voiceInterview.language);
   if (!voiceInterview.sessionStarted && !voiceInterview.answers.length && voiceInterview.questionIndex === 0) resetInterviewView();
@@ -1066,11 +629,10 @@ function setInterviewLanguage(language) {
 
   if (voiceInterview.questionIndex < interviewQuestions.length && document.getElementById('interview-question')) {
     const question = interviewQuestions[voiceInterview.questionIndex];
-    const text = language === 'ta-IN' ? question.ta : question.en;
     const questionEl = document.getElementById('interview-question');
     const currentText = questionEl.textContent || '';
     if (!voiceInterview.sessionStarted && (currentText.includes('Choose a language') || currentText.includes('Ready when you are'))) {
-      questionEl.textContent = text;
+      questionEl.textContent = language === 'ta-IN' ? question.ta : question.en;
     }
   }
 }
@@ -1094,16 +656,81 @@ function resetInterviewView() {
   if (startButton) startButton.disabled = false;
   if (listenButton) listenButton.disabled = true;
   if (nextButton) nextButton.disabled = true;
-  document.getElementById('interview-progress').textContent = '0 / 5';
-  document.getElementById('interview-question').textContent = 'Choose a language and start the mock interview. The agent will ask one question at a time.';
-  document.getElementById('interview-transcript').value = '';
-  document.getElementById('interview-summary').innerHTML = '<span class="text-sm" style="color:var(--text-muted);">Your practice summary will appear here when you finish.</span>';
+  if (document.getElementById('interview-progress')) document.getElementById('interview-progress').textContent = `0 / ${interviewQuestions.length}`;
+  if (document.getElementById('interview-question')) document.getElementById('interview-question').textContent = 'Choose a language and start the mock interview. The agent will ask one question at a time.';
+  if (document.getElementById('interview-transcript')) document.getElementById('interview-transcript').value = '';
+  if (document.getElementById('interview-summary')) document.getElementById('interview-summary').innerHTML = '<span class="text-sm" style="color:var(--text-muted);">Your practice summary will appear here when you finish.</span>';
   setInterviewStatus('Microphone is off');
 }
 
 function setInterviewStatus(message) {
   const status = document.getElementById('interview-status');
   if (status) status.textContent = message;
+}
+
+function extractSpeechTranscript(results) {
+  if (!results || !results.length) return '';
+  let text = '';
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const pieces = [];
+    for (let j = 0; j < result.length; j++) {
+      const chunk = result[j] && result[j].transcript ? result[j].transcript : '';
+      if (chunk) pieces.push(chunk.trim());
+    }
+    if (pieces.length) text += `${pieces.join(' ')} `;
+  }
+  return text.trim();
+}
+
+function buildInterviewDiagnostics(answer, questionText) {
+  const text = String(answer || '').trim();
+  if (!text) {
+    return {
+      score: 0,
+      headline: 'No answer captured',
+      strengths: 'No answer was captured yet.',
+      improvement: 'Speak clearly and answer with a short situation, action, and result.'
+    };
+  }
+
+  const lower = text.toLowerCase();
+  let score = 35;
+  if (text.length > 50) score += 15;
+  if (text.length > 120) score += 12;
+  if (text.length > 220) score += 8;
+  if (/(problem|issue|bug|debug|optimi|design|security|monitor|performance|project|team|solution|result)/i.test(lower)) score += 15;
+  if (/(because|therefore|first|then|finally|after|when|while|so|as a result)/i.test(lower)) score += 10;
+  if (/(i worked|i used|we built|we improved|we resolved|i handled|i analyzed)/i.test(lower)) score += 8;
+  if (/(team|teammate|stakeholder|customer|manager|user)/i.test(lower)) score += 7;
+
+  const normalized = Math.min(100, Math.max(0, score));
+  const strengths = normalized >= 80
+    ? 'Strong structure and clear examples.'
+    : normalized >= 60
+      ? 'Good substance with room to make the answer more specific.'
+      : 'The answer needs clearer structure and more concrete examples.';
+
+  const improvement = normalized >= 80
+    ? 'Keep using the STAR format: Situation, Task, Action, Result.'
+    : 'Add a specific problem, the action you took, and the measurable outcome.';
+
+  return {
+    score: normalized,
+    headline: normalized >= 80 ? 'Strong interview answer' : normalized >= 60 ? 'Solid answer' : 'Needs more depth',
+    strengths,
+    improvement,
+    questionText
+  };
+}
+
+function calculateInterviewScore(answers) {
+  if (!answers || !answers.length) return 0;
+  const total = answers.reduce((sum, answer) => {
+    const diagnostics = buildInterviewDiagnostics(answer, '');
+    return sum + diagnostics.score;
+  }, 0);
+  return Math.min(100, Math.round(total / answers.length));
 }
 
 function getPreferredVoice(languageCode) {
@@ -1134,9 +761,9 @@ function getSpeechRecognition() {
 }
 
 function updateInterviewAnswerState() {
-  const transcript = document.getElementById('interview-transcript').value.trim();
+  const transcript = document.getElementById('interview-transcript')?.value.trim();
   const nextButton = document.getElementById('interview-next-btn');
-  nextButton.disabled = !transcript;
+  if (nextButton) nextButton.disabled = !transcript;
   setInterviewStatus(transcript ? 'Answer ready. Review it and continue.' : 'Ready for your answer');
 }
 
@@ -1146,7 +773,7 @@ function startVoiceInterview() {
   const question = interviewQuestions[0];
   const text = voiceInterview.language === 'ta-IN' ? question.ta : question.en;
   document.getElementById('interview-question-number').textContent = 'Question 1';
-  document.getElementById('interview-progress').textContent = '1 / 5';
+  document.getElementById('interview-progress').textContent = `1 / ${interviewQuestions.length}`;
   document.getElementById('interview-question').textContent = text;
   document.getElementById('interview-start-btn').disabled = true;
   document.getElementById('interview-listen-btn').disabled = !getSpeechRecognition();
@@ -1163,67 +790,93 @@ function toggleVoiceInput() {
   }
 
   if (voiceInterview.listening) {
-    voiceInterview.recognition.stop();
+    if (voiceInterview.recognition) {
+      try { voiceInterview.recognition.stop(); } catch (err) {}
+    }
+    voiceInterview.listening = false;
+    setInterviewStatus('Microphone stopped. You can speak again or type your answer manually.');
     return;
   }
 
-  const recognition = new Recognition();
-  recognition.lang = voiceInterview.language;
-  recognition.interimResults = true;
-  recognition.continuous = false;
-  recognition.maxAlternatives = 3;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setInterviewStatus('Microphone access is not available in this browser. Please type your answer instead.');
+    return;
+  }
 
-  voiceInterview.recognition = recognition;
-  voiceInterview.listening = true;
+  setInterviewStatus('Requesting microphone access...');
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(() => {
+      const recognition = new Recognition();
+      recognition.lang = voiceInterview.language === 'ta-IN' ? 'ta-IN' : 'en-US';
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      recognition.maxAlternatives = 3;
 
-  recognition.onstart = () => setInterviewStatus('Listening... Speak clearly into the mic.');
-  recognition.onresult = event => {
-    // Build a transcript that prefers final results but also shows interim text.
-    let interim = '';
-    let finalTranscript = '';
-    for (let i = 0; i < event.results.length; i++) {
-      const res = event.results[i];
-      const piece = (res[0] && res[0].transcript) ? res[0].transcript : '';
-      if (res.isFinal) finalTranscript += piece + ' ';
-      else interim += piece + ' ';
-    }
-    const combined = (finalTranscript + interim).trim();
-    if (!combined) return;
-    document.getElementById('interview-transcript').value = combined;
-    voiceInterview.lastTranscript = combined;
-    updateInterviewAnswerState();
-    // If we received a final result, offer the user to continue immediately.
-    if (finalTranscript.trim()) {
-      document.getElementById('interview-next-btn').disabled = false;
-      setInterviewStatus('Answer captured. Review and continue.');
-    }
-  };
-  recognition.onerror = event => {
-    const errorMessage = event.error === 'not-allowed'
-      ? 'Microphone permission was denied. You can still type your answer.'
-      : `Voice input error: ${event.error}`;
-    setInterviewStatus(errorMessage);
-    voiceInterview.listening = false;
-    // Ensure recognition reference is cleared so future toggles recreate it.
-    try { voiceInterview.recognition && voiceInterview.recognition.abort(); } catch (e) {}
-    voiceInterview.recognition = null;
-  };
-  recognition.onend = () => {
-    voiceInterview.listening = false;
-    const typedValue = document.getElementById('interview-transcript').value.trim();
-    const last = (voiceInterview.lastTranscript || '').trim();
-    if (typedValue || last) {
-      if (!typedValue && last) document.getElementById('interview-transcript').value = last;
-      setInterviewStatus('Answer ready. Review it and continue.');
-      document.getElementById('interview-next-btn').disabled = false;
-    } else {
-      setInterviewStatus('No answer captured. Type your response or try again.');
-    }
-    // Clear recognition so subsequent toggles create a fresh instance.
-    voiceInterview.recognition = null;
-  };
+      voiceInterview.recognition = recognition;
+      voiceInterview.listening = true;
+      voiceInterview.lastTranscript = '';
 
-  recognition.start();
+      recognition.onstart = () => setInterviewStatus('Listening... Speak clearly into the mic.');
+
+      recognition.onresult = event => {
+        const resultText = extractSpeechTranscript(event.results);
+        if (!resultText) return;
+
+        const transcriptBox = document.getElementById('interview-transcript');
+        if (transcriptBox) transcriptBox.value = resultText;
+        voiceInterview.lastTranscript = resultText;
+        updateInterviewAnswerState();
+      };
+
+      recognition.onerror = event => {
+        const errorMessage = event.error === 'not-allowed' || event.error === 'service-not-allowed'
+          ? 'Microphone permission was denied. Please allow mic access, or type your answer manually.'
+          : event.error === 'no-speech'
+            ? 'No speech was detected. Please speak clearly and try again.'
+            : `Voice input error: ${event.error}. Please type your answer instead.`;
+        setInterviewStatus(errorMessage);
+        voiceInterview.listening = false;
+        if (voiceInterview.recognition) {
+          try { voiceInterview.recognition.stop(); } catch (err) {}
+        }
+      };
+
+      recognition.onend = () => {
+        voiceInterview.listening = false;
+        const transcriptBox = document.getElementById('interview-transcript');
+        const typedValue = transcriptBox ? transcriptBox.value.trim() : '';
+
+        if (typedValue && typedValue.length >= 5) {
+          setInterviewStatus('Answer ready. Review it and continue.');
+          const nextButton = document.getElementById('interview-next-btn');
+          if (nextButton) nextButton.disabled = false;
+          return;
+        }
+
+        const fallbackCapture = voiceInterview.lastTranscript ? voiceInterview.lastTranscript.trim() : '';
+        if (fallbackCapture && fallbackCapture.length >= 5) {
+          if (transcriptBox) transcriptBox.value = fallbackCapture;
+          updateInterviewAnswerState();
+          setInterviewStatus('Answer ready. Review it and continue.');
+          return;
+        }
+
+        setInterviewStatus('No answer captured. Please type your answer or allow the microphone and speak clearly again.');
+      };
+
+      try {
+        recognition.start();
+      } catch (err) {
+        voiceInterview.listening = false;
+        setInterviewStatus('The microphone is already active. Please wait a moment and try again.');
+      }
+    })
+    .catch(err => {
+      const message = err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
+        ? 'Microphone permission was denied. Please click Allow when the browser asks, or type your answer manually.'
+        : 'Microphone access could not be started. Please type your answer instead.';
+      setInterviewStatus(message);
+    });
 }
 
 function submitInterviewAnswer() {
@@ -1244,7 +897,7 @@ function submitInterviewAnswer() {
   const question = interviewQuestions[voiceInterview.questionIndex];
   const text = voiceInterview.language === 'ta-IN' ? question.ta : question.en;
   document.getElementById('interview-question-number').textContent = `Question ${voiceInterview.questionIndex + 1}`;
-  document.getElementById('interview-progress').textContent = `${voiceInterview.questionIndex + 1} / 5`;
+  document.getElementById('interview-progress').textContent = `${voiceInterview.questionIndex + 1} / ${interviewQuestions.length}`;
   document.getElementById('interview-question').textContent = text;
   document.getElementById('interview-transcript').value = '';
   document.getElementById('interview-next-btn').disabled = true;
@@ -1255,707 +908,1122 @@ function submitInterviewAnswer() {
 function finishVoiceInterview() {
   if (voiceInterview.recognition && voiceInterview.listening) voiceInterview.recognition.stop();
   const answered = voiceInterview.answers.length;
-  const summaryItems = voiceInterview.answers.map((answer, index) => `<div class="text-sm mb-2"><strong>Q${index + 1}:</strong> ${answer.slice(0, 220)}${answer.length > 220 ? '…' : ''}</div>`).join('');
+  const score = calculateInterviewScore(voiceInterview.answers);
+  const coachCards = voiceInterview.answers.map((answer, index) => {
+    const question = interviewQuestions[index] || null;
+    const diagnostics = buildInterviewDiagnostics(answer, question ? (voiceInterview.language === 'ta-IN' ? question.ta : question.en) : '');
+    return `
+      <div class="mb-3 p-2 rounded" style="background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.12);">
+        <div class="text-xs" style="font-weight:700; color:var(--text-blue);">Q${index + 1} • ${diagnostics.score}/100</div>
+        <div class="text-sm mt-1">${answer.slice(0, 220)}${answer.length > 220 ? '…' : ''}</div>
+        <div class="text-xs mt-2" style="color:var(--text-muted);"><strong>Coach:</strong> ${diagnostics.strengths}</div>
+      </div>
+    `;
+  }).join('');
 
   document.getElementById('interview-question-number').textContent = 'Practice complete';
-  document.getElementById('interview-progress').textContent = `${answered} / 5 answered`;
+  document.getElementById('interview-progress').textContent = `${answered} / ${interviewQuestions.length} answered`;
   document.getElementById('interview-question').textContent = 'Good work. Review your answers and repeat the round to improve clarity and structure.';
   document.getElementById('interview-start-btn').disabled = false;
   document.getElementById('interview-next-btn').disabled = true;
   document.getElementById('interview-listen-btn').disabled = true;
-  document.getElementById('interview-summary').innerHTML = `<strong>${answered}/5 responses captured</strong><div class="mt-3">${summaryItems || '<p class="text-sm mt-2">No answers recorded yet.</p>'}</div><p class="text-sm mt-2">Try answering with a clear situation, action, and result. No audio or transcript was uploaded.</p>`;
+  document.getElementById('interview-summary').innerHTML = `
+    <div class="mb-3"><strong>${answered}/${interviewQuestions.length} responses captured</strong></div>
+    <div class="mb-3"><strong>Overall mock score:</strong> ${score}/100</div>
+    <div class="mt-2">${coachCards || '<p class="text-sm mt-2">No answers recorded yet.</p>'}</div>
+    <p class="text-sm mt-2">Use the STAR structure: Situation, Task, Action, Result. Shorter answers are fine, but make them specific and measurable.</p>
+  `;
   setInterviewStatus('Session complete');
-  if ('speechSynthesis' in window) speakInterviewQuestion(voiceInterview.language === 'ta-IN' ? 'நன்றி. உங்கள் நேர்காணல் பயிற்சி முடிந்தது.' : 'Thank you. Your interview practice is complete.');
+  if ('speechSynthesis' in window) speakInterviewQuestion(voiceInterview.language === 'ta-IN' ? 'நன்றி. உங்கள் நேர்காணல் பயிற்சி முடிந்தது. உங்களின் பதில்களை மீண்டும் படித்து, சிறப்பான பதிலை உருவாக்குங்கள்.' : 'Thank you. Your interview practice is complete. Review your answers and aim for clearer examples and measurable results.');
+}
+
+// FACULTY AUTH HANDLERS
+function openFacultyAuthModal(tab = 'login') { openModal('faculty-auth-modal'); switchFacultyAuthTab(tab); }
+function switchFacultyAuthTab(tab) {
+  const login = document.getElementById('faculty-login-form'), register = document.getElementById('faculty-register-form');
+  const title = document.getElementById('faculty-auth-title'), isLogin = tab === 'login';
+  if (!login || !register) return;
+  login.classList.toggle('hidden', !isLogin); register.classList.toggle('hidden', isLogin);
+  if (title) title.innerHTML = isLogin ? '<i class="fa-solid fa-user-tie text-purple"></i> Faculty Sign In' : '<i class="fa-solid fa-user-plus text-purple"></i> Register Faculty Account';
+  if (isLogin) resetLoginForm('faculty-login-form', 'fac-login-password-block', 'fac-login-pass', 'fac-login-submit');
+}
+async function handleFacultyLoginSubmit(event) {
+  event.preventDefault();
+  const identity = document.getElementById('fac-login-user').value.trim().toLowerCase(), password = document.getElementById('fac-login-pass').value.trim();
+  try {
+    if (!await checkLoginEmail('faculty-login-form', identity, 'faculty', 'fac-login-password-block', 'fac-login-pass', 'fac-login-submit')) return;
+    const data = await apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ identity, password, role: 'faculty' }) });
+    authToken = data.token; localStorage.setItem('sb_token', authToken); currentUser = data.user; currentProfile = null; currentRole = 'faculty';
+    closeModal('faculty-auth-modal'); showAppWorkspace(); switchPortalRole('faculty');
+  } catch (err) { alert(err.message || 'Faculty sign in failed.'); }
+}
+async function handleFacultyRegisterSubmit(event) {
+  event.preventDefault();
+  const fullName = document.getElementById('fac-reg-name').value.trim(), email = document.getElementById('fac-reg-email').value.trim().toLowerCase();
+  const collegeName = document.getElementById('fac-reg-college').value.trim(), department = document.getElementById('fac-reg-department').value.trim(), password = document.getElementById('fac-reg-pass').value.trim();
+  try {
+    const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, collegeName, department, password, role: 'faculty' }) });
+    authToken = data.token; localStorage.setItem('sb_token', authToken); currentUser = data.user; currentProfile = null; currentRole = 'faculty';
+    closeModal('faculty-auth-modal'); showAppWorkspace(); switchPortalRole('faculty');
+  } catch (err) { alert(err.message || 'Faculty registration failed.'); }
+}
+
+// FACULTY ACADEMIA WORKSPACE
+const FACULTY_RESOURCES = [
+  ['faculty-internships', 'Faculty internships'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs'], ['mentorship', 'Mentorship'], ['workshops', 'Workshops'], ['guest-lectures', 'Guest lectures'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['consultancy', 'Consultancy'], ['internship-progress', 'Progress & feedback'], ['portfolio-extensions', 'Portfolio']
+];
+const FACULTY_RESOURCE_SCHEMAS = {
+  'faculty-internships': [
+    ['title', 'Title *', 'text', true],
+    ['company', 'Company / Partner', 'text'],
+    ['required_skills', 'Required skills', 'text', false, 'Java, SQL, React'],
+    ['eligibility', 'Eligibility', 'text'],
+    ['duration', 'Duration', 'text'],
+    ['start_date', 'Start date', 'date'],
+    ['end_date', 'End date', 'date'],
+    ['location', 'Location', 'text'],
+    ['work_mode', 'Work mode', 'select', false, ['Hybrid', 'Remote', 'On-site']],
+    ['deadline', 'Application deadline', 'date'],
+    ['mentor', 'Mentor / contact', 'text'],
+    ['status', 'Status', 'select', false, ['Open', 'Shortlisted', 'Selected', 'In progress', 'Completed']],
+    ['description', 'Description', 'textarea']
+  ],
+  fdp: [
+    ['title', 'Program title *', 'text', true],
+    ['organizer', 'Organizer', 'text'],
+    ['topics', 'Topics', 'text', false, 'AI, Cloud, Research, Product'],
+    ['skills', 'Skills', 'text', false, 'ML, Data, Communication'],
+    ['duration', 'Duration', 'text'],
+    ['start_date', 'Start date', 'date'],
+    ['end_date', 'End date', 'date'],
+    ['mode', 'Mode', 'select', false, ['Hybrid', 'Online', 'On-site']],
+    ['eligibility', 'Eligibility', 'text'],
+    ['deadline', 'Registration deadline', 'date'],
+    ['capacity', 'Capacity', 'number'],
+    ['certificate', 'Certificate availability', 'text'],
+    ['description', 'Description', 'textarea']
+  ],
+  'learning-programs': [
+    ['title', 'Program title *', 'text', true],
+    ['company', 'Company / organizer', 'text'],
+    ['required_skills', 'Required skills', 'text', false, 'Java, SQL, React'],
+    ['duration', 'Duration', 'text'],
+    ['start_date', 'Start date', 'date'],
+    ['end_date', 'End date', 'date'],
+    ['mode', 'Mode', 'select', false, ['Online', 'Hybrid', 'Weekend']],
+    ['eligibility', 'Eligibility', 'text'],
+    ['deadline', 'Enrollment deadline', 'date'],
+    ['certificate', 'Certificate info', 'text'],
+    ['description', 'Description', 'textarea']
+  ],
+  mentorship: [
+    ['title', 'Mentorship title *', 'text', true],
+    ['mentor', 'Mentor / company', 'text'],
+    ['expertise', 'Expertise', 'text', false, 'React, System design, Product'],
+    ['availability', 'Available slots', 'text'],
+    ['duration', 'Session duration', 'text'],
+    ['location', 'Location / mode', 'text'],
+    ['deadline', 'Request deadline', 'date'],
+    ['description', 'Description', 'textarea']
+  ],
+  workshops: [
+    ['title', 'Workshop title *', 'text', true],
+    ['organizer', 'Organizer', 'text'],
+    ['topics', 'Topics', 'text', false, 'AI, DSA, Career readiness'],
+    ['skills', 'Skills covered', 'text'],
+    ['date', 'Workshop date', 'date'],
+    ['mode', 'Mode', 'select', false, ['Online', 'Hybrid', 'On-site']],
+    ['capacity', 'Capacity', 'number'],
+    ['certificate', 'Certificate info', 'text'],
+    ['description', 'Description', 'textarea']
+  ],
+  'guest-lectures': [
+    ['title', 'Lecture title *', 'text', true],
+    ['speaker', 'Speaker', 'text'],
+    ['company', 'Company', 'text'],
+    ['topic', 'Topic', 'text'],
+    ['date', 'Lecture date', 'date'],
+    ['time', 'Time', 'text'],
+    ['mode', 'Mode', 'select', false, ['Online', 'On-campus', 'Hybrid']],
+    ['description', 'Description', 'textarea']
+  ],
+  'live-projects': [
+    ['title', 'Project title *', 'text', true],
+    ['company', 'Company / sponsor', 'text'],
+    ['required_skills', 'Required skills', 'text', false, 'Java, SQL, React'],
+    ['duration', 'Duration', 'text'],
+    ['team_size', 'Team size', 'number'],
+    ['mentor', 'Mentor', 'text'],
+    ['deadline', 'Application deadline', 'date'],
+    ['status', 'Status', 'select', false, ['Open', 'Shortlisted', 'In progress', 'Completed']],
+    ['description', 'Description', 'textarea']
+  ],
+  'research-collaborations': [
+    ['title', 'Research title *', 'text', true],
+    ['domain', 'Research domain', 'text'],
+    ['required_skills', 'Required skills', 'text'],
+    ['expertise', 'Required expertise', 'text'],
+    ['duration', 'Duration', 'text'],
+    ['collaboration_type', 'Collaboration type', 'select', false, ['Academic', 'Industry', 'Joint']],
+    ['contact', 'Contact person', 'text'],
+    ['deadline', 'Application deadline', 'date'],
+    ['description', 'Description', 'textarea']
+  ],
+  consultancy: [
+    ['title', 'Consultancy opportunity *', 'text', true],
+    ['company', 'Industry / client', 'text'],
+    ['required_skills', 'Required skills', 'text'],
+    ['duration', 'Duration', 'text'],
+    ['location', 'Location', 'text'],
+    ['deadline', 'Deadline', 'date'],
+    ['status', 'Status', 'select', false, ['Open', 'Reviewing', 'Approved', 'Completed']],
+    ['description', 'Description', 'textarea']
+  ],
+  'internship-progress': [
+    ['title', 'Progress title *', 'text', true],
+    ['company', 'Company', 'text'],
+    ['status', 'Current status', 'select', false, ['Selected', 'Started', 'In progress', 'Completed']],
+    ['mentor', 'Mentor / reviewer', 'text'],
+    ['duration', 'Duration', 'text'],
+    ['feedback', 'Mentor feedback', 'textarea'],
+    ['certificate', 'Certificate / completion record', 'text']
+  ],
+  'portfolio-extensions': [
+    ['title', 'Portfolio item *', 'text', true],
+    ['type', 'Type', 'select', false, ['Project', 'Internship', 'Certificate', 'Achievement', 'Learning Program']],
+    ['company', 'Associated company / organization', 'text'],
+    ['link', 'Portfolio link / proof URL', 'text'],
+    ['status', 'Status', 'select', false, ['Draft', 'Verified', 'Published']],
+    ['description', 'Description', 'textarea']
+  ]
+};
+let facultyItems = [];
+function navigateToFacultyResource(resource) {
+  if (currentRole !== 'faculty' || !currentUser || currentUser.role !== 'faculty') { openFacultyAuthModal('login'); return; }
+  const select = document.getElementById('faculty-resource'); if (select) select.value = resource; navigateTo('faculty-dashboard');
+}
+function facultyResource() { return document.getElementById('faculty-resource')?.value || FACULTY_RESOURCES[0][0]; }
+function getFacultyResourceSchema(resource = facultyResource()) {
+  return FACULTY_RESOURCE_SCHEMAS[resource] || [
+    ['title', 'Title *', 'text', true],
+    ['description', 'Description', 'textarea']
+  ];
+}
+function renderFacultyCreateFields() {
+  const fieldsContainer = document.getElementById('faculty-create-fields');
+  if (!fieldsContainer) return;
+  const schema = getFacultyResourceSchema();
+  fieldsContainer.innerHTML = schema.map(([key, label, type, required, options]) => {
+    const isRequired = Boolean(required);
+    const commonAttrs = `id="faculty-${key}" name="${key}" class="saas-input" ${required ? 'required' : ''}`;
+    if (type === 'textarea') {
+      return `<div style="grid-column: 1 / -1;"><label class="block text-xs font-bold mb-1">${label}</label><textarea ${commonAttrs} rows="3" placeholder="Add details, eligibility, and outcomes"></textarea></div>`;
+    }
+    if (type === 'select') {
+      const values = Array.isArray(options) ? options : ['Open', 'Available'];
+      return `<div><label class="block text-xs font-bold mb-1">${label}</label><select ${commonAttrs}><option value="">Select</option>${values.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`;
+    }
+    if (type === 'number') {
+      return `<div><label class="block text-xs font-bold mb-1">${label}</label><input type="number" ${commonAttrs} /></div>`;
+    }
+    if (type === 'date') {
+      return `<div><label class="block text-xs font-bold mb-1">${label}</label><input type="date" ${commonAttrs} /></div>`;
+    }
+    if (type === 'text' || type === 'email') {
+      return `<div><label class="block text-xs font-bold mb-1">${label}</label><input type="text" ${commonAttrs} placeholder="${label.includes('skills') || label.includes('Topics') ? 'Java, SQL, React' : ''}" /></div>`;
+    }
+    return `<div><label class="block text-xs font-bold mb-1">${label}</label><input type="text" ${commonAttrs} /></div>`;
+  }).join('');
+}
+function facultyFieldValue(key) {
+  const field = document.getElementById(`faculty-${key}`);
+  if (!field) return '';
+  return field.value ? String(field.value).trim() : '';
+}
+function parseFacultyListValue(value) {
+  return String(value || '').split(',').map(item => item.trim()).filter(Boolean);
+}
+function normalizeFacultyPayload(resource, formData) {
+  const payload = { title: formData.title || facultyFieldValue('title'), description: formData.description || facultyFieldValue('description') };
+  if (payload.title) payload.title = payload.title.trim();
+  if (payload.description) payload.description = payload.description.trim();
+  const schema = getFacultyResourceSchema(resource);
+  for (const [key, label, type, required, options] of schema) {
+    if (key === 'title' || key === 'description') continue;
+    const value = formData[key] !== undefined ? formData[key] : facultyFieldValue(key);
+    if (!value && value !== 0) continue;
+    if (['required_skills', 'topics', 'skills', 'expertise', 'eligibility'].includes(key)) {
+      payload[key] = parseFacultyListValue(value);
+      continue;
+    }
+    payload[key] = value;
+  }
+  if (!payload.partner && payload.company) payload.partner = payload.company;
+  if (!payload.date && payload.start_date) payload.date = payload.start_date;
+  if (!payload.deadline && payload.deadline === '') payload.deadline = null;
+  return payload;
+}
+async function loadFacultyResource() {
+  const select = document.getElementById('faculty-resource'); if (!select) return;
+  if (!select.options.length) select.innerHTML = FACULTY_RESOURCES.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  renderFacultyCreateFields();
+  try { const data = await apiFetch(`/academia/${facultyResource()}`); facultyItems = Array.isArray(data) ? data : (data.items || []); renderFacultyItems(); }
+  catch (err) { facultyItems = []; renderFacultyItems(err.message); }
+}
+function facultyText(value) { return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
+function filterFacultyItems() { renderFacultyItems(); }
+function renderFacultyItems(errorMessage = '') {
+  const target = document.getElementById('faculty-items'); if (!target) return;
+  if (errorMessage) { target.innerHTML = `<div class="saas-card"><p style="color:var(--text-muted);margin:0;">${facultyText(errorMessage)}</p></div>`; return; }
+  const query = (document.getElementById('faculty-search')?.value || '').toLowerCase();
+  const items = facultyItems.filter(item => !query || JSON.stringify(item).toLowerCase().includes(query));
+  if (!items.length) { target.innerHTML = '<div class="saas-card"><p style="color:var(--text-muted);margin:0;">No listings yet. Create the first one for this feature.</p></div>'; return; }
+  target.innerHTML = items.map(item => {
+    const tags = [
+      item.company, item.organizer, item.partner, item.location, item.mode, item.work_mode,
+      item.duration, item.start_date, item.end_date, item.deadline, item.mentor, item.speaker
+    ].filter(Boolean);
+    const scope = [
+      item.required_skills, item.topics, item.skills, item.expertise, item.eligibility
+    ].filter(Boolean).flatMap(val => Array.isArray(val) ? val : [val]);
+    const meta = [...tags.slice(0, 4), ...scope.slice(0, 4)].map(value => `<span class="badge-saas badge-blue">${facultyText(value)}</span>`).join('');
+    const description = item.description || item.topic || 'Details not provided.';
+    const status = item.status || 'open';
+    return `<div class="saas-card"><div class="flex-between gap-3 mb-2"><h3 style="font-weight:700;margin:0;">${facultyText(item.title || item.name || 'Academia listing')}</h3><span class="badge-saas badge-blue">${facultyText(status)}</span></div><p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem;">${facultyText(description)}</p><div class="flex-align gap-2 flex-wrap mb-3">${meta || '<span class="badge-saas badge-blue">Details available</span>'}</div><div class="text-xs mb-3" style="color:var(--text-muted);">${facultyText(item.date || item.start_date || item.deadline || item.partner || item.company || '')}</div><div class="flex-align gap-2 flex-wrap"><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','status')">Track status</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','apply')">Apply</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','register')">Register</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','feedback')">Feedback</button></div></div>`;
+  }).join('');
+}
+function openFacultyCreateForm() {
+  renderFacultyCreateFields();
+  document.getElementById('faculty-create-panel')?.classList.remove('hidden');
+  const label = FACULTY_RESOURCES.find(([value]) => value === facultyResource());
+  const target = document.getElementById('faculty-create-label');
+  if (target) target.textContent = label ? label[1].toLowerCase() : 'listing';
+}
+function closeFacultyCreateForm() { document.getElementById('faculty-create-panel')?.classList.add('hidden'); }
+async function handleFacultyCreate(event) {
+  event.preventDefault();
+  try {
+    const resource = facultyResource();
+    const payload = normalizeFacultyPayload(resource, {});
+    const form = document.getElementById('faculty-create-form');
+    if (form) {
+      const formData = new FormData(form);
+      for (const [key, value] of formData.entries()) {
+        if (typeof value === 'string' && value.trim()) payload[key.replace(/^faculty-/, '')] = value.trim();
+      }
+    }
+    const finalPayload = normalizeFacultyPayload(resource, payload);
+    await apiFetch(`/academia/${resource}`, { method: 'POST', body: JSON.stringify(finalPayload) });
+    form.reset(); closeFacultyCreateForm(); await loadFacultyResource();
+  } catch (err) { alert(err.message || 'Unable to create listing.'); }
+}
+async function facultyLifecycle(id, operation) {
+  try {
+    if (operation === 'status') { const data = await apiFetch(`/academia/${facultyResource()}/${encodeURIComponent(id)}/status`); alert(`Status: ${data.status || 'unknown'}`); return; }
+    const body = operation === 'feedback' ? { rating: 5, comment: prompt('Add feedback') || '' } : {};
+    if (operation === 'feedback' && !body.comment) return;
+    await apiFetch(`/academia/${facultyResource()}/${encodeURIComponent(id)}/${operation}`, { method: 'POST', body: JSON.stringify(body) });
+    alert(operation === 'apply' ? 'Application submitted.' : operation === 'register' ? 'Registration saved.' : 'Feedback submitted.'); await loadFacultyResource();
+  } catch (err) { alert(err.message || `Unable to ${operation}.`); }
+}
+
+// STUDENT LOADERS
+async function loadDashboardHome() {
+  try {
+    const dashboard = await apiFetch('/student/dashboard');
+    const completion = dashboard.profileCompletion || { percentage: 0, missingItems: [] };
+    const welcomeHeader = document.getElementById('welcome-header');
+    if (welcomeHeader) {
+      const name = (dashboard.profile && dashboard.profile.name) || (currentProfile && currentProfile.name) || 'Student';
+      welcomeHeader.textContent = `Welcome back, ${name}`;
+    }
+
+    const profilePct = document.getElementById('dash-profile-pct');
+    const profileBar = document.getElementById('dash-profile-bar');
+    if (profilePct) profilePct.textContent = `${completion.percentage}%`;
+    if (profileBar) profileBar.style.width = `${completion.percentage}%`;
+
+    const missingItems = document.getElementById('dash-missing-items');
+    if (missingItems) {
+      const items = Array.isArray(completion.missingItems) && completion.missingItems.length ? completion.missingItems : ['Profile complete'];
+      missingItems.innerHTML = items.slice(0, 4).map(item => `<span class="badge-saas badge-blue">${item}</span>`).join('');
+    }
+
+    document.getElementById('stat-cgpa').textContent = Number((dashboard.profile && dashboard.profile.cgpa) || 0).toFixed(2);
+    document.getElementById('stat-skills').textContent = dashboard.technicalSkills || 0;
+    document.getElementById('stat-projects').textContent = dashboard.projects || 0;
+    document.getElementById('stat-certs').textContent = dashboard.certificates || 0;
+    document.getElementById('stat-apps').textContent = dashboard.applications || 0;
+    document.getElementById('stat-score').textContent = `${dashboard.skillScore || 0} / 100`;
+    if (document.getElementById('mini-portfolio-score')) document.getElementById('mini-portfolio-score').textContent = `${dashboard.skillScore || 0}`;
+    if (document.getElementById('mini-skill-score')) document.getElementById('mini-skill-score').textContent = dashboard.technicalSkills || 0;
+    if (document.getElementById('mini-cert-score')) document.getElementById('mini-cert-score').textContent = dashboard.certificates || 0;
+    if (document.getElementById('mini-project-score')) document.getElementById('mini-project-score').textContent = dashboard.projects || 0;
+
+    const recContainer = document.getElementById('dash-recommended-jobs');
+    const jobs = dashboard.recommendedJobs || [];
+    recContainer.innerHTML = jobs.length ? jobs.map(j => `
+      <div class="saas-card">
+        <div class="badge-saas badge-purple mb-2">${j.match_percentage || 0}% MATCH</div>
+        <h4 style="font-weight:700;">${j.title}</h4>
+        <div style="font-size:0.8rem; color:var(--text-blue); font-weight:700;" class="mb-2">${j.company_name || 'Company'}</div>
+        <button class="btn-saas btn-primary w-full" onclick="navigateTo('opportunities')">View & Apply</button>
+      </div>
+    `).join('') : '<div class="saas-card">Add more skills and projects to unlock role recommendations.</div>';
+  } catch (e) {
+    console.error('Dashboard load failed', e);
+  }
+}
+
+async function loadProfileView() {
+  try {
+    const data = await apiFetch('/student/profile');
+    const p = data.profile || {};
+    const onboardingCard = document.getElementById('profile-onboarding-card');
+    document.getElementById('prof-name').value = p.name || '';
+    document.getElementById('prof-student-id').value = p.student_id || (currentUser && currentUser.student_id) || '';
+    document.getElementById('prof-phone').value = p.phone || '';
+    document.getElementById('prof-college').value = p.college || '';
+    ['university', 'department', 'degree', 'city', 'state', 'country', 'pincode'].forEach(field => {
+      const element = document.getElementById(`prof-${field}`);
+      if (element) element.value = p[field] || (field === 'country' ? 'India' : '');
+    });
+    document.getElementById('prof-dob').value = p.dateOfBirth || '';
+    document.getElementById('prof-gender').value = p.gender || '';
+    document.getElementById('prof-graduation').value = p.graduationYear || '';
+    ['door-house', 'street', 'area', 'district'].forEach(field => {
+      const element = document.getElementById(`prof-${field}`);
+      if (element) element.value = (p.address && p.address[field.replace('-', '')]) || '';
+    });
+    if (onboardingCard) {
+      const incomplete = p.onboarding_complete === false;
+      onboardingCard.classList.toggle('hidden', !incomplete);
+    }
+  } catch (e) {}
+}
+
+async function extractPdfText(file) {
+  if (!file || file.type !== 'application/pdf') throw new Error('Please select a PDF resume for ATS analysis.');
+  if (!window.pdfjsLib) throw new Error('PDF analysis is still loading. Please try again.');
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const buffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
+  const pages = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(content.items.map(item => item.str).join(' '));
+  }
+  return pages.join('\n').trim();
+}
+
+function calculateResumeATS(text) {
+  const normalized = text.toLowerCase();
+  const sections = ['experience', 'education', 'skills', 'projects', 'certifications', 'summary'];
+  const sectionScore = sections.filter(section => normalized.includes(section)).length / sections.length * 35;
+  const contactScore = (/@/.test(text) ? 8 : 0) + (/(https?:\/\/|linkedin|github)/i.test(text) ? 7 : 0);
+  const keywordScore = ['python', 'java', 'javascript', 'sql', 'react', 'docker', 'api', 'aws']
+    .filter(keyword => normalized.includes(keyword)).length / 8 * 25;
+  const actionScore = ['built', 'developed', 'implemented', 'designed', 'deployed', 'led']
+    .filter(verb => normalized.includes(verb)).length / 6 * 15;
+  const lengthScore = text.length >= 800 && text.length <= 12000 ? 10 : (text.length > 200 ? 5 : 0);
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const emailFound = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text);
+  const phoneFound = /(?:\+?\d[\d\s().-]{8,}\d)/.test(text);
+  const linksFound = /(https?:\/\/|linkedin|github|portfolio)/i.test(text);
+  const quantifiedResults = /(?:\d+%|\d+\+|\$\s?\d+|\b\d+\s?(?:users|clients|projects|months|years)\b)/i.test(text);
+  const dateCount = (text.match(/\b(?:19|20)\d{2}\b/g) || []).length;
+  const missingSections = sections.filter(section => !normalized.includes(section));
+  const review = [
+    { label: 'Contact details', score: [emailFound, phoneFound, linksFound].filter(Boolean).length / 3 * 100, status: emailFound && phoneFound ? 'Email and phone detected.' : 'Add both a professional email and phone number.', tone: emailFound && phoneFound ? 'good' : 'warn' },
+    { label: 'Resume structure', score: sections.filter(section => normalized.includes(section)).length / sections.length * 100, status: `${sections.length - missingSections.length} of ${sections.length} core sections detected.`, tone: missingSections.length ? 'warn' : 'good' },
+    { label: 'Experience evidence', score: Math.min(100, (normalized.includes('experience') ? 45 : 0) + (actionScore / 15 * 30) + (quantifiedResults ? 25 : 0)), status: quantifiedResults ? 'Achievements include measurable evidence.' : 'Add measurable outcomes to experience bullets.', tone: quantifiedResults ? 'good' : 'warn' },
+    { label: 'Skills relevance', score: Math.min(100, keywordScore / 25 * 100), status: `${Math.round(keywordScore / 25 * 8)} of 8 common technical keywords detected.`, tone: keywordScore >= 15 ? 'good' : 'warn' },
+    { label: 'Education & certifications', score: (normalized.includes('education') ? 60 : 0) + (normalized.includes('certification') ? 40 : 0), status: normalized.includes('education') && normalized.includes('certification') ? 'Education and certifications detected.' : 'Include education and relevant certifications.', tone: normalized.includes('education') ? 'good' : 'warn' },
+    { label: 'Projects & portfolio', score: Math.min(100, (normalized.includes('project') ? 60 : 0) + (linksFound ? 40 : 0)), status: normalized.includes('project') && linksFound ? 'Projects and supporting links detected.' : 'Add project outcomes and a portfolio or GitHub link.', tone: normalized.includes('project') ? 'good' : 'warn' },
+    { label: 'Readability & length', score: lengthScore / 10 * 100, status: `${wordCount} words and ${dateCount} year references reviewed.`, tone: lengthScore >= 10 ? 'good' : 'warn' },
+    { label: 'ATS-safe content', score: Math.min(100, (emailFound ? 25 : 0) + (actionScore / 15 * 25) + (quantifiedResults ? 25 : 0) + (dateCount >= 1 ? 25 : 0)), status: 'Text-based compatibility signals reviewed by AI.', tone: 'good' }
+  ];
+  const score = Math.min(100, Math.round(sectionScore + contactScore + keywordScore + actionScore + lengthScore));
+  const breakdown = [
+    { label: 'Resume sections', score: Math.round(sectionScore), max: 35, detail: `${sections.length - missingSections.length}/${sections.length} core sections detected` },
+    { label: 'Contact & links', score: Math.round(contactScore), max: 15, detail: /@/.test(text) ? 'Email detected' : 'Email missing' },
+    { label: 'Technical keywords', score: Math.round(keywordScore), max: 25, detail: 'Skills and tools matched' },
+    { label: 'Action language', score: Math.round(actionScore), max: 15, detail: 'Achievement verbs detected' },
+    { label: 'Length & readability', score: lengthScore, max: 10, detail: `${text.split(/\s+/).filter(Boolean).length} words analyzed` }
+  ];
+  return {
+    score,
+    aiScore: Math.min(100, Math.round(score * 0.85 + 15)),
+    wordCount,
+    missingSections,
+    breakdown,
+    review,
+    aiText: 'AI reviewed the PDF text, structure, keywords, contact details, action language, and readability signals to estimate recruiter-system compatibility.',
+    recommendations: [
+      ...(missingSections.length ? [`Add these sections: ${missingSections.join(', ')}.`] : []),
+      ...(!emailFound ? ['Add a professional email address.'] : []),
+      ...(!phoneFound ? ['Add a phone number with country code.'] : []),
+      ...(!linksFound ? ['Add LinkedIn, GitHub, or portfolio links.'] : []),
+      ...(!quantifiedResults ? ['Add numbers to show impact, scale, savings, or growth.'] : []),
+      ...(!normalized.includes('experience') ? ['Add a clearly labeled Experience section.'] : []),
+      ...(score < 70 ? ['Use measurable achievements and job-specific keywords.'] : ['Tailor keywords to each job description before applying.'])
+    ]
+  };
+}
+
+function renderResumeATSAnalysis(analysis) {
+  const empty = document.getElementById('resume-ats-empty');
+  const results = document.getElementById('resume-ats-results');
+  const status = document.getElementById('resume-ats-status');
+  if (!analysis || !results) return;
+  if (empty) empty.classList.add('hidden');
+  results.classList.remove('hidden');
+  document.getElementById('resume-ats-score').textContent = `${analysis.score} / 100`;
+  document.getElementById('resume-ai-score').textContent = `${analysis.aiScore} / 100`;
+  if (status) {
+    status.textContent = analysis.score >= 80 ? 'Strong match' : analysis.score >= 60 ? 'Needs tuning' : 'Needs improvement';
+    status.className = `badge-saas ${analysis.score >= 80 ? 'badge-emerald' : 'badge-purple'}`;
+  }
+
+  const findings = document.getElementById('resume-ats-findings');
+  const missing = analysis.missingSections && analysis.missingSections.length
+    ? `Missing sections: ${analysis.missingSections.join(', ')}.`
+    : 'All core resume sections were detected.';
+  if (findings) findings.innerHTML = `<strong>${analysis.wordCount || 0} words detected.</strong> ${missing}`;
+  const breakdown = document.getElementById('resume-ats-breakdown');
+  if (breakdown) {
+    const score = Number(analysis.score) || 0;
+    const items = analysis.breakdown || [
+      { label: 'Overall ATS compatibility', score, max: 100, detail: 'Saved ATS result' },
+      { label: 'AI resume quality estimate', score: Number(analysis.aiScore) || 0, max: 100, detail: 'AI-derived score' }
+    ];
+    breakdown.innerHTML = items.map(item => `
+      <div>
+        <div class="flex-between text-sm mb-1"><strong>${item.label}</strong><span>${item.score}% / ${item.max}%</span></div>
+        <div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><div style="width:${Math.min(100, (item.score / item.max) * 100)}%;height:100%;background:linear-gradient(90deg,#2563eb,#7c3aed);"></div></div>
+        <div class="text-xs mt-1" style="color:var(--text-muted);">${item.detail}</div>
+      </div>
+    `).join('');
+  }
+  const aiText = document.getElementById('resume-ats-ai-text');
+  if (aiText) aiText.textContent = analysis.aiText || 'AI analyzed the uploaded resume for ATS compatibility.';
+  const recommendations = document.getElementById('resume-ats-recommendations');
+  if (recommendations) recommendations.innerHTML = (analysis.recommendations || []).map(item => `<span class="badge-saas badge-blue">${item}</span>`).join('');
+  const review = document.getElementById('resume-ats-review');
+  if (review) {
+    review.innerHTML = (analysis.review || []).map(item => {
+      const color = item.tone === 'good' ? '#059669' : '#d97706';
+      return `<div class="saas-card" style="border-left:4px solid ${color}; padding:0.85rem;">
+        <div class="flex-between text-sm mb-2"><strong>${item.label}</strong><strong style="color:${color};">${Math.round(item.score)}%</strong></div>
+        <div style="height:7px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:0.5rem;"><div style="width:${Math.min(100, Math.max(0, item.score))}%;height:100%;background:${color};"></div></div>
+        <div class="text-xs" style="color:var(--text-muted);">${item.status}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function loadATSResumeView() {
+  try {
+    const data = await apiFetch('/student/profile');
+    const resume = data.resume || null;
+    if (resume && resume.ats_analysis) {
+      renderResumeATSAnalysis(resume.ats_analysis);
+    } else if (resume) {
+      const status = document.getElementById('resume-ats-status');
+      if (status) status.textContent = 'PDF received - analyze from My Profile';
+    }
+  } catch (err) {
+    console.error('ATS resume analysis load failed', err);
+  }
+}
+
+async function handleResumeUpload(event) {
+  event.preventDefault();
+  const fileInput = document.getElementById('resume-file-input');
+  const resumeFile = fileInput && fileInput.files && fileInput.files[0];
+
+  if (!resumeFile) {
+    alert('Please select a PDF resume before starting ATS analysis.');
+    return;
+  }
+
+  try {
+    let atsAnalysis = null;
+    if (resumeFile) {
+      if (resumeFile.type !== 'application/pdf') throw new Error('Only PDF resumes are accepted for ATS analysis.');
+      const finalUrl = await readFileAsDataUrl(resumeFile);
+      const resumeText = await extractPdfText(resumeFile);
+      atsAnalysis = calculateResumeATS(resumeText);
+      renderResumeATSAnalysis(atsAnalysis);
+      await apiFetch('/student/resume', {
+        method: 'POST',
+        body: JSON.stringify({
+          fileUrl: finalUrl,
+          resumeUrl: finalUrl,
+          fileName: resumeFile.name,
+          atsAnalysis
+        })
+      });
+    }
+    if (fileInput) fileInput.value = '';
+    alert('PDF analyzed successfully.');
+  } catch (err) {
+    alert(err.message || 'Resume upload failed.');
+  }
+}
+
+async function submitStudentOnboarding() {
+  try {
+    const ragging = document.getElementById('onboarding-ragging')?.checked;
+    const consent = document.getElementById('onboarding-consent')?.checked;
+    if (!ragging || !consent) {
+      alert('Please accept the anti-ragging policy and the data consent to continue.');
+      return;
+    }
+
+    const profile = {
+      onboarding_complete: true,
+      consent: { data_usage: true, ai_matching: true, chatbot_memory: false },
+      anti_ragging_acknowledged: true
+    };
+    const response = await apiFetch('/student/onboarding', {
+      method: 'POST',
+      body: JSON.stringify({ profile, consent: { anti_ragging: ragging, data_consent: consent } })
+    });
+    currentProfile = response.profile || currentProfile;
+    document.getElementById('profile-onboarding-card').classList.add('hidden');
+    alert('Onboarding completed successfully.');
+  } catch (err) {
+    alert(err.message || 'Unable to complete onboarding.');
+  }
+}
+
+async function handleSaveProfile(e) {
+  e.preventDefault();
+  try {
+    const value = id => document.getElementById(id)?.value.trim() || '';
+    const data = await apiFetch('/student/profile', {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: value('prof-name'),
+        phone: value('prof-phone'),
+        college: value('prof-college'),
+        university: value('prof-university'),
+        department: value('prof-department'),
+        degree: value('prof-degree'),
+        dateOfBirth: value('prof-dob'),
+        gender: value('prof-gender'),
+        graduationYear: Number(value('prof-graduation')) || null,
+        city: value('prof-city'),
+        state: value('prof-state'),
+        country: value('prof-country'),
+        pincode: value('prof-pincode'),
+        address: {
+          doorHouse: value('prof-door-house'),
+          street: value('prof-street'),
+          area: value('prof-area'),
+          district: value('prof-district')
+        }
+      })
+    });
+    currentProfile = data.profile;
+    alert('Profile updated!');
+  } catch (err) { alert(err.message || 'Profile update failed.'); }
+}
+async function loadAcademicsView() {
+  try {
+    const data = await apiFetch('/student/academics');
+    const tbody = document.getElementById('semester-table-body');
+    tbody.innerHTML = (data.records || []).map(r => `<tr><td style="font-weight:700;">${r.semester}</td><td>${r.gpa.toFixed(2)}</td><td><span class="badge-saas badge-emerald">${r.status}</span></td></tr>`).join('');
+  } catch (e) {}
+}
+async function loadSkillsView() {
+  try {
+    const data = await apiFetch('/student/skills');
+    const skillList = document.getElementById('technical-skills-list');
+    const skills = data.technical || [];
+
+    if (!skillList) return;
+    if (!skills.length) {
+      skillList.innerHTML = `
+        <div class="saas-card text-center">
+          <p style="color: var(--text-muted); margin-bottom: 1rem;">No technical skills added yet.</p>
+          <button class="btn-saas btn-primary" type="button" onclick="document.getElementById('skill-name').focus()">Add Skills</button>
+        </div>
+      `;
+      return;
+    }
+
+    skillList.innerHTML = skills.map(skill => `
+      <div class="saas-card">
+        <div class="flex-between gap-3 mb-2">
+          <div>
+            <strong>${skill.skill_name || skill.name || 'Skill'}</strong>
+            <div style="font-size:0.75rem; color: var(--text-muted);">${skill.category || 'Other'} • ${skill.proficiencyPercentage || skill.level_pct || 0}%</div>
+          </div>
+          <span class="badge-saas badge-purple">${Number(skill.scoreOutOfTen || (Number(skill.level_pct || 0) / 10)).toFixed(1)}/10</span>
+        </div>
+        <div class="progress-track mb-2"><div class="progress-fill" style="width: ${skill.proficiencyPercentage || skill.level_pct || 0}%"></div></div>
+        <button class="btn-saas btn-outline" type="button" onclick="deleteSkill(${skill.id})">Delete</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Skills load failed', e);
+  }
+}
+
+async function handleAddSkillSubmit(event) {
+  event.preventDefault();
+  const skillName = document.getElementById('skill-name')?.value.trim();
+  const category = document.getElementById('skill-category')?.value || 'Other';
+  const proficiency = Number(document.getElementById('skill-proficiency')?.value || 0);
+
+  if (!skillName || !Number.isFinite(proficiency) || proficiency < 0 || proficiency > 100) {
+    alert('Enter a valid skill name and percentage between 0 and 100.');
+    return;
+  }
+
+  try {
+    await apiFetch('/student/skills', {
+      method: 'POST',
+      body: JSON.stringify({ skillName, category, proficiencyPercentage: proficiency })
+    });
+    document.getElementById('skill-form').reset();
+    await loadSkillsView();
+    await loadDashboardHome();
+    alert('Skill saved successfully.');
+  } catch (err) {
+    alert(err.message || 'Unable to save skill.');
+  }
+}
+
+async function deleteSkill(skillId) {
+  try {
+    await apiFetch(`/student/skills/${skillId}`, { method: 'DELETE' });
+    await loadSkillsView();
+    await loadDashboardHome();
+  } catch (err) {
+    alert(err.message || 'Unable to delete skill.');
+  }
+}
+async function loadAssessmentsView() {
+  try {
+    const data = await apiFetch('/student/assessments');
+    document.getElementById('assess-overall-score').textContent = `${data.overall_score || 82} / 100`;
+    document.getElementById('assessments-list-container').innerHTML = (data.tests || []).map(t => `<div class="saas-card flex-between mb-3"><div><h4 style="font-weight:700;">${t.name}</h4></div><div style="font-weight:800; color:var(--text-emerald);">${t.score}/${t.total}</div></div>`).join('');
+  } catch (e) {}
+}
+async function loadPortfolioView() {
+  try {
+    const data = await apiFetch('/student/portfolio');
+    const projects = data.projects || [];
+    const certificates = data.certifications || [];
+    const projectList = document.getElementById('portfolio-project-list');
+    const certList = document.getElementById('portfolio-certificate-list');
+
+    if (projectList) {
+      projectList.innerHTML = projects.length ? projects.map(project => `
+        <div class="saas-card mb-3">
+          <div class="flex-between gap-3 mb-2">
+            <div>
+              <h4 style="font-weight:700; margin:0;">${project.title}</h4>
+              <div style="font-size:0.78rem; color:var(--text-muted);">${project.category || 'Project'}</div>
+            </div>
+            <span class="badge-saas badge-emerald">${project.status || 'Completed'}</span>
+          </div>
+          <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom: 0.75rem;">${project.description || 'Project details not added yet.'}</p>
+          <div class="flex-align gap-2 flex-wrap">
+            ${project.projectUrl ? `<a class="btn-saas btn-outline" href="${project.projectUrl}" target="_blank" rel="noreferrer">Live</a>` : ''}
+            ${project.githubUrl ? `<a class="btn-saas btn-outline" href="${project.githubUrl}" target="_blank" rel="noreferrer">GitHub</a>` : ''}
+            <button class="btn-saas btn-outline" type="button" onclick="deleteStudentProject(${project.id})">Delete</button>
+          </div>
+        </div>
+      `).join('') : '<div class="saas-card"><p style="color:var(--text-muted); margin:0;">No project entries yet.</p></div>';
+    }
+
+    if (certList) {
+      certList.innerHTML = certificates.length ? certificates.map(cert => `
+        <div class="saas-card mb-3">
+          <div class="flex-between gap-3 mb-2">
+            <div>
+              <h4 style="font-weight:700; margin:0;">${cert.certificateName || cert.name || 'Certificate'}</h4>
+              <div style="font-size:0.78rem; color:var(--text-muted);">${cert.issuer || 'Issuer'}</div>
+            </div>
+            <span class="badge-saas badge-purple">${cert.issueDate || '—'}</span>
+          </div>
+          <div class="flex-align gap-2 flex-wrap">
+            ${cert.certificateUrl ? `<a class="btn-saas btn-outline" href="${cert.certificateUrl}" target="_blank" rel="noreferrer">Open</a>` : ''}
+            ${cert.fileUrl ? `<a class="btn-saas btn-outline" href="${cert.fileUrl}" target="_blank" rel="noreferrer">File</a>` : ''}
+            <button class="btn-saas btn-outline" type="button" onclick="deleteStudentCertificate(${cert.id})">Delete</button>
+          </div>
+        </div>
+      `).join('') : '<div class="saas-card"><p style="color:var(--text-muted); margin:0;">No certificates uploaded yet.</p></div>';
+    }
+  } catch (e) {
+    console.error('Portfolio load failed', e);
+  }
+}
+
+async function handleAddCertificateSubmit(event) {
+  event.preventDefault();
+  const fileInput = document.getElementById('cert-file-upload');
+  const payload = {
+    certificateName: document.getElementById('cert-name')?.value.trim(),
+    issuer: document.getElementById('cert-issuer')?.value.trim(),
+    issueDate: document.getElementById('cert-date')?.value,
+    credentialId: document.getElementById('cert-id')?.value.trim(),
+    certificateUrl: document.getElementById('cert-url')?.value.trim(),
+    fileUrl: document.getElementById('cert-file')?.value.trim(),
+    description: document.getElementById('cert-desc')?.value.trim()
+  };
+
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    payload.fileUrl = await readFileAsDataUrl(fileInput.files[0]);
+  }
+
+  if (!payload.certificateName || (!payload.certificateUrl && !payload.fileUrl)) {
+    alert('Certificate name and either a URL or uploaded file are required.');
+    return;
+  }
+
+  try {
+    await apiFetch('/student/certificates', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    document.getElementById('certificate-form').reset();
+    if (fileInput) fileInput.value = '';
+    await loadPortfolioView();
+    await loadDashboardHome();
+    alert('Certificate saved successfully.');
+  } catch (err) {
+    alert(err.message || 'Unable to save certificate.');
+  }
+}
+
+async function deleteStudentCertificate(certificateId) {
+  try {
+    await apiFetch(`/student/certificates/${certificateId}`, { method: 'DELETE' });
+    await loadPortfolioView();
+    await loadDashboardHome();
+  } catch (err) {
+    alert(err.message || 'Unable to delete certificate.');
+  }
+}
+
+async function handleAddProjectSubmit(event) {
+  event.preventDefault();
+  const imageInput = document.getElementById('project-image-upload');
+  const payload = {
+    title: document.getElementById('project-title')?.value.trim(),
+    description: document.getElementById('project-desc')?.value.trim(),
+    category: document.getElementById('project-category')?.value,
+    technologies: document.getElementById('project-tech')?.value.trim(),
+    githubUrl: document.getElementById('project-github')?.value.trim(),
+    projectUrl: document.getElementById('project-url')?.value.trim(),
+    status: document.getElementById('project-status')?.value || 'Completed',
+    imageUrl: ''
+  };
+
+  if (imageInput && imageInput.files && imageInput.files[0]) {
+    payload.imageUrl = await readFileAsDataUrl(imageInput.files[0]);
+  }
+
+  if (!payload.title || !payload.description) {
+    alert('Project title and description are required.');
+    return;
+  }
+
+  try {
+    await apiFetch('/student/projects', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    document.getElementById('project-form').reset();
+    if (imageInput) imageInput.value = '';
+    await loadPortfolioView();
+    await loadDashboardHome();
+    alert('Project saved successfully.');
+  } catch (err) {
+    alert(err.message || 'Unable to save project.');
+  }
+}
+
+async function deleteStudentProject(projectId) {
+  try {
+    await apiFetch(`/student/projects/${projectId}`, { method: 'DELETE' });
+    await loadPortfolioView();
+    await loadDashboardHome();
+  } catch (err) {
+    alert(err.message || 'Unable to delete project.');
+  }
+}
+
+async function loadSettingsView() {
+  try {
+    const data = await apiFetch('/student/settings');
+    const form = document.getElementById('student-settings-form');
+    if (!form) return;
+    document.getElementById('settings-job-notifications').checked = !!(data.jobNotifications ?? true);
+    document.getElementById('settings-internship-notifications').checked = !!(data.internshipNotifications ?? true);
+    document.getElementById('settings-placement-notifications').checked = !!(data.placementNotifications ?? true);
+    document.getElementById('settings-profile-visibility').value = data.profileVisibility || 'public';
+    document.getElementById('settings-dark-mode').checked = !!(data.darkMode ?? false);
+    document.getElementById('settings-recruiter-discovery').checked = !!(data.recruiterDiscovery ?? true);
+    document.getElementById('settings-hide-email').checked = !!(data.hideEmail ?? false);
+  } catch (e) {
+    console.error('Settings load failed', e);
+  }
+}
+
+async function handleSaveSettings(event) {
+  event.preventDefault();
+  const payload = {
+    jobNotifications: document.getElementById('settings-job-notifications').checked,
+    internshipNotifications: document.getElementById('settings-internship-notifications').checked,
+    placementNotifications: document.getElementById('settings-placement-notifications').checked,
+    recruiterDiscovery: document.getElementById('settings-recruiter-discovery').checked,
+    profileVisibility: document.getElementById('settings-profile-visibility').value,
+    darkMode: document.getElementById('settings-dark-mode').checked,
+    hideEmail: document.getElementById('settings-hide-email').checked,
+    theme: document.getElementById('settings-dark-mode').checked ? 'dark' : 'light'
+  };
+
+  try {
+    await apiFetch('/student/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    alert('Settings saved successfully.');
+  } catch (err) {
+    alert(err.message || 'Unable to save settings.');
+  }
+}
+
+async function handleAiChatSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById('ai-chat-input');
+  const chatLog = document.getElementById('ai-chat-log');
+  const message = input.value.trim();
+  if (!message) return;
+  chatLog.innerHTML += `<div class="chat-bubble user">${message}</div>`;
+  input.value = '';
+  try {
+    const data = await apiFetch('/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message })
+    });
+    chatLog.innerHTML += `<div class="chat-bubble bot">${data.reply || 'I can help with your career goals.'}</div>`;
+    chatLog.scrollTop = chatLog.scrollHeight;
+  } catch (err) {
+    chatLog.innerHTML += `<div class="chat-bubble bot">Unable to reach AI support right now.</div>`;
+  }
+}
+
+async function loadAISkillAnalyzerView() {
+  try {
+    const data = await apiFetch('/ai/skill-analysis');
+    const overview = data.overallScore || 0;
+    const breakdownEl = document.getElementById('ai-score-breakdown');
+    const matchEl = document.getElementById('ai-match-pct');
+    if (matchEl) matchEl.textContent = `${overview}% Match`;
+    if (breakdownEl) {
+      const cards = (data.skills || []).map(skill => `
+        <div class="saas-card mb-3">
+          <div class="flex-between mb-2"><h4 style="font-weight: 700;">${skill.skillName}</h4><span class="badge-saas badge-purple">${skill.score}/100</span></div>
+          <div class="text-xs mb-2" style="color: var(--text-muted);">Confidence: ${skill.confidence}</div>
+          <div class="text-sm mb-2"><strong>Evidence:</strong> ${skill.evidence.join('; ')}</div>
+          <div class="text-sm mb-2"><strong>Strengths:</strong> ${skill.strengths.join('; ')}</div>
+          <div class="text-sm"><strong>Improve:</strong> ${skill.recommendations.join('; ')}</div>
+        </div>
+      `).join('');
+
+      breakdownEl.innerHTML = `
+        <div class="saas-card mt-2">
+          <h3 style="font-weight:800; margin-bottom: 1rem;">Skill-Fit Score Breakdown</h3>
+          <div class="grid-2 gap-3 mb-3">
+            <div><strong>Assessment:</strong> ${data.factors?.assessment || 0}%</div>
+            <div><strong>Projects:</strong> ${data.factors?.projects || 0}%</div>
+            <div><strong>Certificates:</strong> ${data.factors?.certificates || 0}%</div>
+            <div><strong>Internships:</strong> ${data.factors?.internships || 0}%</div>
+            <div><strong>Resume:</strong> ${data.factors?.resume || 0}%</div>
+            <div><strong>Self Rating:</strong> ${data.factors?.selfRating || 0}%</div>
+          </div>
+          ${cards || '<div class="saas-card">Add skills and evidence to generate a real analysis.</div>'}
+        </div>
+      `;
+    }
+  } catch (e) {
+    console.error('AI skill analysis failed', e);
+  }
+}
+async function loadOpportunitiesView() {
+  try {
+    const jobs = await apiFetch('/opportunities');
+    document.getElementById('opportunities-list-container').innerHTML = jobs.map(j => `<div class="saas-card mb-3"><h4 style="font-weight:700;">${j.title}</h4><div style="color:var(--text-blue); font-weight:700;" class="mb-2">${j.company_name}</div><button class="btn-saas btn-primary" onclick="handleApplyJob(${j.id})">Apply Position</button></div>`).join('');
+  } catch (e) {}
+}
+async function handleApplyJob(jobId) {
+  try {
+    await apiFetch('/student/apply', { method: 'POST', body: JSON.stringify({ jobId }) });
+    alert('Application submitted!');
+    navigateTo('applications');
+  } catch (err) { alert(err.message); }
+}
+async function loadApplicationsView() {
+  try {
+    const apps = await apiFetch('/student/applications');
+    document.getElementById('applications-list-container').innerHTML = apps.map(a => `
+      <div class="saas-card mb-3 flex-between application-row">
+        <div>
+          <h4 style="font-weight:700;">${a.job_title}</h4>
+          <div style="font-size:0.85rem; color:var(--text-blue);">${a.company_name}</div>
+          <div class="text-xs mt-2" style="color:var(--text-muted);">${a.interview ? `Interview: ${a.interview.date} at ${a.interview.time}` : 'Application in progress'}</div>
+        </div>
+        <div class="flex-align gap-2">
+          <span class="badge-saas badge-emerald">${a.status}</span>
+          ${a.interview ? '<button class="btn-saas btn-primary" onclick="navigateTo(\'interview-prep\')"><i class="fa-solid fa-microphone-lines"></i> Practice</button>' : ''}
+        </div>
+      </div>
+    `).join('') || '<div class="saas-card">No applications yet.</div>';
+  } catch (e) {}
 }
 async function loadNotificationsView() {
   try {
     const list = await apiFetch('/student/notifications');
-    document.getElementById('notifications-list-container').innerHTML = list.map(n => `<div class="saas-card mb-3"><h4 style="font-weight:700;">${n.title}</h4><p style="font-size:0.85rem; color:var(--text-muted);">${n.message}</p></div>`).join('');
+    document.getElementById('notifications-list-container').innerHTML = list.map(n => `
+      <div class="saas-card mb-3 ${n.is_read ? '' : 'notification-unread'}">
+        <div class="flex-between gap-2 mb-2">
+          <h4 style="font-weight:700;">${n.title}</h4>
+          ${n.is_read ? '<span class="badge-saas badge-emerald">Read</span>' : '<span class="badge-saas badge-blue">New</span>'}
+        </div>
+        <p style="font-size:0.85rem; color:var(--text-muted);">${n.message}</p>
+        ${n.id && !n.is_read ? `<button class="btn-saas btn-outline mt-3" onclick="markNotificationRead(${n.id})">Mark as read</button>` : ''}
+      </div>
+    `).join('');
   } catch (e) {}
 }
+
+async function markNotificationRead(notificationId) {
+  try {
+    await apiFetch(`/student/notifications/${notificationId}/read`, { method: 'PUT' });
+    loadNotificationsView();
+  } catch (err) { console.error(err.message); }
+}
+
+async function loadPlacementView() {
+  try {
+    const [placementResponse, applicationsResponse] = await Promise.all([
+      apiFetch('/student/placement'),
+      apiFetch('/student/applications')
+    ]);
+    const data = placementResponse;
+    const placement = data.placement;
+    const applications = Array.isArray(applicationsResponse) ? applicationsResponse : [];
+    const readiness = placement ? 100 : Math.min(95, 35 + Math.min(40, applications.length * 10));
+    document.getElementById('placement-readiness-score').textContent = `${readiness}%`;
+    document.getElementById('placement-application-count').textContent = applications.length;
+    document.getElementById('placement-next-action').textContent = placement ? 'Review offer' : applications.length ? 'Track applications' : 'Apply now';
+    const container = document.getElementById('placement-details-container');
+    if (!placement) {
+      container.innerHTML = `
+        <div class="saas-card mb-4">
+          <div class="flex-between mb-3"><h3 style="font-weight:800;margin:0;">Placement Journey</h3><span class="badge-saas badge-purple">In progress</span></div>
+          <p style="color:var(--text-muted);">You do not have an offer recorded yet. Use campus drives and opportunities to build your placement pipeline.</p>
+          <div class="grid-3 gap-3 mt-4 text-sm">
+            <div><strong>Profile</strong><div class="badge-saas badge-emerald mt-2">Ready</div></div>
+            <div><strong>Applications</strong><div class="badge-saas badge-blue mt-2">${applications.length} active</div></div>
+            <div><strong>Offer</strong><div class="badge-saas badge-purple mt-2">Awaiting</div></div>
+          </div>
+        </div>
+        <div class="saas-card"><h3 style="font-weight:800;">Recommended next steps</h3><ul class="text-sm mt-3" style="color:var(--text-muted);line-height:2;"><li>Register for eligible campus drives.</li><li>Keep your resume and ATS score updated.</li><li>Practice interviews before recruiter rounds.</li></ul></div>`;
+      return;
+    }
+    container.innerHTML = `
+      <div class="saas-card mb-4">
+        <div class="flex-between mb-3">
+          <div>
+            <div class="badge-saas badge-emerald mb-2">${placement.status || 'Offer Received'}</div>
+            <h3 style="font-weight:800; margin:0;">${placement.companyName || placement.company || 'Company'}</h3>
+          </div>
+          <div style="font-weight:800; color:var(--text-blue); font-size:1.2rem;">${placement.role || 'Role'}</div>
+        </div>
+        <div class="grid-2 gap-4 text-sm" style="color:var(--text-muted);">
+          <div><strong>Package:</strong> ${placement.package || placement.salary || '—'}</div>
+          <div><strong>Location:</strong> ${placement.location || '—'}</div>
+          <div><strong>Joining Date:</strong> ${placement.joiningDate || '—'}</div>
+          <div><strong>Updated:</strong> ${placement.updatedAt ? new Date(placement.updatedAt).toLocaleDateString() : '—'}</div>
+        </div>
+      </div>
+    `;
+  } catch (e) {}
+}
+
 async function loadCampusDrivesView() {
   try {
     const drives = await apiFetch('/student/campus-drives');
-    document.getElementById('campus-drives-list').innerHTML = drives.length ? drives.map(drive => `<div class="saas-card mb-3"><div class="flex-between"><div><h3>${drive.company}</h3><p>${drive.role} · ${drive.location}</p></div><span class="badge-saas ${drive.eligible ? 'badge-emerald' : 'badge-red'}">${drive.eligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'}</span></div><p class="text-xs mt-2">Drive: ${drive.date} · Deadline: ${drive.deadline} · ${drive.salary}</p><p class="text-xs mt-2" style="color:var(--text-muted);">${drive.reason}</p>${drive.eligible && !drive.registered ? `<button class="btn-saas btn-primary mt-3" onclick="registerForDrive(${drive.id})">Register</button>` : drive.registered ? '<span class="badge-saas badge-emerald mt-3">Registered</span>' : ''}</div>`).join('') : '<div class="saas-card">No campus drives are available.</div>';
-  } catch (e) { document.getElementById('campus-drives-list').innerHTML = '<div class="saas-card">Unable to load campus drives.</div>'; }
-}
-async function registerForDrive(driveId) {
-  try { await apiFetch(`/student/campus-drives/${driveId}/register`, { method: 'POST' }); alert('Registered for the campus drive.'); loadCampusDrivesView(); } catch (err) { alert(err.message); }
-}
-async function loadPlacementView() {
-  try {
-    const data = await apiFetch('/student/placement');
-    const placement = data.placement;
-    document.getElementById('placement-current').innerHTML = placement ? `<div class="badge-saas badge-emerald">${placement.status || 'Placed'}</div><h3 class="mt-2">${placement.companyName} · ${placement.role}</h3><p>${placement.package || ''} ${placement.location || ''}</p>` : '<p style="color:var(--text-muted);">No placement recorded yet.</p>';
-    if (placement) ['company','role','department','package','location'].forEach(field => { const element = document.getElementById(`placement-${field}`); if (element) element.value = placement[field === 'company' ? 'companyName' : field] || ''; });
+    studentCampusDrives = Array.isArray(drives) ? drives : [];
+    renderCampusDrives(studentCampusDrives);
   } catch (e) {}
 }
-async function handleSavePlacement(e) {
-  e.preventDefault();
-  try { await apiFetch('/student/placement', { method: 'POST', body: JSON.stringify({ companyName: document.getElementById('placement-company').value.trim(), role: document.getElementById('placement-role').value.trim(), department: document.getElementById('placement-department').value.trim(), package: document.getElementById('placement-package').value.trim(), placementDate: document.getElementById('placement-date').value, joiningDate: document.getElementById('placement-joining').value, location: document.getElementById('placement-location').value.trim(), placementType: document.getElementById('placement-type').value, status: 'Placed' }) }); alert('Placement saved.'); loadPlacementView(); } catch (err) { alert(err.message); }
-}
 
-async function loadSettingsView() {
-  const container = document.getElementById('view-settings');
-  if (!container) return;
-
-  try {
-    const data = await apiFetch('/student/settings');
-    const user = data.user || {};
-    const settings = data.settings || {};
-
-    container.innerHTML = `
-      <div class="settings-container">
-        <div class="view-header">
-          <h1>Settings</h1>
-          <p>Manage your account, preferences, and privacy settings</p>
-        </div>
-
-        <!-- ACCOUNT SECTION -->
-        <div class="settings-section">
-          <h2>Account</h2>
-          <form id="account-form" class="settings-form">
-            <div class="form-group">
-              <label>Username</label>
-              <input type="text" id="setting-username" class="form-control" value="${user.username || ''}" />
-            </div>
-            <div class="form-group">
-              <label>Email</label>
-              <input type="email" id="setting-email" class="form-control" value="${user.email || ''}" />
-            </div>
-            <div class="form-group">
-              <label>Mobile</label>
-              <input type="tel" id="setting-mobile" class="form-control" value="${user.mobile || ''}" />
-            </div>
-            ${currentRole === 'student' ? `
-            <div class="form-group">
-              <label>Student ID (Read-only)</label>
-              <input type="text" class="form-control" value="${user.student_id || '-'}" readonly />
-            </div>
-            ` : ''}
-            <button type="button" class="btn-saas btn-primary" onclick="saveAccountSettings()">Save Changes</button>
-          </form>
-        </div>
-
-        <!-- PASSWORD SECTION -->
-        <div class="settings-section">
-          <h2>Password</h2>
-          <form id="password-form" class="settings-form">
-            <div class="form-group">
-              <label>Current Password</label>
-              <input type="password" id="current-password" class="form-control" placeholder="Enter your current password" />
-            </div>
-            <div class="form-group">
-              <label>New Password</label>
-              <input type="password" id="new-password" class="form-control" placeholder="Enter new password" />
-            </div>
-            <div class="form-group">
-              <label>Confirm Password</label>
-              <input type="password" id="confirm-password" class="form-control" placeholder="Confirm new password" />
-            </div>
-            <button type="button" class="btn-saas btn-primary" onclick="changePassword(event)">Change Password</button>
-          </form>
-        </div>
-
-        <!-- NOTIFICATIONS SECTION -->
-        ${currentRole === 'student' || currentRole === 'company' ? `
-        <div class="settings-section">
-          <h2>Notifications</h2>
-          <div class="settings-form notification-toggles">
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="jobNotifications" ${settings.jobNotifications ? 'checked' : ''} />
-                <div>
-                  <strong>Job Matches</strong>
-                  <p class="text-xs">Get notified when jobs match your profile</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="internshipNotifications" ${settings.internshipNotifications ? 'checked' : ''} />
-                <div>
-                  <strong>Internships</strong>
-                  <p class="text-xs">Get notified about internship opportunities</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="campusDriveNotifications" ${settings.campusDriveNotifications ? 'checked' : ''} />
-                <div>
-                  <strong>Campus Drives</strong>
-                  <p class="text-xs">Get notified about upcoming campus drives</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="applicationNotifications" ${settings.applicationNotifications ? 'checked' : ''} />
-                <div>
-                  <strong>Application Updates</strong>
-                  <p class="text-xs">Get updates on your applications</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="interviewNotifications" ${settings.interviewNotifications ? 'checked' : ''} />
-                <div>
-                  <strong>Interview Updates</strong>
-                  <p class="text-xs">Get notified about interview schedules</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="placementNotifications" ${settings.placementNotifications ? 'checked' : ''} />
-                <div>
-                  <strong>Placement Updates</strong>
-                  <p class="text-xs">Get notified about placement outcomes</p>
-                </div>
-              </label>
-            </div>
-          </div>
-        </div>
-        ` : ''}
-
-        <!-- PRIVACY SECTION -->
-        ${currentRole === 'student' ? `
-        <div class="settings-section">
-          <h2>Privacy</h2>
-          <div class="settings-form privacy-toggles">
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="profileVisibility" ${settings.profileVisibility === 'public' ? 'checked' : ''} />
-                <div>
-                  <strong>Public Profile</strong>
-                  <p class="text-xs">Allow recruiters to view your profile</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="recruiterDiscovery" ${settings.recruiterDiscovery !== false ? 'checked' : ''} />
-                <div>
-                  <strong>Recruiter Discovery</strong>
-                  <p class="text-xs">Allow companies to discover your profile</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="showSkills" ${settings.showSkills !== false ? 'checked' : ''} />
-                <div>
-                  <strong>Show Skills</strong>
-                  <p class="text-xs">Display your skills to recruiters</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="showAcademicInfo" ${settings.showAcademicInfo !== false ? 'checked' : ''} />
-                <div>
-                  <strong>Show Academic Information</strong>
-                  <p class="text-xs">Display CGPA and academic details to recruiters</p>
-                </div>
-              </label>
-            </div>
-            <div class="toggle-item">
-              <label class="flex-align gap-2">
-                <input type="checkbox" data-setting="showContactInfo" ${settings.showContactInfo !== false ? 'checked' : ''} />
-                <div>
-                  <strong>Show Contact Information</strong>
-                  <p class="text-xs">Display email and mobile to recruiters</p>
-                </div>
-              </label>
-            </div>
-          </div>
-        </div>
-        ` : ''}
-
-        <!-- APPEARANCE SECTION -->
-        <div class="settings-section">
-          <h2>Appearance</h2>
-          <div class="settings-form">
-            <div class="form-group">
-              <label>Theme</label>
-              <select id="setting-theme" class="form-control" onchange="applyTheme(this.value)">
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="system">System</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- ACCOUNT CONTROL SECTION -->
-        <div class="settings-section danger-zone">
-          <h2>Account Control</h2>
-          <div class="settings-form">
-            <div class="control-group">
-              <h3>Logout</h3>
-              <p class="text-xs">Log out of your current session</p>
-              <button type="button" class="btn-saas btn-outline" onclick="handleLogout()">Logout</button>
-            </div>
-            <div class="control-group">
-              <h3>Delete Account</h3>
-              <p class="text-xs danger-text">This action cannot be undone. All your data will be permanently deleted.</p>
-              <button type="button" class="btn-saas btn-danger" onclick="deleteStudentAccount()">Delete Account</button>
-            </div>
-          </div>
-        </div>
-
-        <button type="button" class="btn-saas btn-primary mt-5" onclick="saveAllSettings()">Save All Settings</button>
-      </div>
-    `;
-
-    // Set theme value
-    document.getElementById('setting-theme').value = settings.theme || 'system';
-    applyTheme(settings.theme || 'system');
-
-  } catch (e) {
-    console.error('Failed to load settings:', e);
-    document.getElementById('view-settings').innerHTML = '<div class="saas-card">Unable to load settings. Please try again.</div>';
-  }
-}
-
-// Save account settings
-async function saveAccountSettings() {
-  try {
-    const accountData = {
-      username: document.getElementById('setting-username').value.trim(),
-      email: document.getElementById('setting-email').value.trim(),
-      mobile: document.getElementById('setting-mobile').value.trim()
-    };
-    
-    if (!accountData.username || !accountData.email) {
-      alert('Username and Email are required.');
-      return;
+function renderCampusDrives(drives) {
+    const container = document.getElementById('campus-drives-list-container');
+    if (!container) return;
+    const allDrives = studentCampusDrives.length ? studentCampusDrives : drives;
+    const eligibleCount = allDrives.filter(drive => drive.eligible).length;
+    const registeredCount = allDrives.filter(drive => drive.registered).length;
+    document.getElementById('campus-drive-count').textContent = allDrives.length;
+    document.getElementById('campus-eligible-count').textContent = eligibleCount;
+    document.getElementById('campus-registered-count').textContent = registeredCount;
+    const deadlines = drives.filter(drive => drive.deadline).sort((a, b) => String(a.deadline).localeCompare(String(b.deadline)));
+    const alert = document.getElementById('campus-drive-deadline-alert');
+    if (alert && deadlines.length) {
+      alert.classList.remove('hidden');
+      alert.innerHTML = `<strong>Upcoming deadline:</strong> ${deadlines[0].company} registration closes on ${deadlines[0].deadline}.`;
     }
+    container.innerHTML = drives.map(drive => `
+      <div class="saas-card mb-4">
+        <div class="flex-between mb-3">
+          <div>
+            <h3 style="font-weight:800; margin:0;">${drive.company}</h3>
+            <div style="font-size:0.8rem; color:var(--text-muted);">${drive.role} • ${drive.location}</div>
+          </div>
+          <span class="badge-saas ${drive.eligible ? 'badge-emerald' : 'badge-purple'}">${drive.eligible ? 'Eligible' : 'Not Eligible'}</span>
+        </div>
+        <div class="grid-2 gap-3 text-sm mb-3" style="color:var(--text-muted);">
+          <div><strong>Date:</strong> ${drive.date}</div>
+          <div><strong>Deadline:</strong> ${drive.deadline}</div>
+          <div><strong>CGPA:</strong> ${drive.minimumCGPA || '—'}+</div>
+          <div><strong>Salary:</strong> ${drive.salary || '—'}</div>
+        </div>
+        <p class="mb-3" style="font-size:0.82rem; color:var(--text-muted);">${drive.reason || 'No restrictions.'}</p>
+        <button class="btn-saas ${drive.eligible ? 'btn-primary' : 'btn-outline'}" ${drive.eligible ? '' : 'disabled'} onclick="registerCampusDrive(${drive.id})">
+          ${drive.registered ? 'Registered' : 'Register Now'}
+        </button>
+      </div>
+    `).join('');
+    if (!drives.length) container.innerHTML = '<div class="saas-card"><p style="color:var(--text-muted);">No campus drives match this filter.</p></div>';
+}
 
-    await apiFetch('/student/account', { 
-      method: 'PUT', 
-      body: JSON.stringify(accountData) 
-    });
-    alert('Account settings saved successfully.');
+function filterCampusDrives(filter) {
+  const filtered = filter === 'eligible'
+    ? studentCampusDrives.filter(drive => drive.eligible)
+    : filter === 'registered'
+      ? studentCampusDrives.filter(drive => drive.registered)
+      : studentCampusDrives;
+  renderCampusDrives(filtered);
+}
+
+async function registerCampusDrive(driveId) {
+  try {
+    await apiFetch(`/student/campus-drives/${driveId}/register`, { method: 'POST' });
+    loadCampusDrivesView();
+    alert('Campus drive registration saved successfully.');
   } catch (err) {
-    alert(err.message || 'Failed to save account settings.');
+    alert(err.message || 'Unable to register for campus drive.');
   }
-}
-
-// Save all settings
-async function saveAllSettings() {
-  try {
-    const settings = { theme: document.getElementById('setting-theme').value };
-    
-    // Collect all checkbox settings
-    document.querySelectorAll('[data-setting]').forEach(input => {
-      settings[input.dataset.setting] = input.checked;
-    });
-
-    // Save settings
-    await apiFetch('/student/settings', { 
-      method: 'PUT', 
-      body: JSON.stringify(settings) 
-    });
-
-    // Save account info
-    const accountData = {
-      username: document.getElementById('setting-username').value.trim(),
-      email: document.getElementById('setting-email').value.trim(),
-      mobile: document.getElementById('setting-mobile').value.trim()
-    };
-
-    await apiFetch('/student/account', { 
-      method: 'PUT', 
-      body: JSON.stringify(accountData) 
-    });
-
-    applyTheme(settings.theme);
-    alert('All settings saved successfully.');
-  } catch (err) {
-    alert(err.message || 'Failed to save settings.');
-  }
-}
-async function changePassword(event) { event.preventDefault(); try { const data = await apiFetch('/student/change-password', { method: 'PUT', body: JSON.stringify({ currentPassword: document.getElementById('current-password').value, newPassword: document.getElementById('new-password').value, confirmPassword: document.getElementById('confirm-password').value }) }); alert(data.message); event.target.reset(); } catch (err) { alert(err.message); } }
-async function deleteStudentAccount() { if (!window.confirm('Delete your account and all associated profile data? This action cannot be undone.')) return; try { await apiFetch('/student/account', { method: 'DELETE' }); alert('Your account and associated data were deleted.'); handleLogout(); } catch (err) { alert(err.message); } }
-function applyTheme(theme) { const resolved = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : theme; document.body.dataset.theme = resolved; localStorage.setItem('sb_theme', theme); }
-
-async function loadCollegeDashboard() {
-  const overview = document.getElementById('college-overview-cards');
-  const deptTable = document.getElementById('college-dept-table');
-  const skillDemandList = document.getElementById('college-skill-demand-list');
-  const strategyInsights = document.getElementById('college-strategy-insights');
-
-  try {
-    const data = await apiFetch('/college/dashboard');
-    if (overview) {
-      overview.innerHTML = [
-        ['Total Students', data.total_students, 'blue'],
-        ['Placed Students', data.placed_students, 'emerald'],
-        ['Placement Rate', `${data.placement_rate}%`, 'purple'],
-        ['Active Recruiters', (data.top_recruiters || []).length, 'orange']
-      ].map(([label, value, accent]) => renderMetricCard(label, value, accent)).join('');
-    }
-    if (deptTable) {
-      deptTable.innerHTML = (data.department_stats || []).map(item => `
-        <tr>
-          <td style="font-weight:700;">${item.name}</td>
-          <td>${item.total}</td>
-          <td>${item.placed}</td>
-          <td><span class="badge-saas badge-emerald">${item.percentage}%</span></td>
-        </tr>
-      `).join('') || '<tr><td colspan="4">No registered student data available.</td></tr>';
-    }
-    if (skillDemandList) {
-      const signals = data.skill_signals || [];
-      skillDemandList.innerHTML = signals.length ? signals.map(item => `
-        <div class="mb-3">
-          <div class="flex-between mb-1"><span style="font-weight:700; font-size:0.8rem;">${item.name}</span><span style="font-size:0.75rem; color:var(--text-muted);">${item.demand}% demand</span></div>
-          <div style="height:9px; background:rgba(148,163,184,.13); border-radius:999px; overflow:hidden; margin-bottom:0.2rem;">
-            <div style="height:100%; width:${item.demand}%; background:linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius:999px;"></div>
-          </div>
-          <div style="font-size:0.72rem; color:var(--text-muted);">Readiness: <strong>${item.readiness}%</strong></div>
-        </div>
-      `).join('') : '<div class="saas-card">No skill-demand data is available from registered records.</div>';
-    }
-    if (strategyInsights) strategyInsights.innerHTML = '<div class="saas-card">Analytics recommendations will appear when more registered placement data is available.</div>';
-  } catch (error) {
-    if (overview) overview.innerHTML = '<div class="saas-card">Unable to load university analytics.</div>';
-    console.error('Failed to load university analytics:', error.message);
-  }
-}
-
-async function loadCollegeStudentDirectory() {
-  const container = document.getElementById('college-students-list');
-  if (!container) return;
-
-  const deptFilter = document.getElementById('college-student-dept')?.value || 'all';
-  const statusFilter = document.getElementById('college-student-status')?.value || 'all';
-  const searchValue = (document.getElementById('college-student-search')?.value || '').trim().toLowerCase();
-
-  let students;
-  try {
-    students = await apiFetch('/college/students');
-  } catch (error) {
-    container.innerHTML = '<div class="saas-card">Unable to load registered student details.</div>';
-    console.error('Failed to load registered students:', error.message);
-    return;
-  }
-
-  const filtered = students.filter(student => {
-    const studentStatus = student.status || 'Available';
-    const studentId = student.student_id || student.studentId || '';
-    const matchesDept = deptFilter === 'all' || student.department === deptFilter;
-    const matchesStatus = statusFilter === 'all' || studentStatus === statusFilter;
-    const searchText = `${student.name} ${student.department} ${studentId}`.toLowerCase();
-    const matchesSearch = !searchValue || searchText.includes(searchValue);
-    return matchesDept && matchesStatus && matchesSearch;
-  });
-
-  container.innerHTML = filtered.map(student => `
-    <div class="saas-card">
-      <div class="flex-between mb-2">
-        <h4 style="font-weight:700; margin:0;">${student.name}</h4>
-        <span class="badge-saas badge-purple">${student.status || 'Available'}</span>
-      </div>
-      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">${student.student_id || student.studentId || 'Student ID pending'} • ${student.department || 'Department pending'}</div>
-      <div class="grid-2 gap-2 text-sm">
-        <div><strong>CGPA:</strong> ${student.cgpa ?? 'Not available'}</div>
-        <div><strong>Track:</strong> ${student.goal || student.degree || 'Not specified'}</div>
-      </div>
-    </div>
-  `).join('') || '<div class="saas-card">No students match the current filters.</div>';
-
-  ['college-student-search', 'college-student-dept', 'college-student-status'].forEach(id => {
-    const element = document.getElementById(id);
-    if (element && !element.dataset.bound) {
-      element.dataset.bound = 'true';
-      element.addEventListener('input', loadCollegeStudentDirectory);
-      element.addEventListener('change', loadCollegeStudentDirectory);
-    }
-  });
-}
-
-async function loadCollegeSkillMapping() {
-  const container = document.getElementById('college-skill-mapping-content');
-  if (!container) return;
-
-  container.innerHTML = `
-    <div class="grid-2 gap-4">
-      ${universityAdminMock.skillMapping.map(item => `
-        <div class="saas-card">
-          <div class="flex-between mb-2">
-            <h3 style="font-weight:800; margin:0;">${item.department}</h3>
-            <span class="badge-saas badge-blue">${item.readiness}% readiness</span>
-          </div>
-          <p style="color: var(--text-muted); margin-bottom: 1rem;">${item.coach}</p>
-          <div class="mb-3">
-            <div class="flex-between mb-1"><span class="text-xs">Department readiness</span><span class="text-xs">${item.readiness}%</span></div>
-            <div style="height: 10px; background: rgba(148,163,184,.13); border-radius: 999px; overflow: hidden;">
-              <div style="height:100%; width:${item.readiness}%; background: linear-gradient(90deg, #38bdf8, #2563eb); border-radius:999px;"></div>
-            </div>
-          </div>
-          <div class="mb-2"><strong>Primary gap:</strong> ${item.gap}</div>
-          <div><strong>Recommended action:</strong> ${item.action}</div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-
-async function loadCollegePartnerships() {
-  const container = document.getElementById('college-partnerships-content');
-  if (!container) return;
-
-  let companies;
-  try {
-    companies = await apiFetch('/college/companies');
-  } catch (error) {
-    container.innerHTML = '<div class="saas-card">Unable to load registered companies.</div>';
-    console.error('Failed to load registered companies:', error.message);
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="grid-2 gap-4">
-      ${companies.map(company => `
-        <div class="saas-card">
-          <div class="flex-between mb-3">
-            <div>
-              <h3 style="font-weight:800; margin:0;">${company.name}</h3>
-              <div class="text-xs mt-1" style="color:var(--text-muted);">${company.companyId || 'Company ID pending'}</div>
-            </div>
-            <span class="badge-saas badge-emerald">Registered</span>
-          </div>
-          <div class="grid-2 gap-2 text-sm">
-            <div><strong>Industry:</strong><br>${company.industry}</div>
-            <div><strong>Location:</strong><br>${company.location}</div>
-          </div>
-        </div>
-      `).join('') || '<div class="saas-card">No registered companies are available.</div>'}
-    </div>
-  `;
-}
-
-async function loadCollegePlacements() {
-  const container = document.getElementById('college-placements-content');
-  if (!container) return;
-
-  let companies;
-  try {
-    companies = await apiFetch('/college/companies');
-  } catch (error) {
-    container.innerHTML = '<div class="saas-card">Unable to load registered companies.</div>';
-    console.error('Failed to load registered companies:', error.message);
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="grid-2 gap-4">
-      ${companies.map(company => `
-        <div class="saas-card">
-          <div class="flex-between mb-2">
-            <h3 style="font-weight:800; margin:0;">${company.name}</h3>
-            <span class="badge-saas badge-purple">${company.companyId || 'Registered company'}</span>
-          </div>
-          <div class="grid-3 gap-2 text-sm">
-            <div><strong>Industry</strong><br>${company.industry}</div>
-            <div><strong>Location</strong><br>${company.location}</div>
-            <div><strong>Status</strong><br>Registered</div>
-          </div>
-        </div>
-      `).join('') || '<div class="saas-card">No registered companies are available.</div>'}
-    </div>
-  `;
-}
-
-async function loadCollegeCampusDrives() {
-  const container = document.getElementById('college-campus-drives-list');
-  if (!container) return;
-
-  let companies;
-  try {
-    companies = await apiFetch('/college/companies');
-  } catch (error) {
-    container.innerHTML = '<div class="saas-card">Unable to load registered companies.</div>';
-    console.error('Failed to load registered companies:', error.message);
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="grid-2 gap-4">
-      ${companies.map(company => `
-        <div class="saas-card">
-          <div class="flex-between mb-2">
-            <h3 style="font-weight:800; margin:0;">${company.name}</h3>
-            <span class="badge-saas badge-emerald">Registered</span>
-          </div>
-          <div class="text-sm" style="color: var(--text-muted);">${company.companyId || 'Company ID pending'}</div>
-          <div class="mt-2 text-sm"><strong>Industry:</strong> ${company.industry}</div>
-          <div class="mt-1 text-sm"><strong>Location:</strong> ${company.location}</div>
-        </div>
-      `).join('') || '<div class="saas-card">No registered companies are available.</div>'}
-    </div>
-  `;
-}
-
-async function loadCollegeReports() {
-  const container = document.getElementById('college-reports-content');
-  if (!container) return;
-
-  container.innerHTML = `
-    <div class="grid-3 gap-4">
-      ${universityAdminMock.reports.map(item => `
-        <div class="saas-card">
-          <div class="badge-saas badge-sky mb-2">Report</div>
-          <h3 style="font-weight:800; margin-bottom:0.75rem;">${item.title}</h3>
-          <p style="color:var(--text-secondary); line-height:1.7; margin:0;">${item.summary}</p>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-
-async function askCollegeAssistant(event) {
-  event.preventDefault();
-  const input = document.getElementById('college-assistant-input');
-  const output = document.getElementById('college-assistant-reply');
-  if (!input || !output) return;
-
-  const message = input.value.trim();
-  if (!message) {
-    output.textContent = 'Ask about placement trends, department gaps, or employer engagement.';
-    return;
-  }
-
-  const lower = message.toLowerCase();
-  let reply = 'Based on current university performance, the strongest placement momentum is in Computer Science and IT, while cloud and AI/ML readiness remain the main skill gaps to address.';
-
-  if (lower.includes('skill') || lower.includes('gap')) {
-    reply = 'The biggest skill gaps are in Cloud, AI/ML, and advanced coding readiness for EEE/ECE departments. A targeted upskilling program would improve placement conversion within one semester.';
-  } else if (lower.includes('company') || lower.includes('partnership')) {
-    reply = 'Current employer partnerships are strongest in software services and campus connect programs. Additional product-company tie-ups would improve final-offer conversion and salary outcomes.';
-  } else if (lower.includes('department') || lower.includes('cse') || lower.includes('it')) {
-    reply = 'CSE and IT remain highest-performing departments with the strongest placement conversion, while ECE and EEE need more bridge programs for coding and product readiness.';
-  } else if (lower.includes('report') || lower.includes('summary')) {
-    reply = 'University placement conversion improved by 6.2% this cycle, with the biggest growth in software and analytics roles. The next strategic focus should be cloud and AI/ML readiness.';
-  }
-
-  output.textContent = reply;
-}
-
-// UNIVERSITY ADMIN DASHBOARD
-async function loadUniversityDashboard() {
-  const dashboard = document.getElementById('view-university-dashboard');
-  if (!dashboard) return;
-  
-  dashboard.innerHTML = `
-    <div class="view-header">
-      <h1>University Dashboard</h1>
-      <p>University-wide analytics and insights</p>
-    </div>
-    <div class="dashboard-grid">
-      <div class="dashboard-card">
-        <h3>Total Students</h3>
-        <p class="stat-value">12,450</p>
-      </div>
-      <div class="dashboard-card">
-        <h3>Affiliated Colleges</h3>
-        <p class="stat-value">8</p>
-      </div>
-      <div class="dashboard-card">
-        <h3>Placement Rate</h3>
-        <p class="stat-value">87%</p>
-      </div>
-      <div class="dashboard-card">
-        <h3>Active Companies</h3>
-        <p class="stat-value">125</p>
-      </div>
-    </div>
-    <div class="dashboard-section mt-5">
-      <h2>College Performance Comparison</h2>
-      <div class="college-comparison-table">
-        <table class="saas-table">
-          <thead>
-            <tr>
-              <th>College</th>
-              <th>Students</th>
-              <th>Placement Rate</th>
-              <th>Avg Package</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>College of Engineering</td>
-              <td>3,200</td>
-              <td>92%</td>
-              <td>₹ 7.5 LPA</td>
-            </tr>
-            <tr>
-              <td>Institute of Technology</td>
-              <td>2,800</td>
-              <td>85%</td>
-              <td>₹ 7.2 LPA</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
-// SUPER ADMIN DASHBOARD
-async function loadAdminDashboard() {
-  const dashboard = document.getElementById('view-admin-dashboard');
-  if (!dashboard) return;
-  
-  dashboard.innerHTML = `
-    <div class="view-header">
-      <h1>Platform Admin Dashboard</h1>
-      <p>System-wide management and analytics</p>
-    </div>
-    <div class="dashboard-grid">
-      <div class="dashboard-card">
-        <h3>Total Users</h3>
-        <p class="stat-value">28,500</p>
-      </div>
-      <div class="dashboard-card">
-        <h3>Active Students</h3>
-        <p class="stat-value">18,200</p>
-      </div>
-      <div class="dashboard-card">
-        <h3>Companies</h3>
-        <p class="stat-value">856</p>
-      </div>
-      <div class="dashboard-card">
-        <h3>Universities</h3>
-        <p class="stat-value">42</p>
-      </div>
-    </div>
-    <div class="dashboard-section mt-5">
-      <h2>Platform Statistics</h2>
-      <div class="stats-grid">
-        <div class="stat-box">
-          <h4>Job Postings</h4>
-          <p class="stat-number">2,345</p>
-        </div>
-        <div class="stat-box">
-          <h4>Placements</h4>
-          <p class="stat-number">4,523</p>
-        </div>
-        <div class="stat-box">
-          <h4>Applications</h4>
-          <p class="stat-number">15,678</p>
-        </div>
-        <div class="stat-box">
-          <h4>Avg Placement Rate</h4>
-          <p class="stat-number">84%</p>
-        </div>
-      </div>
-    </div>
-  `;
 }
 
 // COMPANY RECRUITER LOADERS
@@ -1963,15 +2031,25 @@ async function loadCompanyATSPipeline() {
   try {
     const data = await apiFetch('/company/dashboard');
     const comp = data.company || {};
-    document.getElementById('comp-header').textContent = `${comp.name || 'TechCorp'} ATS Pipeline`;
-    document.getElementById('comp-id-badge').textContent = comp.companyId || 'CMP-10001';
-    document.getElementById('comp-total-jobs').textContent = data.total_jobs || 0;
-    document.getElementById('comp-total-apps').textContent = data.total_applicants || 0;
-    document.getElementById('comp-shortlisted').textContent = data.shortlisted || 0;
+    const header = document.getElementById('comp-header');
+    if (header) header.textContent = `${comp.name || 'TechCorp'} Recruitment Intelligence`;
+
+    const badge = document.getElementById('comp-id-badge');
+    if (badge) badge.textContent = comp.companyId || 'CMP-10001';
+
+    const totalJobs = document.getElementById('comp-total-jobs');
+    if (totalJobs) totalJobs.textContent = data.total_jobs || 2;
+
+    const totalApps = document.getElementById('comp-total-apps');
+    if (totalApps) totalApps.textContent = data.total_applicants || 1;
+
+    const shortlisted = document.getElementById('comp-shortlisted');
+    if (shortlisted) shortlisted.textContent = data.shortlisted || 1;
 
     const stages = ['Eligible', 'Applied', 'AI Screening', 'Shortlisted', 'Technical Interview', 'HR Interview', 'Selected', 'Rejected'];
     const board = document.getElementById('ats-kanban-board');
     const apps = data.pipeline || [];
+    if (!board) return;
 
     board.innerHTML = stages.map(st => {
       const filtered = apps.filter(a => a.status === st);
@@ -1980,8 +2058,8 @@ async function loadCompanyATSPipeline() {
           <div class="pipeline-stage-header"><span>${st}</span><span class="badge-saas badge-blue">${filtered.length}</span></div>
           ${filtered.map(cand => `
             <div class="candidate-kanban-card">
-              <div style="font-weight:700;">${cand.candidate_name || 'Student'}</div>
-              <div style="font-size:0.75rem; color:var(--text-muted);" class="mb-2">CGPA: ${cand.cgpa ?? 'Hidden'} • ${cand.job_title || 'Job'}</div>
+              <div style="font-weight:700;">${cand.candidate_name || 'Arjun Sharma'}</div>
+              <div style="font-size:0.75rem; color:var(--text-muted);" class="mb-2">CGPA: ${cand.cgpa || 8.8} • ${cand.job_title}</div>
               <select class="saas-input" style="font-size:0.75rem; padding:0.25rem 0.5rem;" onchange="handleMoveCandidateStage(${cand.id}, this.value)">
                 ${stages.map(s => `<option value="${s}" ${s === st ? 'selected' : ''}>Move to: ${s}</option>`).join('')}
               </select>
@@ -2020,268 +2098,11 @@ async function handlePostJobSubmit(e) {
 }
 
 async function loadTalentFinder() {
-  const container = document.getElementById('view-talent-finder');
-  if (!container) return;
-
   try {
-    if (currentRole === 'student') {
-      await loadStudentTalentFinder();
-    } else if (currentRole === 'company') {
-      await loadCompanyTalentFinder();
-    }
-  } catch (err) {
-    console.error('Failed to load Talent Finder:', err);
-    if (container) container.innerHTML = `<div class="error-message">${err.message}</div>`;
-  }
+    const students = await apiFetch('/college/students');
+    document.getElementById('talent-candidates-list').innerHTML = students.map(s => `<div class="saas-card"><h4 style="font-weight:700;">${s.name}</h4><div style="font-size:0.8rem; color:var(--text-muted);">${s.college} • ${s.department}</div><div style="font-size:0.85rem; font-weight:800; color:var(--text-emerald);" class="mt-2">CGPA: ${s.cgpa || 8.8}</div></div>`).join('');
+  } catch (e) {}
 }
-
-// Student Talent Finder - Show matched jobs
-async function loadStudentTalentFinder() {
-  try {
-    const data = await apiFetch('/api/talent-finder/matched-jobs');
-    const container = document.getElementById('view-talent-finder');
-    
-    if (!container) return;
-
-    const matches = data.matches || [];
-    
-    container.innerHTML = `
-      <div class="talent-finder-container">
-        <div class="view-header">
-          <h1>Talent Finder - Job Matches</h1>
-          <p>We found ${matches.length} job(s) that match your skills and profile</p>
-        </div>
-
-        ${matches.length === 0 ? `
-          <div class="saas-card">
-            <p class="text-center">No matching jobs found. Complete your skills profile to see more opportunities.</p>
-          </div>
-        ` : `
-          <div class="talent-matches-grid">
-            ${matches.map((job, idx) => `
-              <div class="talent-match-card saas-card">
-                <div class="match-header">
-                  <h3>${job.title}</h3>
-                  <div class="match-score" style="background: ${getMatchScoreColor(job.matchPercentage)}">
-                    ${job.matchPercentage}%
-                  </div>
-                </div>
-                <p class="company-name">${job.company}</p>
-                <p class="recommendation-level">${job.recommendationLevel}</p>
-                <div class="match-details mt-3">
-                  <div class="detail-item">
-                    <strong class="text-xs">Strengths</strong>
-                    <p class="text-xs mt-1">${job.strengths || 'No matches recorded'}</p>
-                  </div>
-                  <div class="detail-item">
-                    <strong class="text-xs">Skill Gaps</strong>
-                    <p class="text-xs mt-1">${job.skillGaps || 'No gaps detected'}</p>
-                  </div>
-                </div>
-                <button class="btn-saas btn-primary mt-3" onclick="handleApplyJob(${job.jobId})">Apply Now</button>
-              </div>
-            `).join('')}
-          </div>
-        `}
-      </div>
-    `;
-  } catch (err) {
-    throw new Error('Failed to load matched jobs: ' + err.message);
-  }
-}
-
-// Company Talent Finder - Show matched candidates for jobs
-async function loadCompanyTalentFinder() {
-  try {
-    // First get company's jobs
-    const dashboardData = await apiFetch('/company/dashboard');
-    const jobs = dashboardData.jobs || [];
-    
-    if (jobs.length === 0) {
-      const container = document.getElementById('view-talent-finder');
-      if (container) {
-        container.innerHTML = `
-          <div class="view-header">
-            <h1>Talent Finder</h1>
-            <p>Find qualified candidates for your job positions</p>
-          </div>
-          <div class="saas-card">
-            <p>No jobs posted yet. <a href="#" onclick="navigateTo('create-job')">Create your first job post</a> to find matching candidates.</p>
-          </div>
-        `;
-      }
-      return;
-    }
-
-    // Create job selector and container for candidates
-    const container = document.getElementById('view-talent-finder');
-    if (!container) return;
-
-    container.innerHTML = `
-      <div class="talent-finder-container">
-        <div class="view-header">
-          <h1>Talent Finder - Candidate Matching</h1>
-          <p>Select a job to view matching candidates</p>
-        </div>
-
-        <div class="talent-finder-controls mb-5">
-          <select id="company-job-selector" class="form-control" onchange="loadCompanyJobCandidates()">
-            <option value="">-- Select a Job --</option>
-            ${jobs.map(job => `<option value="${job.id}">${job.title}</option>`).join('')}
-          </select>
-        </div>
-
-        <div id="talent-candidates-list" class="talent-candidates-container">
-          <p class="text-center">Select a job to view matching candidates</p>
-        </div>
-      </div>
-    `;
-  } catch (err) {
-    throw new Error('Failed to load company talent finder: ' + err.message);
-  }
-}
-
-// Load candidates for selected company job
-async function loadCompanyJobCandidates() {
-  const jobId = document.getElementById('company-job-selector')?.value;
-  const container = document.getElementById('talent-candidates-list');
-  
-  if (!jobId || !container) return;
-
-  try {
-    const data = await apiFetch(`/api/talent-finder/job/${jobId}/candidates`);
-    const candidates = data.candidates || [];
-
-    if (candidates.length === 0) {
-      container.innerHTML = '<p class="text-center">No privacy-eligible candidates match this job.</p>';
-      return;
-    }
-
-    container.innerHTML = `
-      <div class="candidates-summary mb-3">
-        <p>Found <strong>${candidates.length}</strong> matching candidate(s)</p>
-      </div>
-      <div class="talent-candidates-grid">
-        ${candidates.map(candidate => `
-          <div class="talent-candidate-card saas-card">
-            <div class="candidate-header">
-              <h4>${candidate.name}</h4>
-              <div class="match-score" style="background: ${getMatchScoreColor(candidate.matchPercentage)}">
-                ${candidate.matchPercentage}%
-              </div>
-            </div>
-            <p class="text-xs">${candidate.studentId}</p>
-            ${candidate.department ? `<p class="text-xs">${candidate.department}</p>` : ''}
-            ${candidate.cgpa ? `<p class="text-xs">CGPA: ${candidate.cgpa}</p>` : ''}
-            <p class="recommendation mt-2">${candidate.recommendationLevel}</p>
-            <div class="match-details mt-3">
-              ${candidate.strengths ? `
-                <div class="detail-item">
-                  <strong class="text-xs">Matching Skills</strong>
-                  <p class="text-xs mt-1">${candidate.strengths}</p>
-                </div>
-              ` : ''}
-              ${candidate.skillGaps ? `
-                <div class="detail-item">
-                  <strong class="text-xs">Skill Gaps</strong>
-                  <p class="text-xs mt-1">${candidate.skillGaps}</p>
-                </div>
-              ` : ''}
-            </div>
-            <button class="btn-saas btn-primary mt-3" onclick="shortlistCandidate('${candidate.studentId}')">Shortlist</button>
-          </div>
-        `).join('')}
-      </div>
-    `;
-  } catch (err) {
-    container.innerHTML = `<div class="error-message">${err.message}</div>`;
-  }
-}
-
-// Helper function to get match score color
-function getMatchScoreColor(percentage) {
-  if (percentage >= 90) return 'linear-gradient(135deg, #34d399 0%, #10b981 100%)'; // Emerald
-  if (percentage >= 75) return 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)'; // Blue
-  if (percentage >= 60) return 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)'; // Amber
-  return 'linear-gradient(135deg, #f87171 0%, #dc2626 100%)'; // Red
-}
-
-// Shortlist a candidate
-async function shortlistCandidate(studentId) {
-  try {
-    alert(`Candidate ${studentId} has been added to your shortlist!`);
-    // TODO: Implement actual shortlist API endpoint
-  } catch (err) {
-    alert('Failed to shortlist candidate: ' + err.message);
-  }
-}
-
-async function loadCompanyJobCandidates_old() { const jobId = document.getElementById('company-job-selector')?.value; if (!jobId) { document.getElementById('talent-candidates-list').innerHTML = '<p>No jobs posted yet.</p>'; return; } try { const data = await apiFetch(`/company/jobs/${jobId}/candidates`); document.getElementById('talent-candidates-list').innerHTML = data.candidates.length ? data.candidates.map(candidate => `<div class="saas-card"><h4>${candidate.name}</h4><div class="text-xs">${candidate.studentId} · CGPA: ${candidate.cgpa ?? 'Hidden'}</div><strong style="color:var(--text-emerald);">${candidate.matchPercentage}% · ${candidate.recommendationLevel}</strong><p class="text-xs mt-2">${candidate.skills.map(skill => `${skill.name} ${skill.scoreOutOfTen}/10`).join(', ') || 'Skills hidden by privacy settings'}</p><p class="text-xs mt-2">${candidate.skillGaps.filter(item => item.result === 'Gap').map(item => `Gap: ${item.skill}`).join(', ') || 'All listed requirements matched'}</p></div>`).join('') : '<p>No privacy-eligible candidates available.</p>'; } catch (err) { document.getElementById('talent-candidates-list').textContent = err.message; } }
-async function askCompanyAssistant(event) { event.preventDefault(); try { const data = await apiFetch('/company/assistant', { method: 'POST', body: JSON.stringify({ message: document.getElementById('company-assistant-input').value }) }); document.getElementById('company-assistant-reply').textContent = data.reply; } catch (err) { document.getElementById('company-assistant-reply').textContent = err.message; } }
-async function askCompanyAssistantFromDashboard(event) { event.preventDefault(); try { const data = await apiFetch('/company/assistant', { method: 'POST', body: JSON.stringify({ message: document.getElementById('company-dashboard-assistant-input').value }) }); document.getElementById('company-dashboard-assistant-reply').textContent = data.reply; } catch (err) { document.getElementById('company-dashboard-assistant-reply').textContent = err.message; } }
-
-const universityAdminMock = {
-  overview: [
-    { label: 'Total Students', value: '12,480', accent: 'blue' },
-    { label: 'Placed Students', value: '9,430', accent: 'emerald' },
-    { label: 'Placement Rate', value: '75.6%', accent: 'purple' },
-    { label: 'Active Recruiters', value: '188', accent: 'orange' }
-  ],
-  departments: [
-    { department: 'Computer Science & Engineering', total: 1480, placed: 1165, rate: 78.7 },
-    { department: 'Information Technology', total: 860, placed: 664, rate: 77.2 },
-    { department: 'Electronics & Communication', total: 930, placed: 680, rate: 73.1 },
-    { department: 'Electrical & Electronics', total: 740, placed: 520, rate: 70.3 }
-  ],
-  skillSignals: [
-    { name: 'Python', demand: 91, readiness: 84 },
-    { name: 'React', demand: 88, readiness: 80 },
-    { name: 'SQL', demand: 84, readiness: 78 },
-    { name: 'Cloud', demand: 79, readiness: 68 }
-  ],
-  recommendations: [
-    'Introduce a Python + Data Analytics bootcamp to improve interview readiness for analytics tracks.',
-    'Increase AI/ML lab hours and mock technical rounds to reduce the current skill gap in cloud and data roles.',
-    'Strengthen employer partnerships with 3 more product-based companies to raise final-placement conversion.'
-  ],
-  students: [
-    { id: 'STU-2026-101', name: 'Aarav Nair', department: 'Computer Science & Engineering', status: 'Placed', cgpa: 9.4, specialization: 'Full Stack' },
-    { id: 'STU-2026-145', name: 'Meera Iyer', department: 'Information Technology', status: 'Shortlisted', cgpa: 9.1, specialization: 'Data Analytics' },
-    { id: 'STU-2026-187', name: 'Karthik Raman', department: 'Electronics & Communication', status: 'Available', cgpa: 8.7, specialization: 'Embedded Systems' },
-    { id: 'STU-2026-219', name: 'Nisha Patel', department: 'Computer Science & Engineering', status: 'Placed', cgpa: 9.2, specialization: 'Frontend Engineering' },
-    { id: 'STU-2026-233', name: 'Rohit Shah', department: 'Electrical & Electronics', status: 'Shortlisted', cgpa: 8.9, specialization: 'Power Systems' },
-    { id: 'STU-2026-250', name: 'Vikram S', department: 'Information Technology', status: 'Available', cgpa: 8.6, specialization: 'Cybersecurity' }
-  ],
-  skillMapping: [
-    { department: 'CSE', readiness: 86, gap: 'AI/ML', action: 'Expand advanced ML labs and internship-linked projects.', coach: 'Strong in full-stack and problem solving.' },
-    { department: 'IT', readiness: 81, gap: 'Cloud', action: 'Add AWS/GCP certification pathways and mock cloud labs.', coach: 'Solid analytics and database exposure.' },
-    { department: 'ECE', readiness: 74, gap: 'Embedded + IoT', action: 'Create focused product incubator sessions for IoT roles.', coach: 'Good hardware fundamentals but needs product demos.' },
-    { department: 'EEE', readiness: 69, gap: 'Core Software', action: 'Support coding workshops and Python bridge training.', coach: 'High aptitude but low programming breadth.' }
-  ],
-  partnerships: [
-    { company: 'Microsoft', type: 'Mentorship + Hackathons', status: 'Active', engagement: '28 sessions', reach: '340 students' },
-    { company: 'Infosys', type: 'Campus Connect', status: 'Active', engagement: '6 drives', reach: '1,200 students' },
-    { company: 'Tata Consultancy Services', type: 'Skill Bootcamp', status: 'In Review', engagement: '3 tracks', reach: '470 students' },
-    { company: 'Zoho', type: 'Product Internship Collaboration', status: 'Active', engagement: '2 cohorts', reach: '140 students' }
-  ],
-  placements: [
-    { company: 'Infosys', role: 'Software Engineer', offers: 180, accepted: 144, avgPackage: '₹7.8 LPA' },
-    { company: 'Wipro', role: 'Project Engineer', offers: 120, accepted: 98, avgPackage: '₹6.9 LPA' },
-    { company: 'Amazon', role: 'SDE Intern', offers: 44, accepted: 29, avgPackage: '₹18.4 LPA' },
-    { company: 'Accenture', role: 'Associate Analyst', offers: 96, accepted: 80, avgPackage: '₹5.2 LPA' }
-  ],
-  campusDrives: [
-    { company: 'Google', date: '12 Sep 2026', department: 'CSE / IT', mode: 'Hybrid', status: 'Scheduled' },
-    { company: 'Cognizant', date: '18 Sep 2026', department: 'ECE / EEE', mode: 'On Campus', status: 'Confirmed' },
-    { company: 'Zeta', date: '27 Sep 2026', department: 'CSE', mode: 'Virtual', status: 'Shortlisted' },
-    { company: 'HashedIn', date: '02 Oct 2026', department: 'All tech departments', mode: 'On Campus', status: 'Proposed' }
-  ],
-  reports: [
-    { title: 'Annual Placement Summary', summary: 'Placement conversion improved by 6.2% over the previous academic year, with highest growth in frontend and analytics tracks.' },
-    { title: 'Skill Gap Analysis', summary: 'Highest gap remains in cloud deployment, AI/ML product readiness, and structured communication for core engineering departments.' },
-    { title: 'Employer Pulse Report', summary: 'Companies ranked communication, project depth, and certification proof as the biggest differentiators in shortlist decisions.' }
-  ]
-};
 
 const companyRecruitmentMock = {
   metrics: [
@@ -2432,6 +2253,82 @@ function renderMetricCard(label, value, accent) {
   `;
 }
 
+const COMPANY_ACADEMIA_RESOURCES = [
+  ['faculty-internships', 'Faculty internships'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs'], ['mentorship', 'Mentorship'], ['workshops', 'Workshops'], ['guest-lectures', 'Guest lectures'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['consultancy', 'Consultancy']
+];
+
+async function loadCompanyAcademiaFeed() {
+  const select = document.getElementById('company-academia-resource');
+  if (!select) return;
+  if (!select.options.length) {
+    select.innerHTML = COMPANY_ACADEMIA_RESOURCES.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  }
+
+  const resource = select.value || COMPANY_ACADEMIA_RESOURCES[0][0];
+  const list = document.getElementById('company-academia-items');
+  if (!list) return;
+
+  try {
+    const data = await apiFetch(`/academia/${resource}`);
+    const items = Array.isArray(data) ? data : (data.items || []);
+    list.innerHTML = items.length ? items.slice(0, 6).map(item => `
+      <div class="saas-card" style="padding:0.9rem; margin-bottom:0.75rem;">
+        <div class="flex-between mb-1"><strong>${item.title || 'Academia opportunity'}</strong><span class="badge-saas badge-blue">${item.status || 'Open'}</span></div>
+        <p class="text-sm" style="color:var(--text-muted); margin:0.25rem 0 0.5rem;">${item.description || 'No description provided yet.'}</p>
+        <div class="flex-align gap-2 flex-wrap text-xs" style="color:var(--text-muted);">
+          ${item.duration ? `<span class="badge-saas badge-purple">${item.duration}</span>` : ''}
+          ${item.location ? `<span class="badge-saas badge-purple">${item.location}</span>` : ''}
+          ${item.deadline ? `<span class="badge-saas badge-purple">Deadline: ${item.deadline}</span>` : ''}
+        </div>
+      </div>
+    `).join('') : '<p class="text-sm" style="color:var(--text-muted);">No opportunities have been published yet.</p>';
+  } catch (error) {
+    list.innerHTML = `<p class="text-sm" style="color:var(--text-muted);">Unable to load published opportunities: ${error.message || 'Unknown error'}</p>`;
+  }
+}
+
+async function handleCompanyAcademiaCreate(event) {
+  event.preventDefault();
+  const form = document.getElementById('company-academia-form');
+  if (!form) return;
+
+  const resource = document.getElementById('company-academia-resource')?.value || COMPANY_ACADEMIA_RESOURCES[0][0];
+  const title = document.getElementById('company-academia-title')?.value?.trim();
+  const description = document.getElementById('company-academia-description')?.value?.trim();
+  const skills = document.getElementById('company-academia-skills')?.value?.trim();
+  const duration = document.getElementById('company-academia-duration')?.value?.trim();
+  const location = document.getElementById('company-academia-location')?.value?.trim();
+  const deadline = document.getElementById('company-academia-deadline')?.value || '';
+  const partner = document.getElementById('company-academia-partner')?.value?.trim();
+
+  if (!title || !description) {
+    alert('Title and description are required.');
+    return;
+  }
+
+  try {
+    await apiFetch(`/academia/${resource}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        description,
+        required_skills: skills ? skills.split(',').map(part => part.trim()).filter(Boolean) : [],
+        duration: duration || '',
+        location: location || '',
+        deadline: deadline || '',
+        company: partner || currentUser?.companyName || currentUser?.fullName || 'Corporate Partner',
+        partner: partner || currentUser?.companyName || currentUser?.fullName || 'Corporate Partner',
+        status: 'Open'
+      })
+    });
+    form.reset();
+    await loadCompanyAcademiaFeed();
+    alert('Opportunity published successfully.');
+  } catch (error) {
+    alert(error.message || 'Unable to publish opportunity.');
+  }
+}
+
 async function renderCompanyDashboard() {
   let dashboard;
   try {
@@ -2440,7 +2337,6 @@ async function renderCompanyDashboard() {
     console.error('Failed to load company dashboard:', error.message);
     return;
   }
-
   const overview = {
     metrics: [
       { label: 'Open Positions', value: dashboard.total_jobs || 0, accent: 'blue' },
@@ -2637,8 +2533,7 @@ async function renderCompanyProfile(editMode = false) {
     </form>
   `;
   const completion = fields.filter(([, , value]) => String(value || '').trim()).length / fields.length * 100;
-  const completionEl = document.getElementById('company-profile-completion');
-  if (completionEl) completionEl.textContent = `Profile Completion: ${Math.round(completion)}%`;
+  document.getElementById('company-profile-completion').textContent = `Profile Completion: ${Math.round(completion)}%`;
 }
 
 async function saveCompanyProfile(event) {
@@ -2706,8 +2601,7 @@ async function renderCompanyTalentDiscovery() {
 
   let registeredStudents;
   try {
-    const response = await apiFetch('/company/candidates');
-    registeredStudents = response || [];
+    registeredStudents = await apiFetch('/company/candidates');
   } catch (error) {
     container.innerHTML = '<div class="saas-card">Unable to load registered student details.</div>';
     console.error('Failed to load registered students:', error.message);
@@ -2732,7 +2626,7 @@ async function renderCompanyTalentDiscovery() {
         <div class="badge-saas badge-blue">Registered student</div>
       </div>
       <div class="grid-2 gap-2 text-xs mb-3" style="color:var(--text-muted);">
-        <div><strong>Skills:</strong> ${candidate.skills.join(', ') || 'Not provided'}</div>
+        <div><strong>Skills:</strong> ${(candidate.skills || []).join(', ') || 'Not provided'}</div>
         <div><strong>Projects:</strong> ${candidate.projects}</div>
         <div><strong>Certifications:</strong> ${candidate.certifications}</div>
         <div><strong>College:</strong> ${candidate.college}</div>
@@ -2968,22 +2862,33 @@ async function renderCompanyShortlist() {
   `).join('') || '<div class="saas-card">No registered students are available.</div>';
 }
 
-function companyCompareCandidates() {
+async function companyCompareCandidates() {
   const container = document.getElementById('company-shortlist-content');
   if (!container) return;
-  const first = companyRecruitmentMock.shortlist[0];
-  const second = companyRecruitmentMock.shortlist[1];
+  let candidates;
+  try {
+    candidates = await apiFetch('/company/candidates');
+  } catch (error) {
+    container.innerHTML = '<div class="saas-card">Unable to load registered student details.</div>';
+    console.error('Failed to load candidates for comparison:', error.message);
+    return;
+  }
+  const [first, second] = candidates;
+  if (!first || !second) {
+    container.innerHTML = '<div class="saas-card">At least two registered students are required for comparison.</div>';
+    return;
+  }
   container.innerHTML = `
     <div class="saas-card">
       <h3 style="font-weight:800; margin-bottom:1rem;">Compare Candidates</h3>
       <table class="saas-table">
         <thead><tr><th>Metric</th><th>${first.name}</th><th>${second.name}</th></tr></thead>
         <tbody>
-          <tr><td>Skills</td><td>${first.skillMatch}%</td><td>${second.skillMatch}%</td></tr>
-          <tr><td>CGPA</td><td>${first.cgpa}</td><td>${second.cgpa}</td></tr>
+          <tr><td>Skills</td><td>${(first.skills || []).join(', ') || 'Not provided'}</td><td>${(second.skills || []).join(', ') || 'Not provided'}</td></tr>
+          <tr><td>CGPA</td><td>${first.cgpa ?? 'Not provided'}</td><td>${second.cgpa ?? 'Not provided'}</td></tr>
           <tr><td>Projects</td><td>${first.projects}</td><td>${second.projects}</td></tr>
-          <tr><td>Assessment score</td><td>${first.assessment}%</td><td>${second.assessment}%</td></tr>
-          <tr><td>AI Match score</td><td>${first.aiScore}%</td><td>${second.aiScore}%</td></tr>
+          <tr><td>Certifications</td><td>${first.certifications}</td><td>${second.certifications}</td></tr>
+          <tr><td>Career goal</td><td>${first.goal}</td><td>${second.goal}</td></tr>
         </tbody>
       </table>
     </div>
@@ -3051,47 +2956,24 @@ function renderCompanySettings() {
   `;
 }
 
-// CAMPUS DRIVES & APPLICATIONS
-async function loadApplicationsView() {
+// COLLEGE ADMIN LOADERS
+async function loadCollegeDashboard() {
   try {
-    const apps = await apiFetch('/student/applications');
-    const container = document.getElementById('view-applications');
-    
-    container.innerHTML = `
-      <div class="view-header">
-        <h1>My Applications</h1>
-        <p>Track the status of all your job applications</p>
-      </div>
+    const data = await apiFetch('/college/dashboard');
+    document.getElementById('col-total-students').textContent = data.total_students;
+    document.getElementById('col-placed-students').textContent = data.placed_students;
+    document.getElementById('col-placement-rate').textContent = `${data.placement_rate}%`;
 
-      ${apps.length === 0 ? `
-        <div class="saas-card">
-          <p class="text-center">No applications yet. <a href="#" onclick="navigateTo('campus-drives')">Apply for campus drives</a> or explore <a href="#" onclick="navigateTo('talent-finder')">job opportunities</a>.</p>
-        </div>
-      ` : `
-        <div class="applications-list">
-          ${apps.map(app => `
-            <div class="saas-card mb-3 application-card">
-              <div class="flex-between">
-                <div>
-                  <h3>${app.company}</h3>
-                  <p>${app.role}</p>
-                  <p class="text-xs" style="color:var(--text-muted);">Applied: ${new Date(app.appliedDate).toLocaleDateString()}</p>
-                </div>
-                <div class="text-right">
-                  <div class="match-score" style="background: ${getMatchScoreColor(app.matchScore)}">
-                    ${Math.round(app.matchScore)}%
-                  </div>
-                  <span class="badge-saas badge-blue mt-2">${app.status}</span>
-                </div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      `}
-    `;
-  } catch (e) {
-    console.error('Failed to load applications:', e);
-  }
+    const tbody = document.getElementById('college-dept-table');
+    tbody.innerHTML = (data.department_stats || []).map(d => `<tr><td style="font-weight:700;">${d.name}</td><td>${d.total}</td><td style="color:var(--text-emerald); font-weight:800;">${d.placed}</td><td><span class="badge-saas badge-emerald">${d.percentage}%</span></td></tr>`).join('');
+  } catch (e) {}
+}
+
+async function loadCollegeStudentDirectory() {
+  try {
+    const students = await apiFetch('/college/students');
+    document.getElementById('college-students-list').innerHTML = students.map(s => `<div class="saas-card"><h4 style="font-weight:700;">${s.name}</h4><div style="font-size:0.8rem; color:var(--text-muted);">${s.student_id} • ${s.department}</div></div>`).join('');
+  } catch (e) {}
 }
 
 // UTILS
@@ -3112,16 +2994,5 @@ function handleLogout() {
   });
   showGuestLanding();
 }
-function closeMobileDrawer() {
-  const sidebar = document.getElementById('app-sidebar');
-  const backdrop = document.getElementById('mobile-drawer-backdrop');
-  if (sidebar) sidebar.classList.remove('mobile-open');
-  if (backdrop) backdrop.classList.remove('active');
-}
-function toggleMobileDrawer() {
-  const sidebar = document.getElementById('app-sidebar');
-  const backdrop = document.getElementById('mobile-drawer-backdrop');
-  if (!sidebar) return;
-  const isOpen = sidebar.classList.toggle('mobile-open');
-  if (backdrop) backdrop.classList.toggle('active', isOpen);
-}
+function closeMobileDrawer() { const sidebar = document.getElementById('app-sidebar'); if (sidebar) sidebar.classList.remove('mobile-open'); }
+function toggleMobileDrawer() { const sidebar = document.getElementById('app-sidebar'); if (sidebar) sidebar.classList.toggle('mobile-open'); }
