@@ -958,24 +958,34 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-if (require.main === module) {
-  async function startServer() {
-    try {
-      console.log('Starting SkillBridge backend...');
-      console.log(`MongoDB configuration: ${process.env.MONGODB_URI ? 'MONGODB_URI' : (process.env.MONGODB_URL ? 'MONGODB_URL' : 'missing')}`);
+async function startServer() {
+  try {
+    console.log('Starting SkillBridge backend...');
+    console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
+    console.log(`PORT: ${port}`);
+    console.log(`MongoDB URI configured: ${Boolean(process.env.MONGODB_URI || process.env.MONGODB_URL)}`);
 
-      await ensurePersistentUsersLoaded();
+    await ensurePersistentUsersLoaded();
 
-      server.listen(port, host, () => {
-        console.log(`SkillBridge backend running on ${host}:${port}`);
-      });
-    } catch (error) {
-      console.error('SERVER STARTUP ERROR:', error && error.stack ? error.stack : error);
-      process.exit(1);
-    }
+    const listener = server.listen(port, host, () => {
+      console.log(`SkillBridge backend running on ${host}:${port}`);
+      console.log('Server is listening...');
+    });
+    listener.on('error', error => {
+      console.error('HTTP SERVER ERROR:', error && error.stack ? error.stack : error);
+    });
+  } catch (error) {
+    console.error('=================================');
+    console.error('SERVER STARTUP ERROR');
+    console.error(error && error.stack ? error.stack : error);
+    console.error('=================================');
+    process.exit(1);
   }
+}
 
+if (require.main === module) {
   startServer();
 }
 
 module.exports = server;
+module.exports.startServer = startServer;
