@@ -163,6 +163,27 @@ async function initializePersistentUsers() {
     const profile = await userDb.getStudentProfileByUserId(user.id);
     if (profile) state.studentProfiles[user.id] = { ...profile, email: user.email };
   }
+  state.companies = [];
+  for (const user of state.users.filter(item => item.role === 'company')) {
+    const profile = await userDb.getCompanyProfileByUserId(user.id);
+    if (profile && profile.company_id) {
+      state.companies.push({
+        id: user.id,
+        companyId: profile.company_id,
+        name: profile.company_name || user.username,
+        logo: profile.logo || '🏢',
+        industry: profile.industry || 'Corporate Partner',
+        manager_name: profile.manager_name || 'Recruitment Manager',
+        min_cgpa: Number(profile.min_cgpa || 7),
+        min_ai_score: Number(profile.min_ai_score || 70),
+        required_skills: profile.required_skills
+          ? String(profile.required_skills).split(',').map(skill => skill.trim()).filter(Boolean)
+          : ['Java', 'SQL']
+      });
+      user.companyId = profile.company_id;
+      user.companyName = profile.company_name || user.username;
+    }
+  }
 }
 
 let usersInitializationPromise = null;
@@ -175,6 +196,48 @@ function ensurePersistentUsersLoaded() {
     });
   }
   return usersInitializationPromise;
+}
+
+async function initializePersistentWorkflow() {
+  const [jobs, applications, notifications, offers, skills, assessments, projects, certifications] = await Promise.all([
+    userDb.listRecords('jobs', {}, { created_at: -1, id: -1 }),
+    userDb.listRecords('applications', {}, { applied_at: -1, id: -1 }),
+    userDb.listRecords('notifications', {}, { created_at: -1, id: -1 }),
+    userDb.listRecords('offers', {}, { createdAt: -1, id: -1 }),
+    userDb.listRecords('student_skills', {}, { created_at: -1, skill_name: 1 }),
+    userDb.listRecords('assessments', {}, { updated_at: -1 }),
+    userDb.listRecords('projects', {}, { created_at: -1, id: -1 }),
+    userDb.listRecords('certifications', {}, { created_at: -1, id: -1 })
+  ]);
+  state.jobs = jobs;
+  state.applications = applications;
+  state.notifications = {};
+  notifications.forEach(item => {
+    state.notifications[item.user_id] = state.notifications[item.user_id] || [];
+    state.notifications[item.user_id].push(item);
+  });
+  state.companyOffers = {};
+  offers.forEach(item => {
+    state.companyOffers[item.companyId] = state.companyOffers[item.companyId] || [];
+    state.companyOffers[item.companyId].push(item);
+  });
+  state.userSkills = {};
+  skills.forEach(item => {
+    state.userSkills[item.user_id] = state.userSkills[item.user_id] || [];
+    state.userSkills[item.user_id].push(item);
+  });
+  state.assessments = {};
+  assessments.forEach(item => { state.assessments[item.user_id] = item; });
+  state.projects = {};
+  projects.forEach(item => {
+    state.projects[item.user_id] = state.projects[item.user_id] || [];
+    state.projects[item.user_id].push(item);
+  });
+  state.certifications = {};
+  certifications.forEach(item => {
+    state.certifications[item.user_id] = state.certifications[item.user_id] || [];
+    state.certifications[item.user_id].push(item);
+  });
 }
 
 // Unique AI Employability Skill Score Engine
@@ -343,7 +406,7 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthUser();
       if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
 
-      const managerRoles = ['faculty', 'college', 'admin', 'university_admin'];
+      const managerRoles = ['company', 'faculty', 'college', 'admin', 'university_admin'];
       const participantRoles = ['student', 'faculty', 'college', 'admin', 'university_admin'];
       const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await parseJSON(req) : {};
 
@@ -493,6 +556,15 @@ const server = http.createServer(async (req, res) => {
         const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'company' });
         if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
         const newUser = { ...stored, companyName, companyId: assignedCompId, password_hash: hash, salt };
+        await userDb.createOrUpdateCompanyProfile(stored.id, {
+          company_id: assignedCompId,
+          company_name: companyName,
+          industry: newComp.industry,
+          manager_name: newComp.manager_name,
+          min_cgpa: newComp.min_cgpa,
+          min_ai_score: newComp.min_ai_score,
+          required_skills: newComp.required_skills.join(',')
+        });
         state.users.push(newUser);
         const token = generateToken({ id: newUser.id, email: normalizedEmail, companyId: assignedCompId, role: 'company' });
         return sendJSON(201, { token, user: sanitizeUser(newUser), company: newComp });
@@ -606,11 +678,14 @@ const server = http.createServer(async (req, res) => {
       const userId = authUser.id;
       const profile = await userDb.getStudentProfileByUserId(userId);
       if (!profile) return sendJSON(404, { error: 'Student profile not found.' });
-      const technicalSkills = (state.userSkills[userId] || []).length;
-      const projects = (state.projects[userId] || []).length;
-      const certificates = (state.certifications[userId] || []).length;
-      const applications = state.applications.filter(application => application.student_id === userId).length;
-      const recommendedJobs = state.jobs.map(job => {
+      const [technicalSkills, projects, certificates, applications, jobs] = await Promise.all([
+        userDb.listRecords('student_skills', { user_id: userId }),
+        userDb.listRecords('projects', { user_id: userId }),
+        userDb.listRecords('certifications', { user_id: userId }),
+        userDb.listRecords('applications', { student_id: userId }),
+        userDb.listRecords('jobs', {}, { created_at: -1, id: -1 })
+      ]);
+      const recommendedJobs = jobs.map(job => {
         const company = state.companies.find(item => item.companyId === job.companyId);
         if (!company) return null;
         const match = calculateCompanyMatch(userId, company);
@@ -620,10 +695,10 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(200, {
         profile,
         profileCompletion: { percentage: 80, missingItems: [] },
-        technicalSkills,
-        projects,
-        certificates,
-        applications,
+        technicalSkills: technicalSkills.length,
+        projects: projects.length,
+        certificates: certificates.length,
+        applications: applications.length,
         skillScore: calculateSkillScore(userId),
         recommendedJobs
       });
@@ -672,26 +747,86 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
-      return sendJSON(200, { technical: state.userSkills[userId] || [], coding: state.codingSkills[userId] || null });
+      const technical = await userDb.listRecords('student_skills', { user_id: userId }, { skill_name: 1 });
+      return sendJSON(200, { technical, coding: state.codingSkills[userId] || null });
+    }
+    if (pathname === '/api/student/skills' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const skillName = String(body.skillName || body.skill_name || '').trim();
+      if (!skillName) return sendJSON(400, { error: 'Skill name is required.' });
+      const skill = {
+        user_id: authUser.id,
+        skill_name: skillName,
+        category: String(body.category || 'Technical').trim(),
+        proficiency: body.proficiency || (Number(body.proficiencyPercentage) >= 80 ? 'Advanced' : 'Intermediate'),
+        proficiency_percentage: Number(body.proficiencyPercentage || body.proficiency_percentage || 0),
+        updated_at: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      };
+      await userDb.updateRecord('student_skills', { user_id: authUser.id, skill_name: skillName }, { $set: skill }, { upsert: true });
+      const savedSkill = await userDb.getRecord('student_skills', { user_id: authUser.id, skill_name: skillName });
+      state.userSkills[authUser.id] = await userDb.listRecords('student_skills', { user_id: authUser.id }, { skill_name: 1 });
+      return sendJSON(201, { success: true, skill: savedSkill });
+    }
+    if (pathname.match(/^\/api\/student\/skills\/[^/]+$/) && req.method === 'DELETE') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const skillId = decodeURIComponent(pathname.split('/').pop());
+      const removed = await userDb.deleteRecord('student_skills', { user_id: authUser.id, $or: [{ id: Number(skillId) }, { skill_name: skillId }] });
+      if (!removed) return sendJSON(404, { error: 'Skill not found.' });
+      state.userSkills[authUser.id] = await userDb.listRecords('student_skills', { user_id: authUser.id }, { skill_name: 1 });
+      return sendJSON(200, { success: true });
     }
     if (pathname === '/api/student/assessments' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
       const computedScore = calculateSkillScore(userId);
-      return sendJSON(200, { ...(state.assessments[userId] || { tests: [], breakdown: {} }), overall_score: computedScore });
+      const assessment = await userDb.getRecord('assessments', { user_id: userId });
+      return sendJSON(200, { ...(assessment || { tests: [], breakdown: {} }), overall_score: assessment?.overall_score ?? computedScore });
+    }
+    if (pathname === '/api/student/assessments' && ['POST', 'PUT'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const assessment = { ...body, user_id: authUser.id, updated_at: new Date().toISOString() };
+      delete assessment._id;
+      await userDb.updateRecord('assessments', { user_id: authUser.id }, { $set: assessment }, { upsert: true });
+      state.assessments[authUser.id] = await userDb.getRecord('assessments', { user_id: authUser.id });
+      return sendJSON(200, { success: true, assessment: state.assessments[authUser.id] });
     }
     if (pathname === '/api/student/portfolio' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
-      return sendJSON(200, { projects: state.projects[userId] || [], internships: state.internships[userId] || [], certifications: state.certifications[userId] || [], seminars: state.seminars[userId] || [], workshops: state.workshops[userId] || [], hackathons: state.hackathons[userId] || [], achievements: state.achievements[userId] || [] });
+      return sendJSON(200, { projects: await userDb.listRecords('projects', { user_id: userId }, { created_at: -1 }), internships: state.internships[userId] || [], certifications: await userDb.listRecords('certifications', { user_id: userId }, { created_at: -1 }), seminars: state.seminars[userId] || [], workshops: state.workshops[userId] || [], hackathons: state.hackathons[userId] || [], achievements: state.achievements[userId] || [] });
+    }
+    if (pathname === '/api/student/projects' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      if (!String(body.title || '').trim() || !String(body.description || '').trim()) return sendJSON(400, { error: 'Project title and description are required.' });
+      const project = { ...body, id: await userDb.nextSequence('projects', 'projects'), user_id: authUser.id, created_at: new Date().toISOString() };
+      await userDb.insertRecord('projects', project);
+      state.projects[authUser.id] = await userDb.listRecords('projects', { user_id: authUser.id }, { created_at: -1 });
+      return sendJSON(201, { success: true, project });
+    }
+    if (pathname.match(/^\/api\/student\/projects\/\d+$/) && req.method === 'DELETE') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const removed = await userDb.deleteRecord('projects', { id: Number(pathname.split('/').pop()), user_id: authUser.id });
+      if (!removed) return sendJSON(404, { error: 'Project not found.' });
+      state.projects[authUser.id] = await userDb.listRecords('projects', { user_id: authUser.id }, { created_at: -1 });
+      return sendJSON(200, { success: true });
     }
     if (pathname === '/api/opportunities' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
-      return sendJSON(200, state.jobs.map(j => {
+      const jobs = await userDb.listRecords('jobs', {}, { created_at: -1, id: -1 });
+      return sendJSON(200, jobs.map(j => {
         const comp = state.companies.find(c => c.companyId === j.companyId);
         if (!comp) return null;
         const match = calculateCompanyMatch(userId, comp);
@@ -703,22 +838,25 @@ const server = http.createServer(async (req, res) => {
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
       const { jobId } = await parseJSON(req);
-      const targetJob = state.jobs.find(j => j.id === Number(jobId));
+      const targetJob = await userDb.getRecord('jobs', { id: Number(jobId) });
       if (!targetJob) return sendJSON(404, { error: 'Job opportunity not found.' });
-      if (state.applications.some(application => application.student_id === userId && application.job_id === targetJob.id)) {
+      if (await userDb.getRecord('applications', { student_id: userId, job_id: targetJob.id })) {
         return sendJSON(409, { error: 'You have already applied for this job.' });
       }
-      const profile = state.studentProfiles[userId] || {};
-      const newApp = { id: nextAppId(), student_id: userId, job_id: targetJob.id, companyId: targetJob.companyId, company_name: targetJob.company_name, job_title: targetJob.title, candidate_name: profile.name || authUser.username || authUser.email, cgpa: Number(profile.cgpa || 0), applied_at: new Date().toISOString().split('T')[0], status: 'Applied', last_updated: new Date().toISOString().split('T')[0], next_step: 'Application under recruiter review.' };
+      const profile = await userDb.getStudentProfileByUserId(userId) || {};
+      const newApp = { id: await userDb.nextSequence('applications', 'applications'), student_id: userId, job_id: targetJob.id, companyId: targetJob.companyId, company_name: targetJob.company_name, job_title: targetJob.title, candidate_name: profile.name || authUser.username || authUser.email, cgpa: Number(profile.cgpa || 0), applied_at: new Date().toISOString().split('T')[0], status: 'Applied', last_updated: new Date().toISOString().split('T')[0], next_step: 'Application under recruiter review.' };
+      await userDb.insertRecord('applications', newApp);
       state.applications.unshift(newApp);
+      const notification = { id: await userDb.nextSequence('notifications', 'notifications'), user_id: userId, title: 'Application submitted', message: `Your application for ${targetJob.title} at ${targetJob.company_name} was submitted successfully.`, type: 'application', is_read: false, created_at: new Date().toISOString().split('T')[0] };
+      await userDb.insertRecord('notifications', notification);
       state.notifications[userId] = state.notifications[userId] || [];
-      state.notifications[userId].unshift({ id: Date.now(), title: 'Application submitted', message: `Your application for ${targetJob.title} at ${targetJob.company_name} was submitted successfully.`, type: 'application', is_read: false, created_at: new Date().toISOString().split('T')[0] });
+      state.notifications[userId].unshift(notification);
       return sendJSON(201, { success: true, application: newApp });
     }
     if (pathname === '/api/student/applications' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
-      return sendJSON(200, state.applications.filter(application => application.student_id === authUser.id));
+      return sendJSON(200, await userDb.listRecords('applications', { student_id: authUser.id }, { applied_at: -1, id: -1 }));
     }
     if (pathname === '/api/student/campus-drives' && req.method === 'GET') {
       const authUser = getAuthUser();
@@ -750,23 +888,61 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/student/notifications' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
-      return sendJSON(200, state.notifications[authUser.id] || []);
+      return sendJSON(200, await userDb.listRecords('notifications', { user_id: authUser.id }, { created_at: -1, id: -1 }));
+    }
+    if (pathname === '/api/messages' && (req.method === 'GET' || req.method === 'POST')) {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      if (req.method === 'GET') {
+        return sendJSON(200, await userDb.listRecords('messages', {
+          $or: [{ sender_id: authUser.id }, { recipient_id: authUser.id }]
+        }, { created_at: -1, id: -1 }));
+      }
+      const body = await parseJSON(req);
+      const recipientId = Number(body.recipientId || body.recipient_id);
+      if (!Number.isInteger(recipientId)) return sendJSON(400, { error: 'A valid recipient ID is required.' });
+      const recipient = await userDb.getUserById(recipientId);
+      if (!recipient) return sendJSON(404, { error: 'Recipient account not found.' });
+      const content = String(body.message || body.content || '').trim();
+      if (!content) return sendJSON(400, { error: 'Message content is required.' });
+      const message = {
+        id: await userDb.nextSequence('messages', 'messages'),
+        sender_id: authUser.id,
+        recipient_id: recipient.id,
+        subject: String(body.subject || '').trim(),
+        content,
+        created_at: new Date().toISOString(),
+        is_read: false
+      };
+      await userDb.insertRecord('messages', message);
+      const notification = {
+        id: await userDb.nextSequence('notifications', 'notifications'),
+        user_id: recipient.id,
+        title: message.subject || 'New message',
+        message: content,
+        type: 'message',
+        messageId: message.id,
+        is_read: false,
+        created_at: new Date().toISOString().split('T')[0]
+      };
+      await userDb.insertRecord('notifications', notification);
+      return sendJSON(201, { success: true, message });
     }
     if (pathname === '/api/student/offers' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
-      const offers = Object.values(state.companyOffers)
-        .flat()
-        .filter(offer => offer.studentId === authUser.id);
+      const offers = await userDb.listRecords('offers', { studentId: authUser.id }, { createdAt: -1 });
       return sendJSON(200, offers);
     }
     if (pathname.match(/^\/api\/student\/notifications\/\d+\/read$/) && req.method === 'PUT') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const notificationId = Number(pathname.split('/')[4]);
-      const notification = (state.notifications[authUser.id] || []).find(item => item.id === notificationId);
+      const notification = await userDb.getRecord('notifications', { id: notificationId, user_id: authUser.id });
       if (!notification) return sendJSON(404, { error: 'Notification not found.' });
       notification.is_read = true;
+      await userDb.updateRecord('notifications', { id: notificationId, user_id: authUser.id }, { $set: { is_read: true } });
+      state.notifications[authUser.id] = (state.notifications[authUser.id] || []).map(item => item.id === notificationId ? notification : item);
       return sendJSON(200, { success: true, notification });
     }
 
@@ -795,8 +971,8 @@ const server = http.createServer(async (req, res) => {
       const compId = authUser.companyId;
       const company = state.companies.find(c => c.companyId === compId);
       if (!company) return sendJSON(404, { error: 'Company profile not found.' });
-      const compJobs = state.jobs.filter(j => j.companyId === compId);
-      const compApps = state.applications.filter(a => a.companyId === compId);
+      const compJobs = await userDb.listRecords('jobs', { companyId: compId }, { created_at: -1, id: -1 });
+      const compApps = await userDb.listRecords('applications', { companyId: compId }, { applied_at: -1, id: -1 });
 
       return sendJSON(200, { company, total_jobs: compJobs.length, total_applicants: compApps.length, shortlisted: compApps.filter(a => a.status === 'Shortlisted' || a.status === 'Technical Interview').length, pipeline: compApps });
     }
@@ -850,14 +1026,15 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/company/offers' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
-      return sendJSON(200, state.companyOffers[authUser.companyId] || []);
+      return sendJSON(200, await userDb.listRecords('offers', { companyId: authUser.companyId }, { createdAt: -1 }));
     }
     if (pathname === '/api/company/offers' && req.method === 'POST') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
       const body = await parseJSON(req);
       const candidateIdentity = String(body.candidateId || '').trim().toLowerCase();
-      const application = state.applications.find(item => {
+      const companyApplications = await userDb.listRecords('applications', { companyId: authUser.companyId }, { applied_at: -1, id: -1 });
+      const application = companyApplications.find(item => {
         if (item.companyId !== authUser.companyId || !item.student_id) return false;
         if (body.applicationId && item.id === Number(body.applicationId)) return true;
         const candidate = state.users.find(user => user.id === item.student_id);
@@ -869,7 +1046,7 @@ const server = http.createServer(async (req, res) => {
       if (!student) return sendJSON(404, { error: 'Candidate account not found.' });
       const company = state.companies.find(item => item.companyId === authUser.companyId);
       const offer = {
-        id: Date.now(),
+        id: await userDb.nextSequence('offers', 'offers'),
         companyId: authUser.companyId,
         companyName: company ? company.name : authUser.companyName,
         studentId: student.id,
@@ -886,18 +1063,22 @@ const server = http.createServer(async (req, res) => {
         status: 'Sent',
         createdAt: new Date().toISOString()
       };
+      await userDb.insertRecord('offers', offer);
       state.companyOffers[authUser.companyId] = state.companyOffers[authUser.companyId] || [];
       state.companyOffers[authUser.companyId].push(offer);
-      state.notifications[student.id] = state.notifications[student.id] || [];
-      state.notifications[student.id].unshift({
-        id: Date.now() + 1,
+      const offerNotification = {
+        id: await userDb.nextSequence('notifications', 'notifications'),
+        user_id: student.id,
         title: 'Job offer received',
         message: `${offer.companyName} sent you an offer for ${offer.jobTitle}.`,
         type: 'offer',
         offerId: offer.id,
         is_read: false,
         created_at: new Date().toISOString().split('T')[0]
-      });
+      };
+      await userDb.insertRecord('notifications', offerNotification);
+      state.notifications[student.id] = state.notifications[student.id] || [];
+      state.notifications[student.id].unshift(offerNotification);
       return sendJSON(201, { success: true, offer });
     }
 
@@ -942,13 +1123,16 @@ const server = http.createServer(async (req, res) => {
       if (!comp) return sendJSON(404, { error: 'Company profile not found.' });
       const body = await parseJSON(req);
 
-      const newJob = { id: nextJobId(), company_id: comp.id, companyId: comp.companyId, company_name: comp.name, title: body.title, location: body.location || 'Remote', salary_stipend: body.salary_stipend || '₹ 12,00,000 P.A.', required_skills: (body.required_skills || 'Java,SQL').split(','), min_cgpa: Number(body.min_cgpa || 7.5), deadline: body.deadline || '2026-11-30' };
+      const newJob = { id: await userDb.nextSequence('jobs', 'jobs'), company_id: comp.id, companyId: comp.companyId, company_name: comp.name, title: body.title, location: body.location || 'Remote', salary_stipend: body.salary_stipend || '₹ 12,00,000 P.A.', required_skills: (body.required_skills || 'Java,SQL').split(',').map(skill => skill.trim()).filter(Boolean), min_cgpa: Number(body.min_cgpa || 7.5), deadline: body.deadline || '2026-11-30' };
+      await userDb.insertRecord('jobs', { ...newJob, created_at: new Date().toISOString() });
       state.jobs.unshift(newJob);
       const students = state.users.filter(user => user.role === 'student');
-      students.forEach(student => {
+      await Promise.all(students.map(async student => {
         state.notifications[student.id] = state.notifications[student.id] || [];
-        state.notifications[student.id].unshift({ id: Date.now() + student.id, title: 'New job opportunity', message: `${newJob.company_name} published ${newJob.title}. Review the opportunity and apply from the Student Portal.`, type: 'job', jobId: newJob.id, is_read: false, created_at: new Date().toISOString().split('T')[0] });
-      });
+        const notification = { id: await userDb.nextSequence('notifications', 'notifications'), user_id: student.id, title: 'New job opportunity', message: `${newJob.company_name} published ${newJob.title}. Review the opportunity and apply from the Student Portal.`, type: 'job', jobId: newJob.id, is_read: false, created_at: new Date().toISOString().split('T')[0] };
+        await userDb.insertRecord('notifications', notification);
+        state.notifications[student.id].unshift(notification);
+      }));
       return sendJSON(201, { success: true, job: newJob });
     }
 
@@ -956,12 +1140,14 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Access Denied. Company Auth Required.' });
       const { applicationId, newStage } = await parseJSON(req);
-      const app = state.applications.find(a => a.id === Number(applicationId));
+      const app = await userDb.getRecord('applications', { id: Number(applicationId), companyId: authUser.companyId });
       if (!app || app.companyId !== authUser.companyId) return sendJSON(404, { error: 'Application not found for this company.' });
       if (app) {
         app.status = newStage;
         app.last_updated = new Date().toISOString().split('T')[0];
         app.next_step = `Moved to ${newStage} stage.`;
+        await userDb.updateRecord('applications', { id: app.id, companyId: authUser.companyId }, { $set: { status: app.status, last_updated: app.last_updated, next_step: app.next_step } });
+        state.applications = state.applications.map(item => item.id === app.id ? app : item);
       }
       return sendJSON(200, { success: true, application: app });
     }
@@ -1053,6 +1239,7 @@ async function startServer() {
     console.log(`MongoDB URI configured: ${Boolean(process.env.MONGODB_URI || process.env.MONGODB_URL)}`);
 
     await ensurePersistentUsersLoaded();
+    await initializePersistentWorkflow();
     await academiaDb.init();
 
     const listener = server.listen(port, host, () => {

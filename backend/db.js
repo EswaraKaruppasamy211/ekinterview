@@ -68,6 +68,16 @@ function companyProfileCollection() {
   return database.collection('company_profiles');
 }
 
+function workflowCollection(name) {
+  return database.collection(String(name));
+}
+
+function withoutMongoId(document) {
+  if (!document) return document;
+  const { _id, ...safeDocument } = document;
+  return safeDocument;
+}
+
 function profileUserFilter(userId) {
   const uniqueValues = [...new Set(identifierVariants(userId))];
   if (uniqueValues.length === 0) {
@@ -104,7 +114,16 @@ async function init() {
         [userCollection(), { username: 1 }, { unique: true }],
         [userCollection(), { id: 1 }, { unique: true }],
         [studentProfileCollection(), { user_id: 1 }, { unique: true }],
-        [companyProfileCollection(), { user_id: 1 }, { unique: true }]
+        [companyProfileCollection(), { user_id: 1 }, { unique: true }],
+        [workflowCollection('jobs'), { id: 1 }, { unique: true }],
+        [workflowCollection('applications'), { id: 1 }, { unique: true }],
+        [workflowCollection('notifications'), { id: 1 }, { unique: true }],
+        [workflowCollection('offers'), { id: 1 }, { unique: true }],
+        [workflowCollection('student_skills'), { user_id: 1, skill_name: 1 }, { unique: true }],
+        [workflowCollection('assessments'), { user_id: 1 }, { unique: true }],
+        [workflowCollection('projects'), { id: 1 }, { unique: true }],
+        [workflowCollection('certifications'), { id: 1 }, { unique: true }],
+        [workflowCollection('messages'), { id: 1 }, { unique: true }]
       ]) {
         try {
           await collection.createIndex(index, options);
@@ -253,6 +272,55 @@ async function getAllUsers() {
     .toArray();
 }
 
+async function nextSequence(sequenceName, collectionName, field = 'id') {
+  await init();
+  const highest = await workflowCollection(collectionName).findOne(
+    { [field]: { $type: 'number' } },
+    { sort: { [field]: -1 }, projection: { [field]: 1 } }
+  );
+  const highestValue = Number(highest && highest[field]) || 0;
+  const result = await workflowCollection('counters').findOneAndUpdate(
+    { _id: String(sequenceName) },
+    [{ $set: { seq: { $add: [{ $max: [{ $ifNull: ['$seq', 0] }, highestValue] }, 1] } } }],
+    { upsert: true, returnDocument: 'after' }
+  );
+  return Number(result && result.seq);
+}
+
+async function listRecords(collectionName, filter = {}, sort = {}) {
+  await init();
+  const records = await workflowCollection(collectionName).find(filter).sort(sort).toArray();
+  return records.map(withoutMongoId);
+}
+
+async function getRecord(collectionName, filter) {
+  await init();
+  return withoutMongoId(await workflowCollection(collectionName).findOne(filter));
+}
+
+async function insertRecord(collectionName, document) {
+  await init();
+  const cleanDocument = withoutMongoId(document);
+  await workflowCollection(collectionName).insertOne(cleanDocument);
+  return cleanDocument;
+}
+
+async function updateRecord(collectionName, filter, update, options = {}) {
+  await init();
+  const result = await workflowCollection(collectionName).findOneAndUpdate(
+    filter,
+    update,
+    { ...options, returnDocument: 'after' }
+  );
+  return withoutMongoId(result);
+}
+
+async function deleteRecord(collectionName, filter) {
+  await init();
+  const result = await workflowCollection(collectionName).deleteOne(filter);
+  return result.deletedCount > 0;
+}
+
 function profileDocument(userId, profile) {
   const document = { ...profile, user_id: userId };
   delete document._id;
@@ -309,6 +377,12 @@ module.exports = {
   getUserByIdentity,
   getUserById,
   getAllUsers,
+  nextSequence,
+  listRecords,
+  getRecord,
+  insertRecord,
+  updateRecord,
+  deleteRecord,
   createOrUpdateStudentProfile,
   getStudentProfileByUserId,
   createOrUpdateCompanyProfile,

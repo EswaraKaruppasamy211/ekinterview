@@ -213,7 +213,7 @@ function navigateTo(viewId) {
   else if (viewId === 'placement') loadPlacementView();
   else if (viewId === 'campus-drives') loadCampusDrivesView();
   else if (viewId === 'settings') loadSettingsView();
-  else if (viewId === 'company-dashboard') { loadCompanyATSPipeline(); renderCompanyDashboard(); }
+  else if (viewId === 'company-dashboard') { loadCompanyATSPipeline(); renderCompanyDashboard(); loadCompanyAcademiaFeed(); }
   else if (viewId === 'company-profile') renderCompanyProfile();
   else if (viewId === 'company-talent-discovery') renderCompanyTalentDiscovery();
   else if (viewId === 'company-ai-match') runCompanyAIMatch();
@@ -2251,6 +2251,82 @@ function renderMetricCard(label, value, accent) {
       </div>
     </div>
   `;
+}
+
+const COMPANY_ACADEMIA_RESOURCES = [
+  ['faculty-internships', 'Faculty internships'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs'], ['mentorship', 'Mentorship'], ['workshops', 'Workshops'], ['guest-lectures', 'Guest lectures'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['consultancy', 'Consultancy']
+];
+
+async function loadCompanyAcademiaFeed() {
+  const select = document.getElementById('company-academia-resource');
+  if (!select) return;
+  if (!select.options.length) {
+    select.innerHTML = COMPANY_ACADEMIA_RESOURCES.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  }
+
+  const resource = select.value || COMPANY_ACADEMIA_RESOURCES[0][0];
+  const list = document.getElementById('company-academia-items');
+  if (!list) return;
+
+  try {
+    const data = await apiFetch(`/academia/${resource}`);
+    const items = Array.isArray(data) ? data : (data.items || []);
+    list.innerHTML = items.length ? items.slice(0, 6).map(item => `
+      <div class="saas-card" style="padding:0.9rem; margin-bottom:0.75rem;">
+        <div class="flex-between mb-1"><strong>${item.title || 'Academia opportunity'}</strong><span class="badge-saas badge-blue">${item.status || 'Open'}</span></div>
+        <p class="text-sm" style="color:var(--text-muted); margin:0.25rem 0 0.5rem;">${item.description || 'No description provided yet.'}</p>
+        <div class="flex-align gap-2 flex-wrap text-xs" style="color:var(--text-muted);">
+          ${item.duration ? `<span class="badge-saas badge-purple">${item.duration}</span>` : ''}
+          ${item.location ? `<span class="badge-saas badge-purple">${item.location}</span>` : ''}
+          ${item.deadline ? `<span class="badge-saas badge-purple">Deadline: ${item.deadline}</span>` : ''}
+        </div>
+      </div>
+    `).join('') : '<p class="text-sm" style="color:var(--text-muted);">No opportunities have been published yet.</p>';
+  } catch (error) {
+    list.innerHTML = `<p class="text-sm" style="color:var(--text-muted);">Unable to load published opportunities: ${error.message || 'Unknown error'}</p>`;
+  }
+}
+
+async function handleCompanyAcademiaCreate(event) {
+  event.preventDefault();
+  const form = document.getElementById('company-academia-form');
+  if (!form) return;
+
+  const resource = document.getElementById('company-academia-resource')?.value || COMPANY_ACADEMIA_RESOURCES[0][0];
+  const title = document.getElementById('company-academia-title')?.value?.trim();
+  const description = document.getElementById('company-academia-description')?.value?.trim();
+  const skills = document.getElementById('company-academia-skills')?.value?.trim();
+  const duration = document.getElementById('company-academia-duration')?.value?.trim();
+  const location = document.getElementById('company-academia-location')?.value?.trim();
+  const deadline = document.getElementById('company-academia-deadline')?.value || '';
+  const partner = document.getElementById('company-academia-partner')?.value?.trim();
+
+  if (!title || !description) {
+    alert('Title and description are required.');
+    return;
+  }
+
+  try {
+    await apiFetch(`/academia/${resource}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        description,
+        required_skills: skills ? skills.split(',').map(part => part.trim()).filter(Boolean) : [],
+        duration: duration || '',
+        location: location || '',
+        deadline: deadline || '',
+        company: partner || currentUser?.companyName || currentUser?.fullName || 'Corporate Partner',
+        partner: partner || currentUser?.companyName || currentUser?.fullName || 'Corporate Partner',
+        status: 'Open'
+      })
+    });
+    form.reset();
+    await loadCompanyAcademiaFeed();
+    alert('Opportunity published successfully.');
+  } catch (error) {
+    alert(error.message || 'Unable to publish opportunity.');
+  }
 }
 
 async function renderCompanyDashboard() {

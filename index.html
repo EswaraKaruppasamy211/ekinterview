@@ -504,6 +504,56 @@
         <div class="grid-4 gap-4 mb-6" id="company-metrics-grid"></div>
         <div class="saas-card mb-6">
           <div class="flex-between mb-4">
+            <div>
+              <h3 style="font-weight:700; margin:0;">Industry Academia Opportunities</h3>
+              <p class="text-sm" style="color:var(--text-muted); margin:0.35rem 0 0;">Publish faculty internships, FDPs, mentorships, workshops, and related opportunities for the academia network.</p>
+            </div>
+            <span class="badge-saas badge-emerald">Partner publishing</span>
+          </div>
+          <form id="company-academia-form" onsubmit="handleCompanyAcademiaCreate(event)">
+            <div class="grid-3 gap-3 mb-3">
+              <div>
+                <label class="block text-xs font-bold mb-1">Opportunity type</label>
+                <select id="company-academia-resource" class="saas-input" onchange="loadCompanyAcademiaFeed()"></select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Title</label>
+                <input id="company-academia-title" class="saas-input" placeholder="Faculty internship title" required />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Partner / company</label>
+                <input id="company-academia-partner" class="saas-input" placeholder="Company or partner name" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Skills</label>
+                <input id="company-academia-skills" class="saas-input" placeholder="Java, SQL, AI" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Duration</label>
+                <input id="company-academia-duration" class="saas-input" placeholder="6 weeks" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Location</label>
+                <input id="company-academia-location" class="saas-input" placeholder="Remote / Hyderabad" />
+              </div>
+              <div style="grid-column: 1 / -1;">
+                <label class="block text-xs font-bold mb-1">Description</label>
+                <textarea id="company-academia-description" class="saas-input" rows="3" placeholder="Describe the opportunity, eligibility, and expected deliverables" required></textarea>
+              </div>
+              <div style="grid-column: 1 / -1;">
+                <label class="block text-xs font-bold mb-1">Application deadline</label>
+                <input id="company-academia-deadline" type="date" class="saas-input" />
+              </div>
+            </div>
+            <button type="submit" class="btn-saas btn-primary">Publish opportunity</button>
+          </form>
+          <div class="mt-4">
+            <h4 style="font-weight:700; margin:0 0 0.75rem;">Published opportunities</h4>
+            <div id="company-academia-items"></div>
+          </div>
+        </div>
+        <div class="saas-card mb-6">
+          <div class="flex-between mb-4">
             <h3 style="font-weight:700; margin:0;">AI Hiring Insight</h3>
             <span class="badge-saas badge-emerald">Live Intelligence</span>
           </div>
