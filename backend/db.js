@@ -14,8 +14,28 @@ function requireMongoUrl() {
   return mongoUrl;
 }
 
+function isMissingValue(value) {
+  return value === null || value === undefined || value === '';
+}
+
 function normalize(value) {
   return String(value ?? '').trim().toLowerCase();
+}
+
+function normalizeIdentifier(field, value) {
+  if (isMissingValue(value)) return null;
+
+  const fieldName = String(field || '').trim().toLowerCase();
+  const isNumericIdField = ['id', 'user_id', 'userid', 'userId'].includes(fieldName);
+  if (isNumericIdField) {
+    const asNumber = Number(value);
+    if (!Number.isNaN(asNumber)) {
+      return { $in: [asNumber, String(asNumber)] };
+    }
+    return String(value).trim();
+  }
+
+  return normalize(value);
 }
 
 function userCollection() {
@@ -31,7 +51,29 @@ function companyProfileCollection() {
 }
 
 function profileUserFilter(userId) {
-  return { $or: [{ user_id: userId }, { userId }] };
+  const values = [];
+  if (!isMissingValue(userId)) {
+    const asNumber = Number(userId);
+    values.push(userId);
+    if (!Number.isNaN(asNumber)) {
+      values.push(asNumber, String(asNumber));
+    }
+    values.push(String(userId));
+  }
+
+  const uniqueValues = [...new Set(values.filter(value => !isMissingValue(value)))];
+  if (uniqueValues.length === 0) {
+    return { $or: [{ user_id: null }, { userId: null }] };
+  }
+
+  const filterValue = uniqueValues.length > 1 ? { $in: uniqueValues } : uniqueValues[0];
+
+  return {
+    $or: [
+      { user_id: filterValue },
+      { userId: filterValue }
+    ]
+  };
 }
 
 async function init() {
@@ -108,9 +150,10 @@ async function nextUserId() {
 
 async function findUserByField(field, value) {
   await init();
-  if (!value) return null;
+  const queryValue = normalizeIdentifier(field, value);
+  if (queryValue === null) return null;
   return userCollection().findOne(
-    { [field]: normalize(value) },
+    { [field]: queryValue },
     { projection: { _id: 0 } }
   );
 }
@@ -125,7 +168,7 @@ async function createUser({
 }) {
   await init();
 
-  if (!email || !username || !passwordHash || !salt) {
+  if (isMissingValue(email) || isMissingValue(username) || isMissingValue(passwordHash) || isMissingValue(salt)) {
     console.error('createUser: required user fields are missing.');
     return null;
   }
@@ -174,7 +217,7 @@ async function getUserByUsername(username) {
 
 async function getUserByIdentity(identity) {
   await init();
-  if (!identity) return null;
+  if (isMissingValue(identity)) return null;
   const normalizedIdentity = normalize(identity);
   return userCollection().findOne(
     { $or: [{ email: normalizedIdentity }, { username: normalizedIdentity }] },
@@ -184,10 +227,15 @@ async function getUserByIdentity(identity) {
 
 async function getUserById(id) {
   await init();
-  if (!id) return null;
+  if (isMissingValue(id)) return null;
   const numericId = Number(id);
   return userCollection().findOne(
-    { id: Number.isNaN(numericId) ? id : numericId },
+    {
+      $or: [
+        { id: Number.isNaN(numericId) ? id : numericId },
+        { id: Number.isNaN(numericId) ? String(id) : String(numericId) }
+      ]
+    },
     { projection: { _id: 0 } }
   );
 }
@@ -208,7 +256,7 @@ function profileDocument(userId, profile) {
 
 async function createOrUpdateStudentProfile(userId, profile) {
   await init();
-  if (!userId || !profile) return null;
+  if (isMissingValue(userId) || !profile) return null;
   const document = profileDocument(userId, profile);
   await studentProfileCollection().updateOne(
     profileUserFilter(userId),
@@ -220,7 +268,7 @@ async function createOrUpdateStudentProfile(userId, profile) {
 
 async function getStudentProfileByUserId(userId) {
   await init();
-  if (!userId) return null;
+  if (isMissingValue(userId)) return null;
   return studentProfileCollection().findOne(
     profileUserFilter(userId),
     { projection: { _id: 0 } }
@@ -229,7 +277,7 @@ async function getStudentProfileByUserId(userId) {
 
 async function getCompanyProfileByUserId(userId) {
   await init();
-  if (!userId) return null;
+  if (isMissingValue(userId)) return null;
   return companyProfileCollection().findOne(
     profileUserFilter(userId),
     { projection: { _id: 0 } }
@@ -238,7 +286,7 @@ async function getCompanyProfileByUserId(userId) {
 
 async function createOrUpdateCompanyProfile(userId, profile) {
   await init();
-  if (!userId || !profile) return null;
+  if (isMissingValue(userId) || !profile) return null;
   const document = profileDocument(userId, profile);
   await companyProfileCollection().updateOne(
     profileUserFilter(userId),
