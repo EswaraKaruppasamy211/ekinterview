@@ -15,11 +15,29 @@ function requireMongoUrl() {
 }
 
 function isMissingValue(value) {
-  return value === null || value === undefined || value === '';
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  return false;
 }
 
 function normalize(value) {
   return String(value ?? '').trim().toLowerCase();
+}
+
+function identifierVariants(value) {
+  if (isMissingValue(value)) return [];
+
+  const variants = new Set();
+  variants.add(value);
+  variants.add(String(value));
+
+  const asNumber = Number(value);
+  if (!Number.isNaN(asNumber)) {
+    variants.add(asNumber);
+    variants.add(String(asNumber));
+  }
+
+  return [...variants].filter(item => !isMissingValue(item));
 }
 
 function normalizeIdentifier(field, value) {
@@ -28,11 +46,11 @@ function normalizeIdentifier(field, value) {
   const fieldName = String(field || '').trim().toLowerCase();
   const isNumericIdField = ['id', 'user_id', 'userid', 'userId'].includes(fieldName);
   if (isNumericIdField) {
-    const asNumber = Number(value);
-    if (!Number.isNaN(asNumber)) {
-      return { $in: [asNumber, String(asNumber)] };
+    const variants = identifierVariants(value);
+    if (variants.length > 1) {
+      return { $in: variants };
     }
-    return String(value).trim();
+    return variants[0];
   }
 
   return normalize(value);
@@ -51,17 +69,7 @@ function companyProfileCollection() {
 }
 
 function profileUserFilter(userId) {
-  const values = [];
-  if (!isMissingValue(userId)) {
-    const asNumber = Number(userId);
-    values.push(userId);
-    if (!Number.isNaN(asNumber)) {
-      values.push(asNumber, String(asNumber));
-    }
-    values.push(String(userId));
-  }
-
-  const uniqueValues = [...new Set(values.filter(value => !isMissingValue(value)))];
+  const uniqueValues = [...new Set(identifierVariants(userId))];
   if (uniqueValues.length === 0) {
     return { $or: [{ user_id: null }, { userId: null }] };
   }
@@ -228,16 +236,13 @@ async function getUserByIdentity(identity) {
 async function getUserById(id) {
   await init();
   if (isMissingValue(id)) return null;
-  const numericId = Number(id);
-  return userCollection().findOne(
-    {
-      $or: [
-        { id: Number.isNaN(numericId) ? id : numericId },
-        { id: Number.isNaN(numericId) ? String(id) : String(numericId) }
-      ]
-    },
-    { projection: { _id: 0 } }
-  );
+
+  const idVariants = identifierVariants(id);
+  const filter = idVariants.length > 1
+    ? { $or: idVariants.map(value => ({ id: value })) }
+    : { id: idVariants[0] };
+
+  return userCollection().findOne(filter, { projection: { _id: 0 } });
 }
 
 async function getAllUsers() {

@@ -972,15 +972,201 @@ async function handleFacultyRegisterSubmit(event) {
 const FACULTY_RESOURCES = [
   ['faculty-internships', 'Faculty internships'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs'], ['mentorship', 'Mentorship'], ['workshops', 'Workshops'], ['guest-lectures', 'Guest lectures'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['consultancy', 'Consultancy'], ['internship-progress', 'Progress & feedback'], ['portfolio-extensions', 'Portfolio']
 ];
+const FACULTY_RESOURCE_SCHEMAS = {
+  'faculty-internships': [
+    ['title', 'Title *', 'text', true],
+    ['company', 'Company / Partner', 'text'],
+    ['required_skills', 'Required skills', 'text', false, 'Java, SQL, React'],
+    ['eligibility', 'Eligibility', 'text'],
+    ['duration', 'Duration', 'text'],
+    ['start_date', 'Start date', 'date'],
+    ['end_date', 'End date', 'date'],
+    ['location', 'Location', 'text'],
+    ['work_mode', 'Work mode', 'select', false, ['Hybrid', 'Remote', 'On-site']],
+    ['deadline', 'Application deadline', 'date'],
+    ['mentor', 'Mentor / contact', 'text'],
+    ['status', 'Status', 'select', false, ['Open', 'Shortlisted', 'Selected', 'In progress', 'Completed']],
+    ['description', 'Description', 'textarea']
+  ],
+  fdp: [
+    ['title', 'Program title *', 'text', true],
+    ['organizer', 'Organizer', 'text'],
+    ['topics', 'Topics', 'text', false, 'AI, Cloud, Research, Product'],
+    ['skills', 'Skills', 'text', false, 'ML, Data, Communication'],
+    ['duration', 'Duration', 'text'],
+    ['start_date', 'Start date', 'date'],
+    ['end_date', 'End date', 'date'],
+    ['mode', 'Mode', 'select', false, ['Hybrid', 'Online', 'On-site']],
+    ['eligibility', 'Eligibility', 'text'],
+    ['deadline', 'Registration deadline', 'date'],
+    ['capacity', 'Capacity', 'number'],
+    ['certificate', 'Certificate availability', 'text'],
+    ['description', 'Description', 'textarea']
+  ],
+  'learning-programs': [
+    ['title', 'Program title *', 'text', true],
+    ['company', 'Company / organizer', 'text'],
+    ['required_skills', 'Required skills', 'text', false, 'Java, SQL, React'],
+    ['duration', 'Duration', 'text'],
+    ['start_date', 'Start date', 'date'],
+    ['end_date', 'End date', 'date'],
+    ['mode', 'Mode', 'select', false, ['Online', 'Hybrid', 'Weekend']],
+    ['eligibility', 'Eligibility', 'text'],
+    ['deadline', 'Enrollment deadline', 'date'],
+    ['certificate', 'Certificate info', 'text'],
+    ['description', 'Description', 'textarea']
+  ],
+  mentorship: [
+    ['title', 'Mentorship title *', 'text', true],
+    ['mentor', 'Mentor / company', 'text'],
+    ['expertise', 'Expertise', 'text', false, 'React, System design, Product'],
+    ['availability', 'Available slots', 'text'],
+    ['duration', 'Session duration', 'text'],
+    ['location', 'Location / mode', 'text'],
+    ['deadline', 'Request deadline', 'date'],
+    ['description', 'Description', 'textarea']
+  ],
+  workshops: [
+    ['title', 'Workshop title *', 'text', true],
+    ['organizer', 'Organizer', 'text'],
+    ['topics', 'Topics', 'text', false, 'AI, DSA, Career readiness'],
+    ['skills', 'Skills covered', 'text'],
+    ['date', 'Workshop date', 'date'],
+    ['mode', 'Mode', 'select', false, ['Online', 'Hybrid', 'On-site']],
+    ['capacity', 'Capacity', 'number'],
+    ['certificate', 'Certificate info', 'text'],
+    ['description', 'Description', 'textarea']
+  ],
+  'guest-lectures': [
+    ['title', 'Lecture title *', 'text', true],
+    ['speaker', 'Speaker', 'text'],
+    ['company', 'Company', 'text'],
+    ['topic', 'Topic', 'text'],
+    ['date', 'Lecture date', 'date'],
+    ['time', 'Time', 'text'],
+    ['mode', 'Mode', 'select', false, ['Online', 'On-campus', 'Hybrid']],
+    ['description', 'Description', 'textarea']
+  ],
+  'live-projects': [
+    ['title', 'Project title *', 'text', true],
+    ['company', 'Company / sponsor', 'text'],
+    ['required_skills', 'Required skills', 'text', false, 'Java, SQL, React'],
+    ['duration', 'Duration', 'text'],
+    ['team_size', 'Team size', 'number'],
+    ['mentor', 'Mentor', 'text'],
+    ['deadline', 'Application deadline', 'date'],
+    ['status', 'Status', 'select', false, ['Open', 'Shortlisted', 'In progress', 'Completed']],
+    ['description', 'Description', 'textarea']
+  ],
+  'research-collaborations': [
+    ['title', 'Research title *', 'text', true],
+    ['domain', 'Research domain', 'text'],
+    ['required_skills', 'Required skills', 'text'],
+    ['expertise', 'Required expertise', 'text'],
+    ['duration', 'Duration', 'text'],
+    ['collaboration_type', 'Collaboration type', 'select', false, ['Academic', 'Industry', 'Joint']],
+    ['contact', 'Contact person', 'text'],
+    ['deadline', 'Application deadline', 'date'],
+    ['description', 'Description', 'textarea']
+  ],
+  consultancy: [
+    ['title', 'Consultancy opportunity *', 'text', true],
+    ['company', 'Industry / client', 'text'],
+    ['required_skills', 'Required skills', 'text'],
+    ['duration', 'Duration', 'text'],
+    ['location', 'Location', 'text'],
+    ['deadline', 'Deadline', 'date'],
+    ['status', 'Status', 'select', false, ['Open', 'Reviewing', 'Approved', 'Completed']],
+    ['description', 'Description', 'textarea']
+  ],
+  'internship-progress': [
+    ['title', 'Progress title *', 'text', true],
+    ['company', 'Company', 'text'],
+    ['status', 'Current status', 'select', false, ['Selected', 'Started', 'In progress', 'Completed']],
+    ['mentor', 'Mentor / reviewer', 'text'],
+    ['duration', 'Duration', 'text'],
+    ['feedback', 'Mentor feedback', 'textarea'],
+    ['certificate', 'Certificate / completion record', 'text']
+  ],
+  'portfolio-extensions': [
+    ['title', 'Portfolio item *', 'text', true],
+    ['type', 'Type', 'select', false, ['Project', 'Internship', 'Certificate', 'Achievement', 'Learning Program']],
+    ['company', 'Associated company / organization', 'text'],
+    ['link', 'Portfolio link / proof URL', 'text'],
+    ['status', 'Status', 'select', false, ['Draft', 'Verified', 'Published']],
+    ['description', 'Description', 'textarea']
+  ]
+};
 let facultyItems = [];
 function navigateToFacultyResource(resource) {
   if (currentRole !== 'faculty' || !currentUser || currentUser.role !== 'faculty') { openFacultyAuthModal('login'); return; }
   const select = document.getElementById('faculty-resource'); if (select) select.value = resource; navigateTo('faculty-dashboard');
 }
 function facultyResource() { return document.getElementById('faculty-resource')?.value || FACULTY_RESOURCES[0][0]; }
+function getFacultyResourceSchema(resource = facultyResource()) {
+  return FACULTY_RESOURCE_SCHEMAS[resource] || [
+    ['title', 'Title *', 'text', true],
+    ['description', 'Description', 'textarea']
+  ];
+}
+function renderFacultyCreateFields() {
+  const fieldsContainer = document.getElementById('faculty-create-fields');
+  if (!fieldsContainer) return;
+  const schema = getFacultyResourceSchema();
+  fieldsContainer.innerHTML = schema.map(([key, label, type, required, options]) => {
+    const isRequired = Boolean(required);
+    const commonAttrs = `id="faculty-${key}" name="${key}" class="saas-input" ${required ? 'required' : ''}`;
+    if (type === 'textarea') {
+      return `<div style="grid-column: 1 / -1;"><label class="block text-xs font-bold mb-1">${label}</label><textarea ${commonAttrs} rows="3" placeholder="Add details, eligibility, and outcomes"></textarea></div>`;
+    }
+    if (type === 'select') {
+      const values = Array.isArray(options) ? options : ['Open', 'Available'];
+      return `<div><label class="block text-xs font-bold mb-1">${label}</label><select ${commonAttrs}><option value="">Select</option>${values.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`;
+    }
+    if (type === 'number') {
+      return `<div><label class="block text-xs font-bold mb-1">${label}</label><input type="number" ${commonAttrs} /></div>`;
+    }
+    if (type === 'date') {
+      return `<div><label class="block text-xs font-bold mb-1">${label}</label><input type="date" ${commonAttrs} /></div>`;
+    }
+    if (type === 'text' || type === 'email') {
+      return `<div><label class="block text-xs font-bold mb-1">${label}</label><input type="text" ${commonAttrs} placeholder="${label.includes('skills') || label.includes('Topics') ? 'Java, SQL, React' : ''}" /></div>`;
+    }
+    return `<div><label class="block text-xs font-bold mb-1">${label}</label><input type="text" ${commonAttrs} /></div>`;
+  }).join('');
+}
+function facultyFieldValue(key) {
+  const field = document.getElementById(`faculty-${key}`);
+  if (!field) return '';
+  return field.value ? String(field.value).trim() : '';
+}
+function parseFacultyListValue(value) {
+  return String(value || '').split(',').map(item => item.trim()).filter(Boolean);
+}
+function normalizeFacultyPayload(resource, formData) {
+  const payload = { title: formData.title || facultyFieldValue('title'), description: formData.description || facultyFieldValue('description') };
+  if (payload.title) payload.title = payload.title.trim();
+  if (payload.description) payload.description = payload.description.trim();
+  const schema = getFacultyResourceSchema(resource);
+  for (const [key, label, type, required, options] of schema) {
+    if (key === 'title' || key === 'description') continue;
+    const value = formData[key] !== undefined ? formData[key] : facultyFieldValue(key);
+    if (!value && value !== 0) continue;
+    if (['required_skills', 'topics', 'skills', 'expertise', 'eligibility'].includes(key)) {
+      payload[key] = parseFacultyListValue(value);
+      continue;
+    }
+    payload[key] = value;
+  }
+  if (!payload.partner && payload.company) payload.partner = payload.company;
+  if (!payload.date && payload.start_date) payload.date = payload.start_date;
+  if (!payload.deadline && payload.deadline === '') payload.deadline = null;
+  return payload;
+}
 async function loadFacultyResource() {
   const select = document.getElementById('faculty-resource'); if (!select) return;
   if (!select.options.length) select.innerHTML = FACULTY_RESOURCES.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  renderFacultyCreateFields();
   try { const data = await apiFetch(`/academia/${facultyResource()}`); facultyItems = Array.isArray(data) ? data : (data.items || []); renderFacultyItems(); }
   catch (err) { facultyItems = []; renderFacultyItems(err.message); }
 }
@@ -992,15 +1178,43 @@ function renderFacultyItems(errorMessage = '') {
   const query = (document.getElementById('faculty-search')?.value || '').toLowerCase();
   const items = facultyItems.filter(item => !query || JSON.stringify(item).toLowerCase().includes(query));
   if (!items.length) { target.innerHTML = '<div class="saas-card"><p style="color:var(--text-muted);margin:0;">No listings yet. Create the first one for this feature.</p></div>'; return; }
-  target.innerHTML = items.map(item => `<div class="saas-card"><div class="flex-between gap-3 mb-2"><h3 style="font-weight:700;margin:0;">${facultyText(item.title || item.name || 'Academia listing')}</h3><span class="badge-saas badge-blue">${facultyText(item.status || 'open')}</span></div><p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem;">${facultyText(item.description || item.topic || 'Details not provided.')}</p><div class="text-xs mb-3" style="color:var(--text-muted);">${facultyText(item.date || item.deadline || item.partner || '')}</div><div class="flex-align gap-2 flex-wrap"><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','status')">Track status</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','apply')">Apply</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','register')">Register</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','feedback')">Feedback</button></div></div>`).join('');
+  target.innerHTML = items.map(item => {
+    const tags = [
+      item.company, item.organizer, item.partner, item.location, item.mode, item.work_mode,
+      item.duration, item.start_date, item.end_date, item.deadline, item.mentor, item.speaker
+    ].filter(Boolean);
+    const scope = [
+      item.required_skills, item.topics, item.skills, item.expertise, item.eligibility
+    ].filter(Boolean).flatMap(val => Array.isArray(val) ? val : [val]);
+    const meta = [...tags.slice(0, 4), ...scope.slice(0, 4)].map(value => `<span class="badge-saas badge-blue">${facultyText(value)}</span>`).join('');
+    const description = item.description || item.topic || 'Details not provided.';
+    const status = item.status || 'open';
+    return `<div class="saas-card"><div class="flex-between gap-3 mb-2"><h3 style="font-weight:700;margin:0;">${facultyText(item.title || item.name || 'Academia listing')}</h3><span class="badge-saas badge-blue">${facultyText(status)}</span></div><p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem;">${facultyText(description)}</p><div class="flex-align gap-2 flex-wrap mb-3">${meta || '<span class="badge-saas badge-blue">Details available</span>'}</div><div class="text-xs mb-3" style="color:var(--text-muted);">${facultyText(item.date || item.start_date || item.deadline || item.partner || item.company || '')}</div><div class="flex-align gap-2 flex-wrap"><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','status')">Track status</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','apply')">Apply</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','register')">Register</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','feedback')">Feedback</button></div></div>`;
+  }).join('');
 }
-function openFacultyCreateForm() { document.getElementById('faculty-create-panel')?.classList.remove('hidden'); const label = FACULTY_RESOURCES.find(([value]) => value === facultyResource()); const target = document.getElementById('faculty-create-label'); if (target) target.textContent = label ? label[1].toLowerCase() : 'listing'; }
+function openFacultyCreateForm() {
+  renderFacultyCreateFields();
+  document.getElementById('faculty-create-panel')?.classList.remove('hidden');
+  const label = FACULTY_RESOURCES.find(([value]) => value === facultyResource());
+  const target = document.getElementById('faculty-create-label');
+  if (target) target.textContent = label ? label[1].toLowerCase() : 'listing';
+}
 function closeFacultyCreateForm() { document.getElementById('faculty-create-panel')?.classList.add('hidden'); }
 async function handleFacultyCreate(event) {
   event.preventDefault();
   try {
-    await apiFetch(`/academia/${facultyResource()}`, { method: 'POST', body: JSON.stringify({ title: document.getElementById('faculty-title').value.trim(), description: document.getElementById('faculty-description').value.trim(), date: document.getElementById('faculty-date').value, partner: document.getElementById('faculty-partner').value.trim() }) });
-    document.getElementById('faculty-create-form').reset(); closeFacultyCreateForm(); await loadFacultyResource();
+    const resource = facultyResource();
+    const payload = normalizeFacultyPayload(resource, {});
+    const form = document.getElementById('faculty-create-form');
+    if (form) {
+      const formData = new FormData(form);
+      for (const [key, value] of formData.entries()) {
+        if (typeof value === 'string' && value.trim()) payload[key.replace(/^faculty-/, '')] = value.trim();
+      }
+    }
+    const finalPayload = normalizeFacultyPayload(resource, payload);
+    await apiFetch(`/academia/${resource}`, { method: 'POST', body: JSON.stringify(finalPayload) });
+    form.reset(); closeFacultyCreateForm(); await loadFacultyResource();
   } catch (err) { alert(err.message || 'Unable to create listing.'); }
 }
 async function facultyLifecycle(id, operation) {

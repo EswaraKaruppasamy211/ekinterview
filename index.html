@@ -485,11 +485,10 @@
           <div class="flex-align" style="align-items:flex-end;"><button class="btn-saas btn-primary w-full" onclick="openFacultyCreateForm()"><i class="fa-solid fa-plus"></i> Create listing</button></div>
         </div></div>
         <div id="faculty-create-panel" class="saas-card mb-4 hidden"><div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Create <span id="faculty-create-label">listing</span></h3><button class="btn-saas btn-outline" onclick="closeFacultyCreateForm()">Cancel</button></div>
-          <form id="faculty-create-form" onsubmit="handleFacultyCreate(event)"><div class="grid-3 gap-3">
-            <div><label class="block text-xs font-bold mb-1">Title *</label><input id="faculty-title" class="saas-input" required /></div>
-            <div><label class="block text-xs font-bold mb-1">Date / deadline</label><input id="faculty-date" type="date" class="saas-input" /></div>
-            <div><label class="block text-xs font-bold mb-1">Mode / partner</label><input id="faculty-partner" class="saas-input" placeholder="Online · Industry partner" /></div>
-          </div><div class="mt-3"><label class="block text-xs font-bold mb-1">Description</label><textarea id="faculty-description" class="saas-input" rows="3" placeholder="Add details, eligibility, and outcomes"></textarea></div><button class="btn-saas btn-primary mt-3" type="submit">Publish listing</button></form>
+          <form id="faculty-create-form" onsubmit="handleFacultyCreate(event)">
+            <div id="faculty-create-fields" class="grid-3 gap-3"></div>
+            <button class="btn-saas btn-primary mt-3" type="submit">Publish listing</button>
+          </form>
         </div>
         <div id="faculty-items" class="grid-2 gap-4"></div>
       </section>
