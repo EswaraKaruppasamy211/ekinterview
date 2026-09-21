@@ -19,10 +19,6 @@
   ],
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://interview.onrender.com/api/:path*"
-    },
-    {
       "source": "/:path*",
       "destination": "/frontend/:path*"
     }
