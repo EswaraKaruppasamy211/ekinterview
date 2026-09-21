@@ -5,18 +5,22 @@ const fs = require('fs');
 
 const root = __dirname;
 
-const dbFile =
-  process.env.DB_FILE_PATH ||
-  (process.env.VERCEL
-    ? path.join('/tmp', 'skillmap.db')
-    : path.join(root, 'skillmap.db'));
+const configuredDbFile = process.env.DB_FILE_PATH;
+const dbFile = configuredDbFile
+  ? (path.isAbsolute(configuredDbFile)
+    ? configuredDbFile
+    : path.resolve(root, configuredDbFile))
+  : path.join(root, 'skillmap.db');
 
 let _db = null;
+let _dbPromise = null;
 
 async function init() {
   if (_db) return _db;
+  if (_dbPromise) return _dbPromise;
 
-  try {
+  _dbPromise = (async () => {
+   try {
     const dbDir = path.dirname(dbFile);
 
     if (!fs.existsSync(dbDir)) {
@@ -54,6 +58,7 @@ async function init() {
     await _db.exec(`
       CREATE TABLE IF NOT EXISTS student_profiles (
         user_id INTEGER PRIMARY KEY,
+        student_id TEXT UNIQUE,
         name TEXT NOT NULL,
         college TEXT,
         university TEXT,
@@ -74,6 +79,11 @@ async function init() {
           ON DELETE CASCADE
       )
     `);
+    try {
+      await _db.run('ALTER TABLE student_profiles ADD COLUMN student_id TEXT');
+    } catch (error) {
+      if (!/duplicate column name/i.test(error.message || '')) throw error;
+    }
 
     // ----------------------------------------------------
     // COMPANY PROFILES
@@ -532,15 +542,18 @@ async function init() {
     }
 
     return _db;
-
-  } catch (error) {
-    console.error(
-      'DB init error:',
-      error && error.message
-    );
-
+   } catch (error) {
     _db = null;
-    return null;
+    console.error(`DB init error for ${dbFile}:`, error && error.stack ? error.stack : error);
+    throw new Error(`Database initialization failed for ${dbFile}: ${error.message || error}`);
+   }
+  })();
+
+  try {
+    return await _dbPromise;
+  } catch (error) {
+    _dbPromise = null;
+    throw error;
   }
 }
 
@@ -632,8 +645,7 @@ async function createUser({
       'createUser error:',
       error && error.message
     );
-
-    return null;
+    throw error;
   }
 }
 
@@ -662,8 +674,7 @@ async function getUserByEmail(email) {
       'getUserByEmail error:',
       error && error.message
     );
-
-    return null;
+    throw error;
   }
 }
 
@@ -692,8 +703,37 @@ async function getUserByUsername(username) {
       'getUserByUsername error:',
       error && error.message
     );
+    throw error;
+  }
+}
 
+// ========================================================
+// GET USER BY EMAIL OR USERNAME
+// ========================================================
+
+async function getUserByIdentity(identity) {
+  const db = await init();
+
+  if (!db || !identity) {
     return null;
+  }
+
+  const normalizedIdentity = String(identity).trim().toLowerCase();
+
+  try {
+    return await db.get(
+      `SELECT *
+       FROM users
+       WHERE lower(email) = ? OR lower(username) = ?`,
+      normalizedIdentity,
+      normalizedIdentity
+    );
+  } catch (error) {
+    console.error(
+      'getUserByIdentity error:',
+      error && error.message
+    );
+    throw error;
   }
 }
 
@@ -751,8 +791,7 @@ async function getAllUsers() {
       'getAllUsers error:',
       error && error.message
     );
-
-    return [];
+    throw error;
   }
 }
 
@@ -783,6 +822,7 @@ async function createOrUpdateStudentProfile(
       await db.run(
         `UPDATE student_profiles
          SET
+           student_id = COALESCE(?, student_id),
            name = COALESCE(?, name),
            college = COALESCE(?, college),
            university = COALESCE(?, university),
@@ -800,6 +840,7 @@ async function createOrUpdateStudentProfile(
            portfolio_visibility =
              COALESCE(?, portfolio_visibility)
          WHERE user_id = ?`,
+        profile.student_id,
         profile.name,
         profile.college,
         profile.university,
@@ -823,6 +864,7 @@ async function createOrUpdateStudentProfile(
         `INSERT INTO student_profiles
          (
            user_id,
+           student_id,
            name,
            college,
            university,
@@ -839,8 +881,9 @@ async function createOrUpdateStudentProfile(
            goal,
            portfolio_visibility
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         userId,
+        profile.student_id || null,
         profile.name || '',
         profile.college || '',
         profile.university || '',
@@ -956,6 +999,7 @@ module.exports = {
   createUser,
   getUserByEmail,
   getUserByUsername,
+  getUserByIdentity,
   getUserById,
   getAllUsers,
 

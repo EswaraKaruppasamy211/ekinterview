@@ -11,7 +11,6 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
-const userDb = require('./backend/db');
 
 // Environment Setup
 const envPath = path.join(__dirname, '.env');
@@ -26,6 +25,8 @@ if (fs.existsSync(envPath)) {
     });
   } catch (e) {}
 }
+
+const userDb = require('./backend/db');
 
 const port = Number(process.env.PORT) || 3000;
 const repoRoot = __dirname;
@@ -80,9 +81,8 @@ function verifyToken(token) {
 }
 
 // Unique ID Generators
-let counters = { company: 10002, student: 102, job: 101, app: 901, cert: 401 };
+let counters = { company: 10002, job: 101, app: 901, cert: 401 };
 function nextCompanyId() { return `CMP-${++counters.company}`; }
-function nextStudentId() { return `STU-2026-${++counters.student}`; }
 function nextJobId() { return ++counters.job; }
 function nextAppId() { return ++counters.app; }
 
@@ -161,6 +161,18 @@ async function initializePersistentUsers() {
     const profile = await userDb.getStudentProfileByUserId(user.id);
     if (profile) state.studentProfiles[user.id] = { ...profile, email: user.email };
   }
+}
+
+let usersInitializationPromise = null;
+
+function ensurePersistentUsersLoaded() {
+  if (!usersInitializationPromise) {
+    usersInitializationPromise = initializePersistentUsers().catch(error => {
+      usersInitializationPromise = null;
+      throw error;
+    });
+  }
+  return usersInitializationPromise;
 }
 
 // Unique AI Employability Skill Score Engine
@@ -316,6 +328,8 @@ const server = http.createServer(async (req, res) => {
   };
 
   try {
+    await ensurePersistentUsersLoaded();
+
     // ----------------------------------------------------
     // SYSTEM & HEALTH API ENDPOINTS
     // ----------------------------------------------------
@@ -391,7 +405,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/auth/register' && req.method === 'POST') {
-      const { fullName, username, email, mobile, studentId, companyName, managerName, collegeName, adminName, role, password } = await parseJSON(req);
+      const { fullName, username, email, mobile, companyName, managerName, collegeName, adminName, role, password } = await parseJSON(req);
       const userRole = role || 'student';
       const newId = Date.now();
       const { salt, hash } = hashPassword(password || 'Password@123');
@@ -432,9 +446,11 @@ const server = http.createServer(async (req, res) => {
           return sendJSON(400, { error: 'Email verification is required before creating a student account.' });
         }
 
-        const assignedStuId = studentId || nextStudentId();
         const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'student' });
         if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
+        // Derive the human-readable student ID from SQLite's persistent user
+        // primary key so it cannot reset when the process restarts.
+        const assignedStuId = `STU-2026-${String(stored.id).padStart(3, '0')}`;
         const newUser = { ...stored, student_id: assignedStuId, password_hash: hash, salt };
         state.users.push(newUser);
         const profile = { user_id: stored.id, name: fullName || '', email: normalizedEmail, phone: mobile || '', student_id: assignedStuId, college: '', department: '', cgpa: null };
@@ -442,7 +458,12 @@ const server = http.createServer(async (req, res) => {
         state.studentProfiles[stored.id] = profile;
         delete otpStore[normalizedEmail];
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'student' });
-        return sendJSON(201, { token, user: sanitizeUser(newUser), profile: state.studentProfiles[stored.id] });
+        return sendJSON(201, {
+          token,
+          user: sanitizeUser(newUser),
+          studentId: assignedStuId,
+          profile: state.studentProfiles[stored.id]
+        });
       }
     }
 
@@ -451,36 +472,34 @@ const server = http.createServer(async (req, res) => {
       const { identity, password, role, email, username } = loginPayload;
       // Company display names are profile data; authentication uses identity and password only.
       const userRole = role || 'student';
-      let user = null;
       const loginIdentity = identity || email || username;
       if (!normalizeIdentity(loginIdentity) || !password) {
         return sendJSON(400, { error: 'Username or email and password are required.' });
       }
 
-      if (userRole === 'company') {
-        const normalizedIdentity = normalizeIdentity(loginIdentity);
-        user = state.users.find(u =>
-          u.role === 'company' &&
-          (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity)
-        );
-
-      } else if (userRole === 'college') {
-        const normalizedIdentity = normalizeIdentity(loginIdentity);
-        user = state.users.find(u => u.role === 'college' && (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity));
-
-      } else {
-        const normalizedIdentity = normalizeIdentity(loginIdentity);
-        user = state.users.find(u => u.role === 'student' && (normalizeIdentity(u.email) === normalizedIdentity || normalizeIdentity(u.student_id) === normalizedIdentity || normalizeIdentity(u.username) === normalizedIdentity));
+      // Credentials must come from SQLite so accounts remain usable after a
+      // server restart. In-memory state is only a compatibility fallback.
+      let user = await userDb.getUserByIdentity(loginIdentity);
+      if (user && user.role !== userRole) {
+        user = null;
       }
 
-      if (!user && loginIdentity) {
-        const persistedUser = await userDb.getUserByEmail(loginIdentity) ||
-          await userDb.getUserByUsername(loginIdentity);
-        if (persistedUser && persistedUser.role === userRole) {
-          user = persistedUser;
-          if (!state.users.some(existing => existing.id === persistedUser.id)) {
-            state.users.push(user);
-          }
+      if (!user) {
+        const normalizedIdentity = normalizeIdentity(loginIdentity);
+        user = state.users.find(existing =>
+          existing.role === userRole &&
+          (
+            normalizeIdentity(existing.email) === normalizedIdentity ||
+            normalizeIdentity(existing.username) === normalizedIdentity ||
+            (userRole === 'student' && normalizeIdentity(existing.student_id) === normalizedIdentity)
+          )
+        ) || null;
+      } else {
+        const stateUserIndex = state.users.findIndex(existing => existing.id === user.id);
+        if (stateUserIndex === -1) {
+          state.users.push(user);
+        } else {
+          state.users[stateUserIndex] = { ...state.users[stateUserIndex], ...user };
         }
       }
 
@@ -949,7 +968,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  initializePersistentUsers().then(() => {
+  ensurePersistentUsersLoaded().then(() => {
     server.listen(port, () => {
       console.log(`================================================================`);
       console.log(` SkillBridge Unique 3-Portal Backend Engine Running on Port ${port}`);
