@@ -321,6 +321,12 @@ async function deleteRecord(collectionName, filter) {
   return result.deletedCount > 0;
 }
 
+async function deleteRecords(collectionName, filter) {
+  await init();
+  const result = await workflowCollection(collectionName).deleteMany(filter);
+  return result.deletedCount;
+}
+
 function profileDocument(userId, profile) {
   const document = { ...profile, user_id: userId };
   delete document._id;
@@ -383,6 +389,7 @@ module.exports = {
   insertRecord,
   updateRecord,
   deleteRecord,
+  deleteRecords,
   createOrUpdateStudentProfile,
   getStudentProfileByUserId,
   createOrUpdateCompanyProfile,

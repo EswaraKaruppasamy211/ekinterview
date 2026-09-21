@@ -709,6 +709,8 @@ const server = http.createServer(async (req, res) => {
       const userId = authUser.id;
       const profile = await userDb.getStudentProfileByUserId(userId);
       if (!profile) return sendJSON(404, { error: 'Student profile not found.' });
+      const resume = await userDb.getRecord('student_resumes', { user_id: userId });
+      state.resumes[userId] = resume || state.resumes[userId] || null;
       return sendJSON(200, { profile: { ...profile, email: authUser.email }, completion: { percentage: 80, missingItems: [] }, resume: state.resumes[userId] || null });
     }
     if (pathname === '/api/student/resume' && req.method === 'POST') {
@@ -724,7 +726,41 @@ const server = http.createServer(async (req, res) => {
         status: 'Verified & Active',
         ats_analysis: body.atsAnalysis || null
       };
+      await userDb.updateRecord('student_resumes', { user_id: userId }, { $set: state.resumes[userId] }, { upsert: true });
       return sendJSON(201, { success: true, resume: state.resumes[userId] });
+    }
+    if (pathname === '/api/student/onboarding' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const userId = authUser.id;
+      const profile = await userDb.createOrUpdateStudentProfile(userId, {
+        ...(body.profile || {}), user_id: userId, onboarding_complete: true
+      });
+      if (!profile) return sendJSON(500, { error: 'Unable to save onboarding profile.' });
+      const academics = (body.semesterGpa || []).map((gpa, index) => ({
+        user_id: userId, semester: `Semester ${index + 1}`, gpa: gpa === null ? null : Number(gpa)
+      })).filter(record => record.gpa !== null && Number.isFinite(record.gpa));
+      await userDb.deleteRecords('student_academics', { user_id: userId });
+      if (academics.length) await Promise.all(academics.map(record => userDb.insertRecord('student_academics', record)));
+      await userDb.updateRecord('student_academic_summary', { user_id: userId }, { $set: {
+        user_id: userId, school: body.school || null, backlog: body.backlog || null,
+        updated_at: new Date().toISOString()
+      } }, { upsert: true });
+      await userDb.updateRecord('student_preferences', { user_id: userId }, { $set: {
+        user_id: userId, ...(body.preferences || {}), updated_at: new Date().toISOString()
+      } }, { upsert: true });
+      for (const skill of Array.isArray(body.skills) ? body.skills : []) {
+        if (!String(skill.skillName || skill.skill_name || '').trim()) continue;
+        const name = String(skill.skillName || skill.skill_name).trim();
+        await userDb.updateRecord('student_skills', { user_id: userId, skill_name: name }, { $set: {
+          user_id: userId, skill_name: name, category: skill.category || 'Other',
+          proficiency_percentage: Number(skill.proficiencyPercentage || skill.proficiency_percentage || 0),
+          updated_at: new Date().toISOString()
+        } }, { upsert: true });
+      }
+      state.studentProfiles[userId] = { ...profile, email: authUser.email };
+      return sendJSON(200, { success: true, profile: state.studentProfiles[userId] });
     }
     if (pathname === '/api/student/profile' && req.method === 'PUT') {
       const authUser = getAuthUser();
@@ -741,7 +777,39 @@ const server = http.createServer(async (req, res) => {
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
       const profile = await userDb.getStudentProfileByUserId(userId);
-      return sendJSON(200, { cgpa: profile && profile.cgpa != null ? profile.cgpa : null, records: state.academicRecords[userId] || [], school: state.schoolEducation[userId] || null, backlog: state.backlogs[userId] || null });
+      const [records, summary] = await Promise.all([
+        userDb.listRecords('student_academics', { user_id: userId }, { semester: 1 }),
+        userDb.getRecord('student_academic_summary', { user_id: userId })
+      ]);
+      const values = records.map(record => Number(record.gpa)).filter(Number.isFinite);
+      return sendJSON(200, { cgpa: profile && profile.cgpa != null ? profile.cgpa : (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null), records, school: summary && summary.school, backlog: summary && summary.backlog });
+    }
+    if (pathname === '/api/student/academics' && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const userId = authUser.id;
+      const records = (body.semesterGpa || []).map((gpa, index) => ({ user_id: userId, semester: `Semester ${index + 1}`, gpa: gpa === null ? null : Number(gpa) })).filter(record => record.gpa !== null && Number.isFinite(record.gpa));
+      await userDb.deleteRecords('student_academics', { user_id: userId });
+      if (records.length) await Promise.all(records.map(record => userDb.insertRecord('student_academics', record)));
+      const values = records.map(record => record.gpa);
+      const cgpa = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+      await userDb.updateRecord('student_academic_summary', { user_id: userId }, { $set: { user_id: userId, school: body.school || null, backlog: body.backlog || null, updated_at: new Date().toISOString() } }, { upsert: true });
+      await userDb.createOrUpdateStudentProfile(userId, { cgpa });
+      return sendJSON(200, { success: true, cgpa, records });
+    }
+    if (pathname === '/api/student/preferences' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      return sendJSON(200, { preferences: (await userDb.getRecord('student_preferences', { user_id: authUser.id })) || {} });
+    }
+    if (pathname === '/api/student/preferences' && ['POST', 'PUT'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const preferences = { user_id: authUser.id, ...body, updated_at: new Date().toISOString() };
+      await userDb.updateRecord('student_preferences', { user_id: authUser.id }, { $set: preferences }, { upsert: true });
+      return sendJSON(200, { success: true, preferences });
     }
     if (pathname === '/api/student/skills' && req.method === 'GET') {
       const authUser = getAuthUser();
@@ -802,6 +870,27 @@ const server = http.createServer(async (req, res) => {
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
       return sendJSON(200, { projects: await userDb.listRecords('projects', { user_id: userId }, { created_at: -1 }), internships: state.internships[userId] || [], certifications: await userDb.listRecords('certifications', { user_id: userId }, { created_at: -1 }), seminars: state.seminars[userId] || [], workshops: state.workshops[userId] || [], hackathons: state.hackathons[userId] || [], achievements: state.achievements[userId] || [] });
+    }
+    if (pathname === '/api/student/certificates' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      return sendJSON(200, { certificates: await userDb.listRecords('certifications', { user_id: authUser.id }, { created_at: -1 }) });
+    }
+    if (pathname === '/api/student/certificates' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      if (!String(body.certificateName || body.name || '').trim()) return sendJSON(400, { error: 'Certificate name is required.' });
+      const certificate = { ...body, id: await userDb.nextSequence('certifications', 'certifications'), user_id: authUser.id, created_at: new Date().toISOString() };
+      await userDb.insertRecord('certifications', certificate);
+      return sendJSON(201, { success: true, certificate });
+    }
+    if (pathname.match(/^\/api\/student\/certificates\/\d+$/) && req.method === 'DELETE') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const removed = await userDb.deleteRecord('certifications', { id: Number(pathname.split('/').pop()), user_id: authUser.id });
+      if (!removed) return sendJSON(404, { error: 'Certificate not found.' });
+      return sendJSON(200, { success: true });
     }
     if (pathname === '/api/student/projects' && req.method === 'POST') {
       const authUser = getAuthUser();
@@ -867,7 +956,9 @@ const server = http.createServer(async (req, res) => {
         { id: 2, company: 'DataSoft Systems', role: 'Data Analyst', location: 'Bengaluru', date: '2026-09-24', deadline: '2026-09-20', minimumCGPA: 8.0, salary: 'INR 6-9 LPA', eligible: true, registered: false, reason: 'Eligible based on your CGPA and technical skills.' },
         { id: 3, company: 'InnovateTech', role: 'Frontend Developer', location: 'Remote', date: '2026-10-02', deadline: '2026-09-27', minimumCGPA: 8.5, salary: 'INR 7-10 LPA', eligible: false, registered: false, reason: 'Minimum CGPA requirement is 8.5.' }
       ];
-      return sendJSON(200, drives.map(drive => ({ ...drive, registered: Boolean((state.campusRegistrations || {})[userId]?.includes(drive.id)) })));
+      const savedRegistrations = await userDb.listRecords('campus_registrations', { user_id: userId });
+      const registeredIds = new Set(savedRegistrations.map(item => Number(item.drive_id)));
+      return sendJSON(200, drives.map(drive => ({ ...drive, registered: registeredIds.has(Number(drive.id)) || Boolean((state.campusRegistrations || {})[userId]?.includes(drive.id)) })));
     }
     if (pathname.match(/^\/api\/student\/campus-drives\/\d+\/register$/) && req.method === 'POST') {
       const authUser = getAuthUser();
@@ -877,13 +968,74 @@ const server = http.createServer(async (req, res) => {
       const registrations = state.campusRegistrations || (state.campusRegistrations = {});
       registrations[userId] = registrations[userId] || [];
       if (!registrations[userId].includes(driveId)) registrations[userId].push(driveId);
+      await userDb.updateRecord('campus_registrations', { user_id: userId, drive_id: driveId }, { $set: { user_id: userId, drive_id: driveId, registered_at: new Date().toISOString() } }, { upsert: true });
       return sendJSON(200, { success: true, driveId, registered: true });
     }
     if (pathname === '/api/student/placement' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
-      return sendJSON(200, { placement: (state.placements || {})[userId] || null });
+      return sendJSON(200, { placement: await userDb.getRecord('student_placements', { user_id: userId }) });
+    }
+    if (pathname === '/api/student/placement' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const placement = { user_id: authUser.id, ...body, updated_at: new Date().toISOString() };
+      await userDb.updateRecord('student_placements', { user_id: authUser.id }, { $set: placement }, { upsert: true });
+      state.placements = state.placements || {};
+      state.placements[authUser.id] = placement;
+      return sendJSON(200, { success: true, placement });
+    }
+    if (pathname === '/api/student/settings' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      return sendJSON(200, { user: sanitizeUser(authUser), settings: (await userDb.getRecord('user_settings', { user_id: authUser.id })) || { theme: 'system' } });
+    }
+    if (pathname === '/api/student/settings' && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      const body = await parseJSON(req);
+      const settings = { user_id: authUser.id, ...body, updated_at: new Date().toISOString() };
+      await userDb.updateRecord('user_settings', { user_id: authUser.id }, { $set: settings }, { upsert: true });
+      return sendJSON(200, { success: true, settings });
+    }
+    if (pathname === '/api/student/account' && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      const body = await parseJSON(req);
+      const username = normalizeIdentity(body.username);
+      const email = normalizeIdentity(body.email);
+      if (!username || !email) return sendJSON(400, { error: 'Username and email are required.' });
+      const existing = await userDb.getUserByIdentity(username);
+      if (existing && String(existing.id) !== String(authUser.id)) return sendJSON(409, { error: 'Username is already in use.' });
+      const emailUser = await userDb.getUserByEmail(email);
+      if (emailUser && String(emailUser.id) !== String(authUser.id)) return sendJSON(409, { error: 'Email is already in use.' });
+      const updated = await userDb.updateRecord('users', { id: authUser.id }, { $set: { username, email, mobile: String(body.mobile || '').trim() } });
+      Object.assign(authUser, updated || { username, email, mobile: body.mobile || '' });
+      return sendJSON(200, { success: true, user: sanitizeUser(authUser) });
+    }
+    if (pathname === '/api/student/change-password' && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      const body = await parseJSON(req);
+      if (!verifyPassword(body.currentPassword, authUser.salt, authUser.password_hash)) return sendJSON(400, { error: 'Current password is incorrect.' });
+      if (!body.newPassword || body.newPassword.length < 8) return sendJSON(400, { error: 'New password must be at least 8 characters.' });
+      if (body.newPassword !== body.confirmPassword) return sendJSON(400, { error: 'New passwords do not match.' });
+      const hashed = hashPassword(body.newPassword);
+      await userDb.updateRecord('users', { id: authUser.id }, { $set: { password_hash: hashed.hash, salt: hashed.salt } });
+      authUser.password_hash = hashed.hash;
+      authUser.salt = hashed.salt;
+      return sendJSON(200, { success: true, message: 'Password changed successfully.' });
+    }
+    if (pathname === '/api/student/account' && req.method === 'DELETE') {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      const collections = ['student_profiles', 'student_academics', 'student_academic_summary', 'student_preferences', 'student_skills', 'student_resumes', 'certifications', 'student_placements', 'campus_registrations', 'user_settings'];
+      for (const collection of collections) await userDb.deleteRecords(collection, { user_id: authUser.id });
+      await userDb.deleteRecord('users', { id: authUser.id });
+      state.users = state.users.filter(user => String(user.id) !== String(authUser.id));
+      return sendJSON(200, { success: true });
     }
     if (pathname === '/api/student/notifications' && req.method === 'GET') {
       const authUser = getAuthUser();
