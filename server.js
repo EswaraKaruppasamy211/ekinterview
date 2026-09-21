@@ -132,8 +132,8 @@ function seedData() {
 
 seedData();
 
-// Authentication and student profiles are backed by SQLite. The in-memory state
-// remains the source for demo/catalog data, but never for account credentials.
+// Authentication and student profiles are backed by MongoDB. The in-memory
+// state remains the source for demo/catalog data, but never for credentials.
 async function initializePersistentUsers() {
   await userDb.init();
   let users = await userDb.getAllUsers();
@@ -449,7 +449,7 @@ const server = http.createServer(async (req, res) => {
 
         const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'student' });
         if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
-        // Derive the human-readable student ID from SQLite's persistent user
+        // Derive the human-readable student ID from MongoDB's persistent user
         // primary key so it cannot reset when the process restarts.
         const assignedStuId = `STU-2026-${String(stored.id).padStart(3, '0')}`;
         const newUser = { ...stored, student_id: assignedStuId, password_hash: hash, salt };
@@ -478,24 +478,14 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(400, { error: 'Username or email and password are required.' });
       }
 
-      // Credentials must come from SQLite so accounts remain usable after a
-      // server restart. In-memory state is only a compatibility fallback.
+      // Credentials must come from MongoDB so accounts remain usable after a
+      // server restart. In-memory catalog state is never an auth source.
       let user = await userDb.getUserByIdentity(loginIdentity);
       if (user && user.role !== userRole) {
         user = null;
       }
 
-      if (!user) {
-        const normalizedIdentity = normalizeIdentity(loginIdentity);
-        user = state.users.find(existing =>
-          existing.role === userRole &&
-          (
-            normalizeIdentity(existing.email) === normalizedIdentity ||
-            normalizeIdentity(existing.username) === normalizedIdentity ||
-            (userRole === 'student' && normalizeIdentity(existing.student_id) === normalizedIdentity)
-          )
-        ) || null;
-      } else {
+      if (user) {
         const stateUserIndex = state.users.findIndex(existing => existing.id === user.id);
         if (stateUserIndex === -1) {
           state.users.push(user);
