@@ -1,6 +1,5 @@
 const { MongoClient } = require('mongodb');
 
-const mongoUrl = process.env.MONGODB_URL;
 const defaultDatabaseName = process.env.MONGODB_DATABASE || 'ekinterview';
 
 let client = null;
@@ -8,9 +7,11 @@ let database = null;
 let connectionPromise = null;
 
 function requireMongoUrl() {
+  const mongoUrl = process.env.MONGODB_URI || process.env.MONGODB_URL;
   if (!mongoUrl) {
-    throw new Error('MONGODB_URL is required for the application database.');
+    throw new Error('MONGODB_URI or MONGODB_URL is required for the application database.');
   }
+  return mongoUrl;
 }
 
 function normalize(value) {
@@ -37,7 +38,7 @@ async function init() {
   if (database) return database;
   if (connectionPromise) return connectionPromise;
 
-  requireMongoUrl();
+  const mongoUrl = requireMongoUrl();
 
   connectionPromise = (async () => {
     try {

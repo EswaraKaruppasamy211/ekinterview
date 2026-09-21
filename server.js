@@ -28,7 +28,7 @@ if (fs.existsSync(envPath)) {
 
 const userDb = require('./backend/db');
 
-const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 3000;
+const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 10000;
 const host = process.env.HOST || '0.0.0.0';
 const repoRoot = __dirname;
 const uploadsDir = process.env.VERCEL ? path.join('/tmp', 'skillbridge-uploads') : path.join(repoRoot, 'uploads');
@@ -958,17 +958,34 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-if (require.main === module) {
-  ensurePersistentUsersLoaded().then(() => {
-    server.listen(port, host, () => {
-      console.log(`================================================================`);
-      console.log(` SkillBridge Unique 3-Portal Backend Engine Running on ${host}:${port}`);
-      console.log(`================================================================`);
+async function startServer() {
+  try {
+    console.log('Starting SkillBridge backend...');
+    console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
+    console.log(`PORT: ${port}`);
+    console.log(`MongoDB URI configured: ${Boolean(process.env.MONGODB_URI || process.env.MONGODB_URL)}`);
+
+    await ensurePersistentUsersLoaded();
+
+    const listener = server.listen(port, host, () => {
+      console.log(`SkillBridge backend running on ${host}:${port}`);
+      console.log('Server is listening...');
     });
-  }).catch(error => {
-    console.error('Persistent authentication initialization failed. The server will not start:', error && error.stack ? error.stack : error);
-    process.exitCode = 1;
-  });
+    listener.on('error', error => {
+      console.error('HTTP SERVER ERROR:', error && error.stack ? error.stack : error);
+    });
+  } catch (error) {
+    console.error('=================================');
+    console.error('SERVER STARTUP ERROR');
+    console.error(error && error.stack ? error.stack : error);
+    console.error('=================================');
+    process.exit(1);
+  }
+}
+
+if (require.main === module) {
+  startServer();
 }
 
 module.exports = server;
+module.exports.startServer = startServer;
