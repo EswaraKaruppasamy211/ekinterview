@@ -3,7 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const dataFile = path.join(__dirname, 'data.json');
-const queueFile = path.join(__dirname, 'emailQueue.json');
+const queueFile = path.join(__dirname, '..', 'data', 'emailQueue.json');
 
 function load() {
   try { return JSON.parse(fs.readFileSync(dataFile,'utf8')||'{}'); } catch(e) { return {}; }

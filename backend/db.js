@@ -14,8 +14,46 @@ function requireMongoUrl() {
   return mongoUrl;
 }
 
+function isMissingValue(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  return false;
+}
+
 function normalize(value) {
   return String(value ?? '').trim().toLowerCase();
+}
+
+function identifierVariants(value) {
+  if (isMissingValue(value)) return [];
+
+  const variants = new Set();
+  variants.add(value);
+  variants.add(String(value));
+
+  const asNumber = Number(value);
+  if (!Number.isNaN(asNumber)) {
+    variants.add(asNumber);
+    variants.add(String(asNumber));
+  }
+
+  return [...variants].filter(item => !isMissingValue(item));
+}
+
+function normalizeIdentifier(field, value) {
+  if (isMissingValue(value)) return null;
+
+  const fieldName = String(field || '').trim().toLowerCase();
+  const isNumericIdField = ['id', 'user_id', 'userid', 'userId'].includes(fieldName);
+  if (isNumericIdField) {
+    const variants = identifierVariants(value);
+    if (variants.length > 1) {
+      return { $in: variants };
+    }
+    return variants[0];
+  }
+
+  return normalize(value);
 }
 
 function userCollection() {
@@ -30,8 +68,30 @@ function companyProfileCollection() {
   return database.collection('company_profiles');
 }
 
+function workflowCollection(name) {
+  return database.collection(String(name));
+}
+
+function withoutMongoId(document) {
+  if (!document) return document;
+  const { _id, ...safeDocument } = document;
+  return safeDocument;
+}
+
 function profileUserFilter(userId) {
-  return { $or: [{ user_id: userId }, { userId }] };
+  const uniqueValues = [...new Set(identifierVariants(userId))];
+  if (uniqueValues.length === 0) {
+    return { $or: [{ user_id: null }, { userId: null }] };
+  }
+
+  const filterValue = uniqueValues.length > 1 ? { $in: uniqueValues } : uniqueValues[0];
+
+  return {
+    $or: [
+      { user_id: filterValue },
+      { userId: filterValue }
+    ]
+  };
 }
 
 async function init() {
@@ -54,7 +114,16 @@ async function init() {
         [userCollection(), { username: 1 }, { unique: true }],
         [userCollection(), { id: 1 }, { unique: true }],
         [studentProfileCollection(), { user_id: 1 }, { unique: true }],
-        [companyProfileCollection(), { user_id: 1 }, { unique: true }]
+        [companyProfileCollection(), { user_id: 1 }, { unique: true }],
+        [workflowCollection('jobs'), { id: 1 }, { unique: true }],
+        [workflowCollection('applications'), { id: 1 }, { unique: true }],
+        [workflowCollection('notifications'), { id: 1 }, { unique: true }],
+        [workflowCollection('offers'), { id: 1 }, { unique: true }],
+        [workflowCollection('student_skills'), { user_id: 1, skill_name: 1 }, { unique: true }],
+        [workflowCollection('assessments'), { user_id: 1 }, { unique: true }],
+        [workflowCollection('projects'), { id: 1 }, { unique: true }],
+        [workflowCollection('certifications'), { id: 1 }, { unique: true }],
+        [workflowCollection('messages'), { id: 1 }, { unique: true }]
       ]) {
         try {
           await collection.createIndex(index, options);
@@ -108,9 +177,10 @@ async function nextUserId() {
 
 async function findUserByField(field, value) {
   await init();
-  if (!value) return null;
+  const queryValue = normalizeIdentifier(field, value);
+  if (queryValue === null) return null;
   return userCollection().findOne(
-    { [field]: normalize(value) },
+    { [field]: queryValue },
     { projection: { _id: 0 } }
   );
 }
@@ -125,7 +195,7 @@ async function createUser({
 }) {
   await init();
 
-  if (!email || !username || !passwordHash || !salt) {
+  if (isMissingValue(email) || isMissingValue(username) || isMissingValue(passwordHash) || isMissingValue(salt)) {
     console.error('createUser: required user fields are missing.');
     return null;
   }
@@ -174,7 +244,7 @@ async function getUserByUsername(username) {
 
 async function getUserByIdentity(identity) {
   await init();
-  if (!identity) return null;
+  if (isMissingValue(identity)) return null;
   const normalizedIdentity = normalize(identity);
   return userCollection().findOne(
     { $or: [{ email: normalizedIdentity }, { username: normalizedIdentity }] },
@@ -184,12 +254,14 @@ async function getUserByIdentity(identity) {
 
 async function getUserById(id) {
   await init();
-  if (!id) return null;
-  const numericId = Number(id);
-  return userCollection().findOne(
-    { id: Number.isNaN(numericId) ? id : numericId },
-    { projection: { _id: 0 } }
-  );
+  if (isMissingValue(id)) return null;
+
+  const idVariants = identifierVariants(id);
+  const filter = idVariants.length > 1
+    ? { $or: idVariants.map(value => ({ id: value })) }
+    : { id: idVariants[0] };
+
+  return userCollection().findOne(filter, { projection: { _id: 0 } });
 }
 
 async function getAllUsers() {
@@ -200,6 +272,61 @@ async function getAllUsers() {
     .toArray();
 }
 
+async function nextSequence(sequenceName, collectionName, field = 'id') {
+  await init();
+  const highest = await workflowCollection(collectionName).findOne(
+    { [field]: { $type: 'number' } },
+    { sort: { [field]: -1 }, projection: { [field]: 1 } }
+  );
+  const highestValue = Number(highest && highest[field]) || 0;
+  const result = await workflowCollection('counters').findOneAndUpdate(
+    { _id: String(sequenceName) },
+    [{ $set: { seq: { $add: [{ $max: [{ $ifNull: ['$seq', 0] }, highestValue] }, 1] } } }],
+    { upsert: true, returnDocument: 'after' }
+  );
+  return Number(result && result.seq);
+}
+
+async function listRecords(collectionName, filter = {}, sort = {}) {
+  await init();
+  const records = await workflowCollection(collectionName).find(filter).sort(sort).toArray();
+  return records.map(withoutMongoId);
+}
+
+async function getRecord(collectionName, filter) {
+  await init();
+  return withoutMongoId(await workflowCollection(collectionName).findOne(filter));
+}
+
+async function insertRecord(collectionName, document) {
+  await init();
+  const cleanDocument = withoutMongoId(document);
+  await workflowCollection(collectionName).insertOne(cleanDocument);
+  return cleanDocument;
+}
+
+async function updateRecord(collectionName, filter, update, options = {}) {
+  await init();
+  const result = await workflowCollection(collectionName).findOneAndUpdate(
+    filter,
+    update,
+    { ...options, returnDocument: 'after' }
+  );
+  return withoutMongoId(result);
+}
+
+async function deleteRecord(collectionName, filter) {
+  await init();
+  const result = await workflowCollection(collectionName).deleteOne(filter);
+  return result.deletedCount > 0;
+}
+
+async function deleteRecords(collectionName, filter) {
+  await init();
+  const result = await workflowCollection(collectionName).deleteMany(filter);
+  return result.deletedCount;
+}
+
 function profileDocument(userId, profile) {
   const document = { ...profile, user_id: userId };
   delete document._id;
@@ -208,7 +335,7 @@ function profileDocument(userId, profile) {
 
 async function createOrUpdateStudentProfile(userId, profile) {
   await init();
-  if (!userId || !profile) return null;
+  if (isMissingValue(userId) || !profile) return null;
   const document = profileDocument(userId, profile);
   await studentProfileCollection().updateOne(
     profileUserFilter(userId),
@@ -220,7 +347,7 @@ async function createOrUpdateStudentProfile(userId, profile) {
 
 async function getStudentProfileByUserId(userId) {
   await init();
-  if (!userId) return null;
+  if (isMissingValue(userId)) return null;
   return studentProfileCollection().findOne(
     profileUserFilter(userId),
     { projection: { _id: 0 } }
@@ -229,7 +356,7 @@ async function getStudentProfileByUserId(userId) {
 
 async function getCompanyProfileByUserId(userId) {
   await init();
-  if (!userId) return null;
+  if (isMissingValue(userId)) return null;
   return companyProfileCollection().findOne(
     profileUserFilter(userId),
     { projection: { _id: 0 } }
@@ -238,7 +365,7 @@ async function getCompanyProfileByUserId(userId) {
 
 async function createOrUpdateCompanyProfile(userId, profile) {
   await init();
-  if (!userId || !profile) return null;
+  if (isMissingValue(userId) || !profile) return null;
   const document = profileDocument(userId, profile);
   await companyProfileCollection().updateOne(
     profileUserFilter(userId),
@@ -256,6 +383,13 @@ module.exports = {
   getUserByIdentity,
   getUserById,
   getAllUsers,
+  nextSequence,
+  listRecords,
+  getRecord,
+  insertRecord,
+  updateRecord,
+  deleteRecord,
+  deleteRecords,
   createOrUpdateStudentProfile,
   getStudentProfileByUserId,
   createOrUpdateCompanyProfile,

@@ -16,7 +16,7 @@ Files changed (high level):
 - .env.example — clarified environment variables for AI provider configuration
 
 How to test locally:
-1. Start the server (from project root): `node server.js` (or use the project's preferred start command).
+1. Start the server (from project root): `node backend/server.js` (or use the project's preferred start command).
 2. Open: http://localhost:3000 in a Chromium-based browser (Chrome/Edge recommended).
 3. Navigate: Student Portal → Voice Interview Prep.
 4. Click Start → Click the Listen / microphone button and grant mic permission when prompted.
