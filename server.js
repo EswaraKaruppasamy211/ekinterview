@@ -28,7 +28,8 @@ if (fs.existsSync(envPath)) {
 
 const userDb = require('./backend/db');
 
-const port = Number(process.env.PORT) || 3000;
+const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 3000;
+const host = process.env.HOST || '0.0.0.0';
 const repoRoot = __dirname;
 const uploadsDir = process.env.VERCEL ? path.join('/tmp', 'skillbridge-uploads') : path.join(repoRoot, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -969,13 +970,13 @@ const server = http.createServer(async (req, res) => {
 
 if (require.main === module) {
   ensurePersistentUsersLoaded().then(() => {
-    server.listen(port, () => {
+    server.listen(port, host, () => {
       console.log(`================================================================`);
-      console.log(` SkillBridge Unique 3-Portal Backend Engine Running on Port ${port}`);
+      console.log(` SkillBridge Unique 3-Portal Backend Engine Running on ${host}:${port}`);
       console.log(`================================================================`);
     });
   }).catch(error => {
-    console.error('Persistent authentication initialization failed:', error);
+    console.error('Persistent authentication initialization failed. The server will not start:', error && error.stack ? error.stack : error);
     process.exitCode = 1;
   });
 }
