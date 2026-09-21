@@ -28,7 +28,7 @@ if (fs.existsSync(envPath)) {
 
 const userDb = require('./backend/db');
 
-const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 3000;
+const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 10000;
 const host = process.env.HOST || '0.0.0.0';
 const repoRoot = __dirname;
 const uploadsDir = process.env.VERCEL ? path.join('/tmp', 'skillbridge-uploads') : path.join(repoRoot, 'uploads');
@@ -959,16 +959,23 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  ensurePersistentUsersLoaded().then(() => {
-    server.listen(port, host, () => {
-      console.log(`================================================================`);
-      console.log(` SkillBridge Unique 3-Portal Backend Engine Running on ${host}:${port}`);
-      console.log(`================================================================`);
-    });
-  }).catch(error => {
-    console.error('Persistent authentication initialization failed. The server will not start:', error && error.stack ? error.stack : error);
-    process.exitCode = 1;
-  });
+  async function startServer() {
+    try {
+      console.log('Starting SkillBridge backend...');
+      console.log(`MongoDB configuration: ${process.env.MONGODB_URI ? 'MONGODB_URI' : (process.env.MONGODB_URL ? 'MONGODB_URL' : 'missing')}`);
+
+      await ensurePersistentUsersLoaded();
+
+      server.listen(port, host, () => {
+        console.log(`SkillBridge backend running on ${host}:${port}`);
+      });
+    } catch (error) {
+      console.error('SERVER STARTUP ERROR:', error && error.stack ? error.stack : error);
+      process.exit(1);
+    }
+  }
+
+  startServer();
 }
 
 module.exports = server;
