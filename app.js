@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function apiFetch(endpoint, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
     const data = await res.json();
@@ -128,9 +128,9 @@ function showAppWorkspace() {
   document.getElementById('guest-nav-controls').classList.add('hidden');
   document.getElementById('user-nav-controls').classList.remove('hidden');
 
-  const name = (currentProfile && currentProfile.name) || (currentUser && currentUser.companyName) || (currentUser && currentUser.collegeName) || 'User';
+  const name = (currentProfile && currentProfile.name) || (currentUser && (currentUser.fullName || currentUser.companyName || currentUser.collegeName)) || 'User';
   document.getElementById('user-display-name').textContent = name;
-  document.getElementById('user-display-id').textContent = currentUser.role === 'company' ? `COMPANY (${currentUser.companyId || 'CMP-10001'})` : (currentUser.role === 'college' ? 'UNIVERSITY ADMIN' : (currentProfile ? currentProfile.student_id : 'STUDENT'));
+  document.getElementById('user-display-id').textContent = currentUser.role === 'company' ? `COMPANY (${currentUser.companyId || 'CMP-10001'})` : (currentUser.role === 'college' ? 'UNIVERSITY ADMIN' : (currentUser.role === 'faculty' ? 'FACULTY' : (currentProfile ? currentProfile.student_id : 'STUDENT')));
 
   renderPortalState(currentRole);
   if (currentRole === 'student' && currentProfile && currentProfile.onboarding_complete === false) navigateTo('profile');
@@ -152,6 +152,10 @@ function switchPortalRole(targetRole) {
     openCollegeAuthModal('login');
     return;
   }
+  if (targetRole === 'faculty' && (!currentUser || currentUser.role !== 'faculty')) {
+    openFacultyAuthModal('login');
+    return;
+  }
 
   currentRole = targetRole;
   renderPortalState(targetRole);
@@ -163,7 +167,7 @@ function renderPortalState(role) {
   if (pill) pill.classList.add('active');
 
   const badge = document.getElementById('portal-badge');
-  if (badge) badge.textContent = role === 'company' ? 'Recruiter Module' : (role === 'college' ? 'University Admin' : 'Student Module');
+  if (badge) badge.textContent = role === 'company' ? 'Recruiter Module' : (role === 'college' ? 'University Admin' : (role === 'faculty' ? 'Faculty Module' : 'Student Module'));
 
   document.querySelectorAll('.role-sidebar-group').forEach(group => group.classList.add('hidden'));
   const targetGroup = document.getElementById(`sidebar-${role}-links`);
@@ -172,6 +176,7 @@ function renderPortalState(role) {
   if (role === 'student') navigateTo('dashboard');
   else if (role === 'company') navigateTo('company-dashboard');
   else if (role === 'college') navigateTo('college-dashboard');
+  else if (role === 'faculty') navigateTo('faculty-dashboard');
 }
 
 function navigateToRoleHome() {
@@ -179,6 +184,10 @@ function navigateToRoleHome() {
 }
 
 function navigateTo(viewId) {
+  if (viewId.indexOf('faculty-') === 0 && (!currentUser || currentUser.role !== 'faculty')) {
+    openFacultyAuthModal('login');
+    return;
+  }
   closeMobileDrawer();
 
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
@@ -222,6 +231,7 @@ function navigateTo(viewId) {
   else if (viewId === 'talent-finder') loadTalentFinder();
   else if (viewId === 'college-dashboard') loadCollegeDashboard();
   else if (viewId === 'college-students') loadCollegeStudentDirectory();
+  else if (viewId === 'faculty-dashboard') loadFacultyResource();
 }
 
 // STUDENT AUTH HANDLERS
@@ -925,6 +935,82 @@ function finishVoiceInterview() {
   `;
   setInterviewStatus('Session complete');
   if ('speechSynthesis' in window) speakInterviewQuestion(voiceInterview.language === 'ta-IN' ? 'நன்றி. உங்கள் நேர்காணல் பயிற்சி முடிந்தது. உங்களின் பதில்களை மீண்டும் படித்து, சிறப்பான பதிலை உருவாக்குங்கள்.' : 'Thank you. Your interview practice is complete. Review your answers and aim for clearer examples and measurable results.');
+}
+
+// FACULTY AUTH HANDLERS
+function openFacultyAuthModal(tab = 'login') { openModal('faculty-auth-modal'); switchFacultyAuthTab(tab); }
+function switchFacultyAuthTab(tab) {
+  const login = document.getElementById('faculty-login-form'), register = document.getElementById('faculty-register-form');
+  const title = document.getElementById('faculty-auth-title'), isLogin = tab === 'login';
+  if (!login || !register) return;
+  login.classList.toggle('hidden', !isLogin); register.classList.toggle('hidden', isLogin);
+  if (title) title.innerHTML = isLogin ? '<i class="fa-solid fa-user-tie text-purple"></i> Faculty Sign In' : '<i class="fa-solid fa-user-plus text-purple"></i> Register Faculty Account';
+  if (isLogin) resetLoginForm('faculty-login-form', 'fac-login-password-block', 'fac-login-pass', 'fac-login-submit');
+}
+async function handleFacultyLoginSubmit(event) {
+  event.preventDefault();
+  const identity = document.getElementById('fac-login-user').value.trim().toLowerCase(), password = document.getElementById('fac-login-pass').value.trim();
+  try {
+    if (!await checkLoginEmail('faculty-login-form', identity, 'faculty', 'fac-login-password-block', 'fac-login-pass', 'fac-login-submit')) return;
+    const data = await apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ identity, password, role: 'faculty' }) });
+    authToken = data.token; localStorage.setItem('sb_token', authToken); currentUser = data.user; currentProfile = null; currentRole = 'faculty';
+    closeModal('faculty-auth-modal'); showAppWorkspace(); switchPortalRole('faculty');
+  } catch (err) { alert(err.message || 'Faculty sign in failed.'); }
+}
+async function handleFacultyRegisterSubmit(event) {
+  event.preventDefault();
+  const fullName = document.getElementById('fac-reg-name').value.trim(), email = document.getElementById('fac-reg-email').value.trim().toLowerCase();
+  const collegeName = document.getElementById('fac-reg-college').value.trim(), department = document.getElementById('fac-reg-department').value.trim(), password = document.getElementById('fac-reg-pass').value.trim();
+  try {
+    const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, collegeName, department, password, role: 'faculty' }) });
+    authToken = data.token; localStorage.setItem('sb_token', authToken); currentUser = data.user; currentProfile = null; currentRole = 'faculty';
+    closeModal('faculty-auth-modal'); showAppWorkspace(); switchPortalRole('faculty');
+  } catch (err) { alert(err.message || 'Faculty registration failed.'); }
+}
+
+// FACULTY ACADEMIA WORKSPACE
+const FACULTY_RESOURCES = [
+  ['faculty-internships', 'Faculty internships'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs'], ['mentorship', 'Mentorship'], ['workshops', 'Workshops'], ['guest-lectures', 'Guest lectures'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['consultancy', 'Consultancy'], ['internship-progress', 'Progress & feedback'], ['portfolio-extensions', 'Portfolio']
+];
+let facultyItems = [];
+function navigateToFacultyResource(resource) {
+  if (currentRole !== 'faculty' || !currentUser || currentUser.role !== 'faculty') { openFacultyAuthModal('login'); return; }
+  const select = document.getElementById('faculty-resource'); if (select) select.value = resource; navigateTo('faculty-dashboard');
+}
+function facultyResource() { return document.getElementById('faculty-resource')?.value || FACULTY_RESOURCES[0][0]; }
+async function loadFacultyResource() {
+  const select = document.getElementById('faculty-resource'); if (!select) return;
+  if (!select.options.length) select.innerHTML = FACULTY_RESOURCES.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  try { const data = await apiFetch(`/academia/${facultyResource()}`); facultyItems = Array.isArray(data) ? data : (data.items || []); renderFacultyItems(); }
+  catch (err) { facultyItems = []; renderFacultyItems(err.message); }
+}
+function facultyText(value) { return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
+function filterFacultyItems() { renderFacultyItems(); }
+function renderFacultyItems(errorMessage = '') {
+  const target = document.getElementById('faculty-items'); if (!target) return;
+  if (errorMessage) { target.innerHTML = `<div class="saas-card"><p style="color:var(--text-muted);margin:0;">${facultyText(errorMessage)}</p></div>`; return; }
+  const query = (document.getElementById('faculty-search')?.value || '').toLowerCase();
+  const items = facultyItems.filter(item => !query || JSON.stringify(item).toLowerCase().includes(query));
+  if (!items.length) { target.innerHTML = '<div class="saas-card"><p style="color:var(--text-muted);margin:0;">No listings yet. Create the first one for this feature.</p></div>'; return; }
+  target.innerHTML = items.map(item => `<div class="saas-card"><div class="flex-between gap-3 mb-2"><h3 style="font-weight:700;margin:0;">${facultyText(item.title || item.name || 'Academia listing')}</h3><span class="badge-saas badge-blue">${facultyText(item.status || 'open')}</span></div><p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem;">${facultyText(item.description || item.topic || 'Details not provided.')}</p><div class="text-xs mb-3" style="color:var(--text-muted);">${facultyText(item.date || item.deadline || item.partner || '')}</div><div class="flex-align gap-2 flex-wrap"><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','status')">Track status</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','apply')">Apply</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','register')">Register</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','feedback')">Feedback</button></div></div>`).join('');
+}
+function openFacultyCreateForm() { document.getElementById('faculty-create-panel')?.classList.remove('hidden'); const label = FACULTY_RESOURCES.find(([value]) => value === facultyResource()); const target = document.getElementById('faculty-create-label'); if (target) target.textContent = label ? label[1].toLowerCase() : 'listing'; }
+function closeFacultyCreateForm() { document.getElementById('faculty-create-panel')?.classList.add('hidden'); }
+async function handleFacultyCreate(event) {
+  event.preventDefault();
+  try {
+    await apiFetch(`/academia/${facultyResource()}`, { method: 'POST', body: JSON.stringify({ title: document.getElementById('faculty-title').value.trim(), description: document.getElementById('faculty-description').value.trim(), date: document.getElementById('faculty-date').value, partner: document.getElementById('faculty-partner').value.trim() }) });
+    document.getElementById('faculty-create-form').reset(); closeFacultyCreateForm(); await loadFacultyResource();
+  } catch (err) { alert(err.message || 'Unable to create listing.'); }
+}
+async function facultyLifecycle(id, operation) {
+  try {
+    if (operation === 'status') { const data = await apiFetch(`/academia/${facultyResource()}/${encodeURIComponent(id)}/status`); alert(`Status: ${data.status || 'unknown'}`); return; }
+    const body = operation === 'feedback' ? { rating: 5, comment: prompt('Add feedback') || '' } : {};
+    if (operation === 'feedback' && !body.comment) return;
+    await apiFetch(`/academia/${facultyResource()}/${encodeURIComponent(id)}/${operation}`, { method: 'POST', body: JSON.stringify(body) });
+    alert(operation === 'apply' ? 'Application submitted.' : operation === 'register' ? 'Registration saved.' : 'Feedback submitted.'); await loadFacultyResource();
+  } catch (err) { alert(err.message || `Unable to ${operation}.`); }
 }
 
 // STUDENT LOADERS

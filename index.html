@@ -84,7 +84,7 @@
           Academia–Industry Collaboration Platform
         </h1>
         <p style="color: var(--text-secondary); margin-bottom: 1.75rem; font-size: 0.95rem; line-height: 1.6;">
-          Unified 3-Portal ecosystem connecting Students, Corporate Recruiters, and University Placement Admins with AI Skill Scores and isolated ATS workflows.
+          Unified 4-Portal ecosystem connecting Students, Corporate Recruiters, University Placement Admins, and Faculty with AI Skill Scores and isolated workflows.
         </p>
         <div class="flex-col gap-3">
           <button class="btn-saas btn-primary w-full" style="padding: 0.85rem 1.5rem; font-size: 0.95rem; justify-content: flex-start;" onclick="openStudentAuthModal('login')">
@@ -95,6 +95,9 @@
           </button>
           <button class="btn-saas btn-outline w-full" style="padding: 0.85rem 1.5rem; font-size: 0.95rem; justify-content: flex-start;" onclick="switchPortalRole('college')">
             <i class="fa-solid fa-university" style="width: 24px; color: var(--text-purple);"></i> <span>University Placement Admin</span>
+          </button>
+          <button class="btn-saas btn-outline w-full" style="padding: 0.85rem 1.5rem; font-size: 0.95rem; justify-content: flex-start;" onclick="switchPortalRole('faculty')">
+            <i class="fa-solid fa-user-tie" style="width: 24px; color: var(--text-purple);"></i> <span>Faculty Portal</span>
           </button>
         </div>
       </div>
@@ -123,6 +126,18 @@
         <a href="#" class="sidebar-item" data-target="campus-drives" onclick="navigateTo('campus-drives')"><i class="fa-solid fa-building-columns"></i> <span>Campus Drives</span></a>
         <a href="#" class="sidebar-item" data-target="placement" onclick="navigateTo('placement')"><i class="fa-solid fa-briefcase-medical"></i> <span>Placement</span></a>
         <a href="#" class="sidebar-item" data-target="settings" onclick="navigateTo('settings')"><i class="fa-solid fa-gear"></i> <span>Settings</span></a>
+      </div>
+
+      <!-- FACULTY SIDEBAR LINKS -->
+      <div id="sidebar-faculty-links" class="role-sidebar-group hidden">
+        <div class="menu-label">Faculty Portal</div>
+        <a href="#" class="sidebar-item active" data-target="faculty-dashboard" onclick="navigateTo('faculty-dashboard')"><i class="fa-solid fa-house"></i> <span>Faculty Dashboard</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('learning-programs')"><i class="fa-solid fa-book-open"></i> <span>Academia Programs</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('faculty-internships')"><i class="fa-solid fa-briefcase"></i> <span>Internships</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('mentorship')"><i class="fa-solid fa-user-friends"></i> <span>Mentorship</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('workshops')"><i class="fa-solid fa-chalkboard-user"></i> <span>Workshops</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('research-collaborations')"><i class="fa-solid fa-flask-vial"></i> <span>Research</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('portfolio-extensions')"><i class="fa-solid fa-folder-open"></i> <span>Portfolio</span></a>
       </div>
 
       <!-- COMPANY RECRUITER SIDEBAR LINKS -->
@@ -462,6 +477,23 @@
       </section>
 
       <!-- COMPANY RECRUITER MODULE VIEWS -->
+      <section id="view-faculty-dashboard" class="workspace-view hidden">
+        <div class="flex-between mb-4"><div><h1 style="font-size:1.6rem;font-weight:800;">Faculty Workspace</h1><p style="color:var(--text-muted);">Discover, publish, and track academia–industry opportunities.</p></div><span class="badge-saas badge-purple">Faculty Portal</span></div>
+        <div class="saas-card mb-4"><div class="grid-3 gap-3">
+          <div><label class="block text-xs font-bold mb-1">Academia feature</label><select id="faculty-resource" class="saas-input" onchange="loadFacultyResource()"></select></div>
+          <div><label class="block text-xs font-bold mb-1">Search</label><input id="faculty-search" class="saas-input" placeholder="Search title, topic, or partner" oninput="filterFacultyItems()" /></div>
+          <div class="flex-align" style="align-items:flex-end;"><button class="btn-saas btn-primary w-full" onclick="openFacultyCreateForm()"><i class="fa-solid fa-plus"></i> Create listing</button></div>
+        </div></div>
+        <div id="faculty-create-panel" class="saas-card mb-4 hidden"><div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Create <span id="faculty-create-label">listing</span></h3><button class="btn-saas btn-outline" onclick="closeFacultyCreateForm()">Cancel</button></div>
+          <form id="faculty-create-form" onsubmit="handleFacultyCreate(event)"><div class="grid-3 gap-3">
+            <div><label class="block text-xs font-bold mb-1">Title *</label><input id="faculty-title" class="saas-input" required /></div>
+            <div><label class="block text-xs font-bold mb-1">Date / deadline</label><input id="faculty-date" type="date" class="saas-input" /></div>
+            <div><label class="block text-xs font-bold mb-1">Mode / partner</label><input id="faculty-partner" class="saas-input" placeholder="Online · Industry partner" /></div>
+          </div><div class="mt-3"><label class="block text-xs font-bold mb-1">Description</label><textarea id="faculty-description" class="saas-input" rows="3" placeholder="Add details, eligibility, and outcomes"></textarea></div><button class="btn-saas btn-primary mt-3" type="submit">Publish listing</button></form>
+        </div>
+        <div id="faculty-items" class="grid-2 gap-4"></div>
+      </section>
+
       <section id="view-company-dashboard" class="workspace-view hidden">
         <div class="flex-between mb-6">
           <div>
@@ -905,6 +937,14 @@
         <button type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:0.75rem;">Register University Admin</button>
         <p class="text-xs text-center" style="color:var(--text-muted);">Already registered? <a href="#" onclick="switchCollegeAuthTab('login')" style="color:var(--text-purple); font-weight:700;">Sign In</a></p>
       </form>
+    </div>
+  </div>
+
+  <div id="faculty-auth-modal" class="modal-backdrop hidden">
+    <div class="modal-content" style="max-width:460px;padding:2rem;">
+      <div class="flex-between mb-4"><h3 id="faculty-auth-title" style="font-weight:800;"><i class="fa-solid fa-user-tie text-purple"></i> Faculty Sign In</h3><button class="btn-saas btn-outline" style="padding:.3rem .6rem;" onclick="closeModal('faculty-auth-modal')"><i class="fa-solid fa-xmark"></i></button></div>
+      <form id="faculty-login-form" onsubmit="handleFacultyLoginSubmit(event)"><div class="mb-3"><label class="block text-xs font-bold mb-1">Email Address *</label><input type="email" id="fac-login-user" class="saas-input" required /></div><div id="fac-login-password-block" class="mb-4 hidden"><label class="block text-xs font-bold mb-1">Password *</label><input type="password" id="fac-login-pass" class="saas-input" /></div><button id="fac-login-submit" type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:.75rem;">Continue</button><p class="text-xs text-center" style="color:var(--text-muted);">New to the faculty portal? <a href="#" onclick="switchFacultyAuthTab('register')" style="color:var(--text-purple);font-weight:700;">Register here</a></p></form>
+      <form id="faculty-register-form" class="hidden" onsubmit="handleFacultyRegisterSubmit(event)"><div class="mb-2"><label class="block text-xs font-bold mb-1">Faculty Name *</label><input id="fac-reg-name" class="saas-input" required /></div><div class="mb-2"><label class="block text-xs font-bold mb-1">Faculty Email *</label><input type="email" id="fac-reg-email" class="saas-input" required /></div><div class="mb-2"><label class="block text-xs font-bold mb-1">College / University</label><input id="fac-reg-college" class="saas-input" /></div><div class="mb-2"><label class="block text-xs font-bold mb-1">Department</label><input id="fac-reg-department" class="saas-input" /></div><div class="mb-3"><label class="block text-xs font-bold mb-1">Password *</label><input type="password" id="fac-reg-pass" class="saas-input" required /></div><button type="submit" class="btn-saas btn-primary w-full mb-3" style="padding:.75rem;">Register Faculty Account</button><p class="text-xs text-center" style="color:var(--text-muted);">Already registered? <a href="#" onclick="switchFacultyAuthTab('login')" style="color:var(--text-purple);font-weight:700;">Sign in</a></p></form>
     </div>
   </div>
 
