@@ -27,6 +27,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const userDb = require('./backend/db');
+const academiaDb = require('./backend/academia-features');
 
 const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 10000;
 const host = process.env.HOST || '0.0.0.0';
@@ -332,6 +333,70 @@ const server = http.createServer(async (req, res) => {
     await ensurePersistentUsersLoaded();
 
     // ----------------------------------------------------
+    // ACADEMIA / FACULTY FEATURE APIs
+    // ----------------------------------------------------
+    const academiaMatch = pathname.match(/^\/api\/(academia|faculty)\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?$/);
+    if (academiaMatch) {
+      const [, , resourceName, itemId, operation] = academiaMatch;
+      const resource = academiaDb.normalizeResource(resourceName);
+      if (!academiaDb.RESOURCE_NAMES.includes(resource)) return sendJSON(404, { error: 'Academia resource not found.' });
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+
+      const managerRoles = ['faculty', 'college', 'admin', 'university_admin'];
+      const participantRoles = ['student', 'faculty', 'college', 'admin', 'university_admin'];
+      const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await parseJSON(req) : {};
+
+      if (!itemId && req.method === 'GET') {
+        return sendJSON(200, await academiaDb.list(resource, Object.fromEntries(parsedUrl.searchParams), authUser));
+      }
+      if (!itemId && req.method === 'POST') {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Faculty or institutional access required.' });
+        return sendJSON(201, { success: true, item: await academiaDb.create(resource, body, authUser) });
+      }
+      if (!itemId) return sendJSON(405, { error: 'Method not allowed.' });
+
+      if (operation === 'apply' && req.method === 'POST') {
+        if (!participantRoles.includes(authUser.role)) return sendJSON(403, { error: 'Participant access required.' });
+        const item = await academiaDb.apply(resource, itemId, authUser, body);
+        return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (operation === 'register' && req.method === 'POST') {
+        if (!participantRoles.includes(authUser.role)) return sendJSON(403, { error: 'Participant access required.' });
+        const item = await academiaDb.register(resource, itemId, authUser, body);
+        return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (operation === 'status' && req.method === 'GET') {
+        const item = await academiaDb.status(resource, itemId, authUser);
+        return item ? sendJSON(200, item) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (operation === 'status' && req.method === 'POST') {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Faculty or institutional access required.' });
+        const item = await academiaDb.setStatus(resource, itemId, body.status, authUser);
+        return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (operation === 'feedback' && req.method === 'POST') {
+        const item = await academiaDb.feedback(resource, itemId, authUser, body);
+        return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (!operation && req.method === 'GET') {
+        const item = await academiaDb.get(resource, itemId, authUser);
+        return item ? sendJSON(200, item) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (!operation && ['PUT', 'PATCH'].includes(req.method)) {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Faculty or institutional access required.' });
+        const item = await academiaDb.update(resource, itemId, body, authUser);
+        return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (!operation && req.method === 'DELETE') {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Faculty or institutional access required.' });
+        const removed = await academiaDb.remove(resource, itemId, authUser);
+        return removed ? sendJSON(200, { success: true }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      return sendJSON(405, { error: 'Method not allowed.' });
+    }
+
+    // ----------------------------------------------------
     // SYSTEM & HEALTH API ENDPOINTS
     // ----------------------------------------------------
     if (pathname === '/api/health' && req.method === 'GET') {
@@ -406,7 +471,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/auth/register' && req.method === 'POST') {
-      const { fullName, username, email, mobile, companyName, managerName, collegeName, adminName, role, password } = await parseJSON(req);
+      const { fullName, username, email, mobile, companyName, managerName, collegeName, adminName, department, role, password } = await parseJSON(req);
       const userRole = role || 'student';
       const newId = Date.now();
       const { salt, hash } = hashPassword(password || 'Password@123');
@@ -439,6 +504,28 @@ const server = http.createServer(async (req, res) => {
         const newUser = { ...stored, collegeName, adminName: adminName || 'University Admin', password_hash: hash, salt };
         state.users.push(newUser);
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'college' });
+        return sendJSON(201, { token, user: sanitizeUser(newUser) });
+
+      } else if (userRole === 'faculty') {
+        if (!fullName) return sendJSON(400, { error: 'Faculty name, email, and password required.' });
+        const stored = await userDb.createUser({
+          email: normalizedEmail,
+          username: normalizedUsername,
+          passwordHash: hash,
+          salt,
+          role: 'faculty'
+        });
+        if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
+        const newUser = {
+          ...stored,
+          fullName,
+          collegeName: collegeName || '',
+          department: department || '',
+          password_hash: hash,
+          salt
+        };
+        state.users.push(newUser);
+        const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'faculty' });
         return sendJSON(201, { token, user: sanitizeUser(newUser) });
 
       } else {
@@ -966,6 +1053,7 @@ async function startServer() {
     console.log(`MongoDB URI configured: ${Boolean(process.env.MONGODB_URI || process.env.MONGODB_URL)}`);
 
     await ensurePersistentUsersLoaded();
+    await academiaDb.init();
 
     const listener = server.listen(port, host, () => {
       console.log(`SkillBridge backend running on ${host}:${port}`);
