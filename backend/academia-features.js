@@ -6,7 +6,7 @@ function normalizeResource(value) { const name = String(value || '').trim().toLo
 function assertResource(value) { const name = normalizeResource(value); if (!RESOURCE_NAMES.includes(name)) throw new Error(`Unsupported academia resource: ${value}`); return name; }
 function isAdmin(user) { return user && ['admin','college','university_admin'].includes(user.role); }
 async function query(sql, params) { await init(); return (await pool.query(sql, params)).rows; }
-function scoped(user, extra = [], params = []) {
+function ownerScope(user, extra = [], params = []) {
   if (!isAdmin(user)) { extra.push(`data->>'created_by'=$${params.length + 1}`); params.push(String(user && user.id)); }
   return { extra, params };
 }
@@ -23,12 +23,18 @@ async function list(resource, filter = {}, user) {
     clauses.push(`data->>$${params.length + 1}=$${params.length + 2}`);
     params.push(key, String(value));
   }
-  const scope = scoped(user, clauses, params);
-  return query(`SELECT data FROM academia_records WHERE ${scope.extra.join(' AND ')} ORDER BY created_at DESC`, scope.params).then(items => items.map(item => item.data));
+  return query(`SELECT data FROM academia_records WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC`, params).then(items => items.map(item => item.data));
 }
 async function get(resource, id, user) { const items = await list(resource, { id: String(id) }, user); return items[0] || null; }
-async function update(resource, id, payload, user) { const item = await get(resource, id, user); if (!item) return null; delete payload.id; delete payload.resource; delete payload.created_by; const data = { ...item, ...payload, updated_at: new Date().toISOString() }; await query('UPDATE academia_records SET data=$3::jsonb,updated_at=now() WHERE resource=$1 AND id=$2', [assertResource(resource), String(id), JSON.stringify(data)]); return data; }
-async function remove(resource, id, user) { const item = await get(resource, id, user); if (!item) return false; await query('DELETE FROM academia_records WHERE resource=$1 AND id=$2', [assertResource(resource), String(id)]); return true; }
+async function getOwned(resource, id, user) {
+  const name = assertResource(resource);
+  const params = [name, String(id)];
+  const scope = ownerScope(user, ['resource=$1', 'id=$2'], params);
+  const items = await query(`SELECT data FROM academia_records WHERE ${scope.extra.join(' AND ')}`, scope.params);
+  return items[0] ? items[0].data : null;
+}
+async function update(resource, id, payload, user) { const item = await getOwned(resource, id, user); if (!item) return null; delete payload.id; delete payload.resource; delete payload.created_by; const data = { ...item, ...payload, updated_at: new Date().toISOString() }; await query('UPDATE academia_records SET data=$3::jsonb,updated_at=now() WHERE resource=$1 AND id=$2', [assertResource(resource), String(id), JSON.stringify(data)]); return data; }
+async function remove(resource, id, user) { const item = await getOwned(resource, id, user); if (!item) return false; await query('DELETE FROM academia_records WHERE resource=$1 AND id=$2', [assertResource(resource), String(id)]); return true; }
 async function append(resource, id, field, entry, user) { const item = await get(resource, id, user); if (!item) return null; const data = { ...item, [field]: [...(Array.isArray(item[field]) ? item[field] : []), entry], updated_at: new Date().toISOString() }; await query('UPDATE academia_records SET data=$3::jsonb,updated_at=now() WHERE resource=$1 AND id=$2', [assertResource(resource), String(id), JSON.stringify(data)]); return data; }
 const apply = (r, id, user, data = {}) => append(r, id, 'applications', { user_id: String(user.id), ...data }, user);
 const register = (r, id, user, data = {}) => append(r, id, 'registrations', { user_id: String(user.id), ...data }, user);

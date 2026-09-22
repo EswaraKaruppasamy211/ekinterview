@@ -77,7 +77,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-async function apiFetch(endpoint, options = {}) {
+async function apiFetch(endpoint, options = {}, legacyMethod) {
+  if (legacyMethod) {
+    options = {
+      method: legacyMethod,
+      ...(legacyMethod === 'GET' ? {} : { body: JSON.stringify(options || {}) })
+    };
+  }
+  if (endpoint.startsWith('/api/')) endpoint = endpoint.slice(4);
   const headers = { ...(options.headers || {}) };
   if (!headers['Content-Type'] && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
@@ -1330,7 +1337,10 @@ async function loadProfileView() {
       const incomplete = p.onboarding_complete === false;
       onboardingCard.classList.toggle('hidden', !incomplete);
     }
-  } catch (e) {}
+  } catch (e) {
+    const overview = document.getElementById('college-overview-cards');
+    if (overview) overview.innerHTML = `<div class="saas-card">Unable to load university analytics. ${e.message || 'Please try again later.'}</div>`;
+  }
 }
 
 async function extractPdfText(file) {
@@ -1853,20 +1863,19 @@ async function handleAiChatSubmit(event) {
 }
 
 async function loadAISkillAnalyzerView() {
+  const breakdownEl = document.getElementById('ai-score-breakdown');
+  const matchEl = document.getElementById('ai-match-pct');
   try {
-    const data = await apiFetch('/ai/skill-analysis');
-    const overview = data.overallScore || 0;
-    const breakdownEl = document.getElementById('ai-score-breakdown');
-    const matchEl = document.getElementById('ai-match-pct');
+    if (breakdownEl) breakdownEl.innerHTML = '<div class="saas-card">Loading skill analysis...</div>';
+    const data = await apiFetch('/api/student/skill-analysis');
+    const overview = Number(data.skillScore ?? data.score ?? 0);
     if (matchEl) matchEl.textContent = `${overview}% Match`;
     if (breakdownEl) {
-      const cards = (data.skills || []).map(skill => `
+      const cards = (data.skillGaps || []).map(gap => `
         <div class="saas-card mb-3">
-          <div class="flex-between mb-2"><h4 style="font-weight: 700;">${skill.skillName}</h4><span class="badge-saas badge-purple">${skill.score}/100</span></div>
-          <div class="text-xs mb-2" style="color: var(--text-muted);">Confidence: ${skill.confidence}</div>
-          <div class="text-sm mb-2"><strong>Evidence:</strong> ${skill.evidence.join('; ')}</div>
-          <div class="text-sm mb-2"><strong>Strengths:</strong> ${skill.strengths.join('; ')}</div>
-          <div class="text-sm"><strong>Improve:</strong> ${skill.recommendations.join('; ')}</div>
+          <div class="flex-between mb-2"><h4 style="font-weight: 700;">${gap.skill}</h4><span class="badge-saas badge-purple">${gap.priority || 'medium'} priority</span></div>
+          <div class="text-sm mb-2"><strong>Industry demand:</strong> ${gap.demand || 0} active opportunities</div>
+          <div class="text-sm"><strong>Recommended action:</strong> Complete a learning or training program focused on ${gap.skill}.</div>
         </div>
       `).join('');
 
@@ -1874,12 +1883,10 @@ async function loadAISkillAnalyzerView() {
         <div class="saas-card mt-2">
           <h3 style="font-weight:800; margin-bottom: 1rem;">Skill-Fit Score Breakdown</h3>
           <div class="grid-2 gap-3 mb-3">
-            <div><strong>Assessment:</strong> ${data.factors?.assessment || 0}%</div>
-            <div><strong>Projects:</strong> ${data.factors?.projects || 0}%</div>
-            <div><strong>Certificates:</strong> ${data.factors?.certificates || 0}%</div>
-            <div><strong>Internships:</strong> ${data.factors?.internships || 0}%</div>
-            <div><strong>Resume:</strong> ${data.factors?.resume || 0}%</div>
-            <div><strong>Self Rating:</strong> ${data.factors?.selfRating || 0}%</div>
+            <div><strong>Overall score:</strong> ${overview}%</div>
+            <div><strong>Skill gaps:</strong> ${(data.skillGaps || []).length}</div>
+            <div><strong>Recommendations:</strong> ${(data.recommendations || []).length}</div>
+            <div><strong>Department:</strong> ${data.profile?.department || 'Not provided'}</div>
           </div>
           ${cards || '<div class="saas-card">Add skills and evidence to generate a real analysis.</div>'}
         </div>
@@ -1887,6 +1894,8 @@ async function loadAISkillAnalyzerView() {
     }
   } catch (e) {
     console.error('AI skill analysis failed', e);
+    if (matchEl) matchEl.textContent = 'Unavailable';
+    if (breakdownEl) breakdownEl.innerHTML = `<div class="saas-card">Unable to load skill analysis. ${e.message || 'Please try again later.'}</div>`;
   }
 }
 async function loadOpportunitiesView() {
@@ -2926,19 +2935,36 @@ async function companyCompareCandidates() {
   `;
 }
 
-function renderCompanyAnalytics() {
+async function renderCompanyAnalytics() {
   const container = document.getElementById('company-analytics-content');
   if (!container) return;
-  container.innerHTML = `
-    <div class="grid-3 gap-4 mb-4">${companyRecruitmentMock.analytics.map(item => `<div class="saas-card"><div style="font-size:0.72rem; color:var(--text-muted);">${item.label}</div><div style="font-size:1.4rem; font-weight:800; margin-top:0.35rem;">${item.value}</div></div>`).join('')}</div>
-    <div class="saas-card">
-      <h3 style="font-weight:800; margin-bottom:1rem;">Applications vs Hires</h3>
-      <div style="display:flex; gap:1rem; align-items:end; height:180px;">
-        <div style="flex:1; display:flex; align-items:end; justify-content:center; height:100%;"><div style="width:50%; height:72%; background:linear-gradient(180deg,#38bdf8,#1d4ed8); border-radius:12px 12px 0 0;"></div></div>
-        <div style="flex:1; display:flex; align-items:end; justify-content:center; height:100%;"><div style="width:50%; height:33%; background:linear-gradient(180deg,#34d399,#15803d); border-radius:12px 12px 0 0;"></div></div>
+  container.innerHTML = '<div class="saas-card">Loading recruitment analytics...</div>';
+  try {
+    const data = await apiFetch('/api/company/analytics/dashboard');
+    const funnel = data.funnel || {};
+    const metrics = [
+      ['Applications', data.totalApplications || 0],
+      ['Shortlisted', data.shortlistedCount || 0],
+      ['Selected', data.selectedCount || 0]
+    ];
+    const performance = (data.jobPerformance || []).map(job => `
+      <tr><td>${job.jobTitle || 'Untitled role'}</td><td>${job.applicationCount || 0}</td><td>${Number(job.avgMatchScore || 0).toFixed(1)}%</td></tr>
+    `).join('');
+    container.innerHTML = `
+      <div class="grid-3 gap-4 mb-4">${metrics.map(([label, value]) => `<div class="saas-card"><div style="font-size:0.72rem; color:var(--text-muted);">${label}</div><div style="font-size:1.4rem; font-weight:800; margin-top:0.35rem;">${value}</div></div>`).join('')}</div>
+      <div class="grid-2 gap-4">
+        <div class="saas-card"><h3 style="font-weight:800; margin-bottom:1rem;">Recruitment funnel</h3>
+          ${Object.entries(funnel).map(([stage, count]) => `<div class="flex-between mb-2"><span>${stage}</span><strong>${count || 0}</strong></div>`).join('') || '<div>No funnel data available.</div>'}
+        </div>
+        <div class="saas-card"><h3 style="font-weight:800; margin-bottom:1rem;">Job performance</h3>
+          <table class="saas-table"><thead><tr><th>Role</th><th>Applications</th><th>Avg. match</th></tr></thead><tbody>${performance || '<tr><td colspan="3">No job performance data available.</td></tr>'}</tbody></table>
+        </div>
       </div>
-    </div>
-  `;
+    `;
+  } catch (error) {
+    console.error('Company analytics failed', error);
+    container.innerHTML = `<div class="saas-card">Unable to load recruitment analytics. ${error.message || 'Please try again later.'}</div>`;
+  }
 }
 
 function renderCompanyMessages() {
@@ -2990,13 +3016,26 @@ function renderCompanySettings() {
 // COLLEGE ADMIN LOADERS
 async function loadCollegeDashboard() {
   try {
-    const data = await apiFetch('/college/dashboard');
+    const data = await apiFetch('/api/college/dashboard');
+    const analytics = await apiFetch('/api/college/analytics');
     document.getElementById('col-total-students').textContent = data.total_students;
     document.getElementById('col-placed-students').textContent = data.placed_students;
     document.getElementById('col-placement-rate').textContent = `${data.placement_rate}%`;
 
     const tbody = document.getElementById('college-dept-table');
     tbody.innerHTML = (data.department_stats || []).map(d => `<tr><td style="font-weight:700;">${d.name}</td><td>${d.total}</td><td style="color:var(--text-emerald); font-weight:800;">${d.placed}</td><td><span class="badge-saas badge-emerald">${d.percentage}%</span></td></tr>`).join('');
+    const overview = document.getElementById('college-overview-cards');
+    if (overview) {
+      overview.innerHTML = [
+        ['Students', analytics.students],
+        ['Skills recorded', analytics.skills],
+        ['Internships', analytics.internships],
+        ['Applications', analytics.applications],
+        ['Placements', analytics.placements]
+      ].map(([label, value]) => `<div class="saas-card"><div style="font-size:0.72rem;color:var(--text-muted);">${label}</div><div style="font-size:1.4rem;font-weight:800;margin-top:.35rem;">${value || 0}</div></div>`).join('');
+    }
+    const skills = document.getElementById('college-skill-demand-list');
+    if (skills) skills.innerHTML = (analytics.topSkills || []).map(item => `<div class="flex-between mb-2"><span>${item.skill}</span><strong>${item.count}</strong></div>`).join('') || '<div>No skill data available.</div>';
   } catch (e) {}
 }
 
