@@ -587,12 +587,14 @@ const server = http.createServer(async (req, res) => {
           username: normalizedUsername,
           passwordHash: hash,
           salt,
-          role: 'faculty'
+          role: 'faculty',
+          mobile: String(mobile || '').trim()
         });
         if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
         const newUser = {
           ...stored,
           fullName,
+          mobile: String(mobile || '').trim(),
           collegeName: collegeName || '',
           department: department || '',
           password_hash: hash,
