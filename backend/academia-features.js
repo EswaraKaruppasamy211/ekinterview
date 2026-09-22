@@ -36,6 +36,101 @@ let client;
 let database;
 let connectionPromise;
 
+const memoryState = { collections: Object.create(null) };
+
+function getMemoryCollection(name) {
+  const key = String(name || '');
+  if (!memoryState.collections[key]) memoryState.collections[key] = [];
+  return memoryState.collections[key];
+}
+
+function matchesMemoryFilter(doc, filter) {
+  if (!filter || Object.keys(filter).length === 0) return true;
+  if (filter.$or && Array.isArray(filter.$or)) {
+    return filter.$or.some(sub => matchesMemoryFilter(doc, sub));
+  }
+  return Object.entries(filter).every(([key, expected]) => {
+    if (expected && typeof expected === 'object' && expected.$in) return expected.$in.includes(doc[key]);
+    return doc[key] === expected;
+  });
+}
+
+function createMemoryCollection(name) {
+  const collectionName = String(name || '');
+  return {
+    async createIndex() { return null; },
+    async insertOne(document) {
+      const record = { ...document, _id: document && document._id ? document._id : `${collectionName}:${Date.now()}:${Math.random()}` };
+      getMemoryCollection(collectionName).push(record);
+      return { insertedId: record._id };
+    },
+    find(filter = {}) {
+      const records = getMemoryCollection(collectionName).filter(doc => matchesMemoryFilter(doc, filter));
+      return {
+        sort() { return this; },
+        toArray() { return Promise.resolve(records.map(item => ({ ...item }))); }
+      };
+    },
+    async findOne(filter = {}) {
+      const item = getMemoryCollection(collectionName).find(doc => matchesMemoryFilter(doc, filter));
+      return item ? { ...item } : null;
+    },
+    async findOneAndUpdate(filter, update, options = {}) {
+      const existing = getMemoryCollection(collectionName).find(doc => matchesMemoryFilter(doc, filter));
+      if (!existing) {
+        if (options && options.upsert) {
+          const inserted = { ...((filter && filter.$or) ? {} : filter), _id: `${collectionName}:${Date.now()}:${Math.random()}` };
+          if (update && update.$set) Object.assign(inserted, update.$set);
+          getMemoryCollection(collectionName).push(inserted);
+          return { ...inserted };
+        }
+        return null;
+      }
+      if (update && update.$set) Object.assign(existing, update.$set);
+      if (update && update.$push) {
+        Object.entries(update.$push).forEach(([field, value]) => {
+          const arr = Array.isArray(existing[field]) ? existing[field] : [];
+          arr.push(value);
+          existing[field] = arr;
+        });
+      }
+      return { ...existing };
+    },
+    async deleteOne(filter) {
+      const index = getMemoryCollection(collectionName).findIndex(doc => matchesMemoryFilter(doc, filter));
+      if (index === -1) return { deletedCount: 0 };
+      getMemoryCollection(collectionName).splice(index, 1);
+      return { deletedCount: 1 };
+    },
+    async deleteMany(filter) {
+      const remaining = getMemoryCollection(collectionName).filter(doc => !matchesMemoryFilter(doc, filter));
+      const deleted = getMemoryCollection(collectionName).length - remaining.length;
+      memoryState.collections[collectionName] = remaining;
+      return { deletedCount: deleted };
+    },
+    async updateOne(filter, update, options = {}) {
+      const existing = getMemoryCollection(collectionName).find(doc => matchesMemoryFilter(doc, filter));
+      if (!existing && options.upsert) {
+        const inserted = { ...((filter && filter.$or) ? {} : filter), _id: `${collectionName}:${Date.now()}:${Math.random()}` };
+        if (update && update.$set) Object.assign(inserted, update.$set);
+        getMemoryCollection(collectionName).push(inserted);
+        return { matchedCount: 1, modifiedCount: 1 };
+      }
+      if (!existing) return { matchedCount: 0, modifiedCount: 0 };
+      if (update && update.$set) Object.assign(existing, update.$set);
+      if (update && update.$push) {
+        Object.entries(update.$push).forEach(([field, value]) => {
+          const arr = Array.isArray(existing[field]) ? existing[field] : [];
+          arr.push(value);
+          existing[field] = arr;
+        });
+      }
+      return { matchedCount: 1, modifiedCount: 1 };
+    },
+    async command() { return { ok: 1 }; }
+  };
+}
+
 function normalizeResource(resource) {
   const value = String(resource || '').trim().toLowerCase().replace(/_/g, '-');
   return aliases.get(value) || value;
@@ -49,13 +144,21 @@ function assertResource(resource) {
 
 function mongoUrl() {
   const value = process.env.MONGODB_URI || process.env.MONGODB_URL;
-  if (!value) throw new Error('MONGODB_URI or MONGODB_URL is required for academia features.');
-  return value;
+  return value || null;
 }
 
 async function init() {
   if (database) return database;
   if (connectionPromise) return connectionPromise;
+
+  if (!mongoUrl()) {
+    database = {
+      collection: (name) => createMemoryCollection(name),
+      command: async () => ({ ok: 1 })
+    };
+    return database;
+  }
+
   connectionPromise = (async () => {
     const connection = new MongoClient(mongoUrl(), { serverSelectionTimeoutMS: 10000 });
     try {

@@ -1,6 +1,9 @@
 // SkillBridge — Enforced Security Client Engine for Student, Company & College Modules
 
-const API_BASE = '/api';
+const localHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
+const API_BASE = localHosts.has(window.location.hostname)
+  ? '/api'
+  : 'https://interview-wc6b.onrender.com/api';
 
 let currentUser = null;
 let currentProfile = null;
@@ -76,19 +79,48 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function apiFetch(endpoint, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const headers = { ...(options.headers || {}) };
+  if (!headers['Content-Type'] && !(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-    const data = await res.json();
+    const text = await res.text();
+    const trimmed = text.trim();
+    let data = {};
+
+    if (trimmed) {
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      if (contentType.includes('application/json') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          data = JSON.parse(trimmed);
+        } catch (parseErr) {
+          const error = new Error('The server returned invalid JSON. Please check the backend service and try again.');
+          error.status = res.status;
+          throw error;
+        }
+      } else {
+        const error = new Error(trimmed.length > 180 ? `${trimmed.slice(0, 180)}...` : trimmed);
+        error.status = res.status;
+        throw error;
+      }
+    }
+
     if (!res.ok) {
-      const error = new Error(data.error || 'API Request Failed');
+      const error = new Error(data.error || data.message || 'API Request Failed');
       error.status = res.status;
       throw error;
     }
     return data;
   } catch (err) {
     console.error('API Error:', err.message);
+    if (err && err.message && /Failed to fetch|NetworkError|Load failed/i.test(err.message)) {
+      const networkError = new Error('Unable to reach the SkillBridge backend. Please check that the server is running and try again.');
+      networkError.status = err.status || 0;
+      throw networkError;
+    }
     throw err;
   }
 }
