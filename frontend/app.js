@@ -1,9 +1,8 @@
 // SkillBridge — Enforced Security Client Engine for Student, Company & College Modules
 
-const localHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
-const API_BASE = localHosts.has(window.location.hostname)
-  ? '/api'
-  : 'https://interview-wc6b.onrender.com/api';
+// Keep the frontend and API on the same deployment so authentication and
+// registration always use the same backend version.
+const API_BASE = '/api';
 
 let currentUser = null;
 let currentProfile = null;
