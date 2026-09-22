@@ -905,6 +905,46 @@ const server = http.createServer(async (req, res) => {
       state.assessments[authUser.id] = await userDb.getRecord('assessments', { user_id: authUser.id });
       return sendJSON(200, { success: true, assessment: state.assessments[authUser.id] });
     }
+    if (pathname === '/api/student/skill-analysis' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = authUser.id;
+      const [profile, skills, assessments, jobs] = await Promise.all([
+        userDb.getStudentProfileByUserId(userId),
+        userDb.listRecords('student_skills', { user_id: userId }),
+        userDb.getRecord('assessments', { user_id: userId }),
+        userDb.listRecords('jobs', {}, { created_at: -1 })
+      ]);
+      const skillNames = new Set(skills.map(item => String(item.skill_name || '').trim().toLowerCase()).filter(Boolean));
+      const demand = new Map();
+      jobs.forEach(job => {
+        const required = Array.isArray(job.required_skills)
+          ? job.required_skills
+          : String(job.required_skills || '').split(',');
+        required.map(skill => String(skill).trim()).filter(Boolean).forEach(skill => {
+          const key = skill.toLowerCase();
+          demand.set(key, (demand.get(key) || 0) + 1);
+        });
+      });
+      const skillGaps = [...demand.entries()]
+        .filter(([skill]) => !skillNames.has(skill))
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([skill, demandCount]) => ({ skill, demand: demandCount, priority: demandCount >= 3 ? 'high' : 'medium' }));
+      const score = assessments?.overall_score ?? calculateSkillScore(userId);
+      return sendJSON(200, {
+        studentId: userId,
+        score: Number(score) || 0,
+        skillScore: Number(score) || 0,
+        skillGaps,
+        recommendations: skillGaps.map(item => ({
+          skill: item.skill,
+          reason: `${item.demand} active opportunit${item.demand === 1 ? 'y requires' : 'ies require'} this skill`,
+          action: `Complete a learning or training program focused on ${item.skill}`
+        })),
+        profile: { department: profile?.department || '', degree: profile?.degree || '', cgpa: profile?.cgpa ?? null }
+      });
+    }
     if (pathname === '/api/student/portfolio' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
@@ -1175,7 +1215,14 @@ const server = http.createServer(async (req, res) => {
       const compJobs = await userDb.listRecords('jobs', { companyId: compId }, { created_at: -1, id: -1 });
       const compApps = await userDb.listRecords('applications', { companyId: compId }, { applied_at: -1, id: -1 });
 
-      return sendJSON(200, { company, total_jobs: compJobs.length, total_applicants: compApps.length, shortlisted: compApps.filter(a => a.status === 'Shortlisted' || a.status === 'Technical Interview').length, pipeline: compApps });
+      const shortlisted = compApps.filter(a => ['Shortlisted', 'Technical Interview'].includes(a.status)).length;
+      const averageMatch = compApps.length ? compApps.reduce((sum, app) => sum + Number(app.match_percentage || app.matchScore || 0), 0) / compApps.length : 0;
+      return sendJSON(200, {
+        company, jobs: compJobs, applications: compApps, total_jobs: compJobs.length,
+        total_applicants: compApps.length, shortlisted, pipeline: compApps,
+        companyName: company.name, totalJobs: compJobs.length, totalApplications: compApps.length,
+        shortlistedCount: shortlisted, avgMatchScore: averageMatch
+      });
     }
     if (pathname === '/api/company/profile' && (req.method === 'GET' || req.method === 'PUT')) {
       const authUser = getAuthUser();
@@ -1324,7 +1371,10 @@ const server = http.createServer(async (req, res) => {
       if (!comp) return sendJSON(404, { error: 'Company profile not found.' });
       const body = await parseJSON(req);
 
-      const newJob = { id: await userDb.nextSequence('jobs', 'jobs'), company_id: comp.id, companyId: comp.companyId, company_name: comp.name, title: body.title, location: body.location || 'Remote', salary_stipend: body.salary_stipend || 'â‚¹ 12,00,000 P.A.', required_skills: (body.required_skills || 'Java,SQL').split(',').map(skill => skill.trim()).filter(Boolean), min_cgpa: Number(body.min_cgpa || 7.5), deadline: body.deadline || '2026-11-30' };
+      if (!String(body.title || '').trim()) return sendJSON(400, { error: 'Job title is required.' });
+      const rawSkills = body.required_skills ?? body.requiredSkills ?? ['Java', 'SQL'];
+      const requiredSkills = Array.isArray(rawSkills) ? rawSkills : String(rawSkills).split(',');
+      const newJob = { id: await userDb.nextSequence('jobs', 'jobs'), company_id: comp.id, companyId: comp.companyId, company_name: comp.name, title: String(body.title).trim(), location: body.location || 'Remote', salary_stipend: body.salary_stipend || body.salary || 'â‚¹ 12,00,000 P.A.', required_skills: requiredSkills.map(skill => String(skill).trim()).filter(Boolean), min_cgpa: Number(body.min_cgpa ?? body.minCGPA ?? 7.5), deadline: body.deadline || '2026-11-30', status: body.status || 'Published' };
       await userDb.insertRecord('jobs', { ...newJob, created_at: new Date().toISOString() });
       state.jobs.unshift(newJob);
       const students = state.users.filter(user => user.role === 'student');
@@ -1335,6 +1385,174 @@ const server = http.createServer(async (req, res) => {
         state.notifications[student.id].unshift(notification);
       }));
       return sendJSON(201, { success: true, job: newJob });
+    }
+
+    // Company recruiter resources use workflow_records so they work with the
+    // existing PostgreSQL schema and remain isolated by companyId.
+    if (pathname === '/api/company/jobs' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const jobs = await userDb.listRecords('jobs', { companyId: authUser.companyId }, { created_at: -1, id: -1 });
+      const applications = await userDb.listRecords('applications', { companyId: authUser.companyId });
+      return sendJSON(200, jobs.map(job => ({ ...job, jobId: job.jobId || job.id, status: job.status || 'Published', applicationCount: applications.filter(app => String(app.job_id) === String(job.id)).length })));
+    }
+    const jobMatch = pathname.match(/^\/api\/company\/jobs\/([^/]+)$/);
+    if (jobMatch && ['PUT', 'DELETE'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const job = await userDb.getRecord('jobs', { id: Number(jobMatch[1]), companyId: authUser.companyId });
+      if (!job) return sendJSON(404, { error: 'Job not found.' });
+      if (req.method === 'DELETE') {
+        await userDb.deleteRecord('jobs', { id: job.id, companyId: authUser.companyId });
+        return sendJSON(200, { success: true });
+      }
+      const body = await parseJSON(req);
+      const allowed = ['title', 'description', 'location', 'department', 'vacancies', 'salary', 'salary_stipend', 'type', 'deadline', 'requiredSkills', 'required_skills', 'minCGPA', 'min_cgpa', 'eligibleDepartments', 'status'];
+      const changes = Object.fromEntries(allowed.filter(key => body[key] !== undefined).map(key => [key, body[key]]));
+      if (changes.status) changes.status = ['Closed', 'Open', 'Published', 'Draft'].includes(String(changes.status)) ? String(changes.status) : null;
+      if (changes.status === null) return sendJSON(400, { error: 'Invalid job status.' });
+      const saved = await userDb.updateRecord('jobs', { id: job.id, companyId: authUser.companyId }, { $set: { ...changes, updated_at: new Date().toISOString() } });
+      return sendJSON(200, { success: true, job: { ...saved, jobId: saved.id } });
+    }
+
+    if ((pathname === '/api/company/talent-finder' || pathname === '/api/company/candidates/search') && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const query = Object.fromEntries(parsedUrl.searchParams);
+      const candidates = [];
+      for (const user of (await userDb.getAllUsers()).filter(item => item.role === 'student')) {
+        const profile = { ...(state.studentProfiles[user.id] || {}), ...(await userDb.getStudentProfileByUserId(user.id) || {}) };
+        const skills = (await userDb.listRecords('student_skills', { user_id: user.id })).map(item => item.skill_name).filter(Boolean);
+        const cgpa = Number(profile.cgpa || 0);
+        const department = String(profile.department || '');
+        if (query.department && department.toLowerCase() !== query.department.toLowerCase()) continue;
+        if (query.minCGPA && cgpa < Number(query.minCGPA)) continue;
+        if (query.skill && !skills.some(skill => skill.toLowerCase().includes(query.skill.toLowerCase()))) continue;
+        candidates.push({ studentId: profile.student_id || user.username, userId: user.id, name: profile.name || user.username, email: user.email, department: department || 'Department not provided', college: profile.college || '', cgpa, skills, aiScore: calculateSkillScore(user.id), matchPercentage: calculateSkillScore(user.id), experience: profile.experience || '', education: profile.education || '', goal: profile.goal || '' });
+      }
+      return sendJSON(200, candidates);
+    }
+    const candidateMatch = pathname.match(/^\/api\/company\/candidates\/([^/]+)$/);
+    if (candidateMatch && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const identity = decodeURIComponent(candidateMatch[1]).toLowerCase();
+      let user = null;
+      for (const item of (await userDb.getAllUsers()).filter(candidate => candidate.role === 'student')) {
+        const itemProfile = { ...(state.studentProfiles[item.id] || {}), ...(await userDb.getStudentProfileByUserId(item.id) || {}) };
+        if ([String(item.id), item.username, item.email, itemProfile.student_id].map(value => String(value || '').toLowerCase()).includes(identity)) {
+          user = item;
+          break;
+        }
+      }
+      if (!user) return sendJSON(404, { error: 'Candidate not found.' });
+      const profile = { ...(state.studentProfiles[user.id] || {}), ...(await userDb.getStudentProfileByUserId(user.id) || {}) };
+      const skills = (await userDb.listRecords('student_skills', { user_id: user.id })).map(item => item.skill_name).filter(Boolean);
+      return sendJSON(200, { studentId: profile.student_id || user.username, userId: user.id, name: profile.name || user.username, email: user.email, department: profile.department || '', college: profile.college || '', cgpa: Number(profile.cgpa || 0), skills, aiScore: calculateSkillScore(user.id), experience: profile.experience || '', education: profile.education || '' });
+    }
+
+    if (pathname === '/api/company/applications' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const applications = await userDb.listRecords('applications', { companyId: authUser.companyId }, { applied_at: -1, id: -1 });
+      return sendJSON(200, applications.map(app => ({ ...app, applicationId: app.applicationId || app.id, studentId: app.studentId || app.student_id, studentName: app.studentName || app.candidate_name, jobTitle: app.jobTitle || app.job_title, stage: app.stage || app.status, matchScore: Number(app.matchScore || app.match_percentage || 0) })));
+    }
+    const stageMatch = pathname.match(/^\/api\/company\/applications\/([^/]+)\/stage$/);
+    if (stageMatch && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const body = await parseJSON(req);
+      const stage = String(body.stage || body.newStage || '').trim();
+      const validStages = ['Applied', 'Screening', 'Shortlisted', 'Assessment', 'Technical Interview', 'HR Interview', 'Final Review', 'Selected', 'Rejected'];
+      if (!validStages.includes(stage)) return sendJSON(400, { error: 'Invalid application stage.' });
+      const app = await userDb.getRecord('applications', { id: Number(stageMatch[1]), companyId: authUser.companyId });
+      if (!app) return sendJSON(404, { error: 'Application not found for this company.' });
+      const saved = await userDb.updateRecord('applications', { id: app.id, companyId: authUser.companyId }, { $set: { status: stage, stage, last_updated: new Date().toISOString() } });
+      return sendJSON(200, { success: true, application: saved });
+    }
+
+    if (pathname === '/api/company/assessments' && ['GET', 'POST'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      if (req.method === 'GET') return sendJSON(200, await userDb.listRecords('company_assessments', { companyId: authUser.companyId }, { created_at: -1 }));
+      const body = await parseJSON(req);
+      if (!String(body.title || '').trim()) return sendJSON(400, { error: 'Assessment title is required.' });
+      const assessment = { ...body, id: await userDb.nextSequence('company_assessments', 'company_assessments'), assessmentId: crypto.randomUUID(), companyId: authUser.companyId, created_at: new Date().toISOString() };
+      await userDb.insertRecord('company_assessments', assessment);
+      return sendJSON(201, { success: true, assessment });
+    }
+    const assessmentMatch = pathname.match(/^\/api\/company\/assessments\/([^/]+)$/);
+    if (assessmentMatch && ['PUT', 'DELETE'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      if (req.method === 'PUT') {
+        const body = await parseJSON(req);
+        const saved = await userDb.updateRecord('company_assessments', { assessmentId: assessmentMatch[1], companyId: authUser.companyId }, { $set: { ...body, updated_at: new Date().toISOString() } });
+        return saved ? sendJSON(200, { success: true, assessment: saved }) : sendJSON(404, { error: 'Assessment not found.' });
+      }
+      const removed = await userDb.deleteRecord('company_assessments', { assessmentId: assessmentMatch[1], companyId: authUser.companyId });
+      return removed ? sendJSON(200, { success: true }) : sendJSON(404, { error: 'Assessment not found.' });
+    }
+
+    if (pathname === '/api/company/interviews' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      return sendJSON(200, await userDb.listRecords('company_interviews', { companyId: authUser.companyId }, { scheduledAt: 1, scheduled_at: 1 }));
+    }
+    if (pathname === '/api/company/interviews/schedule' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const body = await parseJSON(req);
+      if (!body.applicationId && !body.candidateId) return sendJSON(400, { error: 'Candidate or application is required.' });
+      const interview = { ...body, id: await userDb.nextSequence('company_interviews', 'company_interviews'), interviewId: crypto.randomUUID(), companyId: authUser.companyId, status: body.status || 'Scheduled', createdAt: new Date().toISOString() };
+      await userDb.insertRecord('company_interviews', interview);
+      return sendJSON(201, { success: true, interview });
+    }
+    const interviewMatch = pathname.match(/^\/api\/company\/interviews\/([^/]+)$/);
+    if (interviewMatch && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const body = await parseJSON(req);
+      const saved = await userDb.updateRecord('company_interviews', { interviewId: interviewMatch[1], companyId: authUser.companyId }, { $set: { ...body, updatedAt: new Date().toISOString() } });
+      return saved ? sendJSON(200, { success: true, interview: saved }) : sendJSON(404, { error: 'Interview not found.' });
+    }
+
+    if (pathname === '/api/company/analytics/dashboard' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const applications = await userDb.listRecords('applications', { companyId: authUser.companyId });
+      const jobs = await userDb.listRecords('jobs', { companyId: authUser.companyId });
+      const count = stage => applications.filter(app => String(app.status || app.stage) === stage).length;
+      const jobPerformance = jobs.map(job => { const apps = applications.filter(app => String(app.job_id) === String(job.id)); return { jobTitle: job.title, applicationCount: apps.length, avgMatchScore: apps.length ? apps.reduce((s, a) => s + Number(a.match_percentage || a.matchScore || 0), 0) / apps.length : 0 }; });
+      return sendJSON(200, { totalApplications: applications.length, shortlistedCount: count('Shortlisted'), selectedCount: count('Selected'), avgTimeToHire: 'N/A', jobPerformance, funnel: { applied: count('Applied'), screening: count('Screening'), shortlisted: count('Shortlisted'), assessment: count('Assessment'), interview: applications.filter(a => /Interview/.test(String(a.status || a.stage))).length, selected: count('Selected') } });
+    }
+    if (pathname === '/api/company/team' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const members = (await userDb.getAllUsers()).filter(user => user.role === 'company' && (user.companyId === authUser.companyId || user.id === authUser.id));
+      return sendJSON(200, members.map(member => ({ teamMemberId: member.id, name: member.username, email: member.email, role: member.id === authUser.id ? 'Owner' : 'Recruiter', department: 'Recruitment' })));
+    }
+    if (pathname === '/api/company/campus-drives' && ['GET', 'POST'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      if (req.method === 'GET') return sendJSON(200, await userDb.listRecords('campus_drives', { companyId: authUser.companyId }, { createdAt: -1 }));
+      const body = await parseJSON(req);
+      if (!String(body.university || body.college || '').trim() || !String(body.position || '').trim()) return sendJSON(400, { error: 'University and position are required.' });
+      const drive = { ...body, id: await userDb.nextSequence('campus_drives', 'campus_drives'), driveId: crypto.randomUUID(), companyId: authUser.companyId, status: body.status || 'Open', createdAt: new Date().toISOString() };
+      await userDb.insertRecord('campus_drives', drive);
+      return sendJSON(201, { success: true, drive });
+    }
+    const driveMatch = pathname.match(/^\/api\/company\/campus-drives\/([^/]+)$/);
+    if (driveMatch && ['PUT', 'DELETE'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      if (req.method === 'DELETE') {
+        const removed = await userDb.deleteRecord('campus_drives', { driveId: driveMatch[1], companyId: authUser.companyId });
+        return removed ? sendJSON(200, { success: true }) : sendJSON(404, { error: 'Campus drive not found.' });
+      }
+      const body = await parseJSON(req);
+      const saved = await userDb.updateRecord('campus_drives', { driveId: driveMatch[1], companyId: authUser.companyId }, { $set: body });
+      return saved ? sendJSON(200, { success: true, drive: saved }) : sendJSON(404, { error: 'Campus drive not found.' });
     }
 
     if (pathname === '/api/company/pipeline/stage' && req.method === 'PUT') {
@@ -1412,6 +1630,36 @@ const server = http.createServer(async (req, res) => {
           };
         });
       return sendJSON(200, registeredCompanies);
+    }
+    if (pathname === '/api/college/analytics' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'college') return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
+      const [profiles, skills, applications, internships, placements] = await Promise.all([
+        userDb.listRecords('student_profiles'),
+        userDb.listRecords('student_skills'),
+        userDb.listRecords('applications'),
+        userDb.listRecords('internships'),
+        userDb.listRecords('student_placements')
+      ]);
+      const skillDemand = {};
+      skills.forEach(item => {
+        const name = String(item.skill_name || '').trim();
+        if (name) skillDemand[name] = (skillDemand[name] || 0) + 1;
+      });
+      const placementStatuses = new Set(['Selected', 'Offer', 'Placed']);
+      const placed = applications.filter(item => placementStatuses.has(item.status)).length;
+      return sendJSON(200, {
+        students: profiles.length,
+        skills: skills.length,
+        internships: internships.length,
+        applications: applications.length,
+        placements: placements.length,
+        placedApplications: placed,
+        topSkills: Object.entries(skillDemand)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([skill, count]) => ({ skill, count }))
+      });
     }
 
     // Static Asset Server Fallback (Supports root & frontend directory)
