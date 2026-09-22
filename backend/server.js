@@ -1,5 +1,5 @@
 /* ==========================================================================
-   SkillBridge — Unique Academia–Industry Engine & 3-Portal Backend API
+   SkillBridge â€” Unique Academiaâ€“Industry Engine & 3-Portal Backend API
    Author: @Eswara Karuppasamy K
    Port: 3000
    Features: Multi-Tenant Company Isolation, AI Employability Engine,
@@ -27,6 +27,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const userDb = require('./db');
+const { migrate } = require('./database/migrate');
 const academiaDb = require('./academia-features');
 
 const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 10000;
@@ -111,6 +112,10 @@ let state = {
   applications: [],
   notifications: {},
   companyOffers: {},
+  campusRegistrations: {},
+  studentPlacements: {},
+  userSettings: {},
+  preferences: {},
   collegeAnalytics: {
     total_students: 450,
     placed_students: 382,
@@ -133,9 +138,10 @@ function seedData() {
 
 seedData();
 
-// Authentication and student profiles are backed by MongoDB. The in-memory
+// Authentication and student profiles are backed by PostgreSQL. The in-memory
 // state remains the source for demo/catalog data, but never for credentials.
 async function initializePersistentUsers() {
+  await migrate();
   await userDb.init();
   let users = await userDb.getAllUsers();
   if (!users.length) {
@@ -171,7 +177,7 @@ async function initializePersistentUsers() {
         id: user.id,
         companyId: profile.company_id,
         name: profile.company_name || user.username,
-        logo: profile.logo || '🏢',
+        logo: profile.logo || 'ðŸ¢',
         industry: profile.industry || 'Corporate Partner',
         manager_name: profile.manager_name || 'Recruitment Manager',
         min_cgpa: Number(profile.min_cgpa || 7),
@@ -199,16 +205,19 @@ function ensurePersistentUsersLoaded() {
 }
 
 async function initializePersistentWorkflow() {
-  const [jobs, applications, notifications, offers, skills, assessments, projects, certifications] = await Promise.all([
-    userDb.listRecords('jobs', {}, { created_at: -1, id: -1 }),
-    userDb.listRecords('applications', {}, { applied_at: -1, id: -1 }),
-    userDb.listRecords('notifications', {}, { created_at: -1, id: -1 }),
-    userDb.listRecords('offers', {}, { createdAt: -1, id: -1 }),
-    userDb.listRecords('student_skills', {}, { created_at: -1, skill_name: 1 }),
-    userDb.listRecords('assessments', {}, { updated_at: -1 }),
-    userDb.listRecords('projects', {}, { created_at: -1, id: -1 }),
-    userDb.listRecords('certifications', {}, { created_at: -1, id: -1 })
-  ]);
+  const collections = [
+    'jobs', 'applications', 'notifications', 'offers', 'student_skills', 'assessments',
+    'projects', 'certifications', 'student_resumes', 'student_academics',
+    'student_academic_summary', 'student_preferences', 'student_placements',
+    'campus_registrations', 'user_settings', 'internships', 'seminars', 'workshops',
+    'hackathons', 'achievements', 'coding_skills', 'backlogs'
+  ];
+  const records = await Promise.all(collections.map(collection => userDb.listRecords(collection)));
+  const loaded = Object.fromEntries(collections.map((collection, index) => [collection, records[index]]));
+  const [jobs, applications, notifications, offers, skills, assessments, projects, certifications] = [
+    loaded.jobs, loaded.applications, loaded.notifications, loaded.offers,
+    loaded.student_skills, loaded.assessments, loaded.projects, loaded.certifications
+  ];
   state.jobs = jobs;
   state.applications = applications;
   state.notifications = {};
@@ -237,6 +246,31 @@ async function initializePersistentWorkflow() {
   certifications.forEach(item => {
     state.certifications[item.user_id] = state.certifications[item.user_id] || [];
     state.certifications[item.user_id].push(item);
+  });
+  const groupedLists = {
+    internships: 'internships', seminars: 'seminars', workshops: 'workshops',
+    hackathons: 'hackathons', achievements: 'achievements', academicRecords: 'student_academics'
+  };
+  for (const [stateKey, collection] of Object.entries(groupedLists)) {
+    state[stateKey] = {};
+    loaded[collection].forEach(item => {
+      state[stateKey][item.user_id] = state[stateKey][item.user_id] || [];
+      state[stateKey][item.user_id].push(item);
+    });
+  }
+  const groupedObjects = {
+    resumes: 'student_resumes', schoolEducation: 'student_academic_summary',
+    preferences: 'student_preferences', studentPlacements: 'student_placements',
+    userSettings: 'user_settings', codingSkills: 'coding_skills', backlogs: 'backlogs'
+  };
+  for (const [stateKey, collection] of Object.entries(groupedObjects)) {
+    state[stateKey] = {};
+    loaded[collection].forEach(item => { state[stateKey][item.user_id] = item; });
+  }
+  state.campusRegistrations = {};
+  loaded.campus_registrations.forEach(item => {
+    state.campusRegistrations[item.user_id] = state.campusRegistrations[item.user_id] || [];
+    if (item.drive_id !== undefined) state.campusRegistrations[item.user_id].push(item.drive_id);
   });
 }
 
@@ -286,9 +320,9 @@ function calculateCompanyMatch(studentId, company) {
     const found = studentSkillNames.some(s => s.includes(req.toLowerCase()) || req.toLowerCase().includes(s));
     if (found) {
       matchedSkills++;
-      skillGaps.push({ skill: req, reqLevel: 'Advanced', studentLevel: 'Advanced', gap: 'No Gap — Qualified' });
+      skillGaps.push({ skill: req, reqLevel: 'Advanced', studentLevel: 'Advanced', gap: 'No Gap â€” Qualified' });
     } else {
-      skillGaps.push({ skill: req, reqLevel: 'Advanced', studentLevel: 'Not Found', gap: 'Missing Skill — Action Required' });
+      skillGaps.push({ skill: req, reqLevel: 'Advanced', studentLevel: 'Not Found', gap: 'Missing Skill â€” Action Required' });
     }
   });
 
@@ -335,7 +369,7 @@ function getStudentModuleNews() {
     items: [
       {
         title: `${profile.name} added ${skills.join(', ')} to the student skills profile`,
-        detail: `${profile.department} student profile • CGPA ${profile.cgpa}`,
+        detail: `${profile.department} student profile â€¢ CGPA ${profile.cgpa}`,
         type: 'Skills update'
       },
       {
@@ -350,7 +384,7 @@ function getStudentModuleNews() {
       },
       {
         title: `${profile.name} completed an internship at ${internship.company}`,
-        detail: `${internship.role} • ${internship.summary}`,
+        detail: `${internship.role} â€¢ ${internship.summary}`,
         type: 'Experience'
       }
     ]
@@ -470,7 +504,7 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/docs' && req.method === 'GET') {
       return sendJSON(200, {
-        platform: 'SkillBridge Academia–Industry Collaboration Platform API',
+        platform: 'SkillBridge Academiaâ€“Industry Collaboration Platform API',
         version: '2.0-Unique-Engine',
         port,
         portals: ['Student Portal', 'Company Recruiter Module', 'University Admin Module'],
@@ -552,7 +586,7 @@ const server = http.createServer(async (req, res) => {
       if (userRole === 'company') {
         if (!companyName || !email || !password) return sendJSON(400, { error: 'Company Name, Email, and Password required.' });
         const assignedCompId = nextCompanyId();
-        const newComp = { id: newId, companyId: assignedCompId, name: companyName, logo: '🏢', industry: 'Corporate Partner', manager_name: managerName || 'Recruitment Manager', min_cgpa: 7.0, min_ai_score: 70, required_skills: ['Java', 'SQL'] };
+        const newComp = { id: newId, companyId: assignedCompId, name: companyName, logo: 'ðŸ¢', industry: 'Corporate Partner', manager_name: managerName || 'Recruitment Manager', min_cgpa: 7.0, min_ai_score: 70, required_skills: ['Java', 'SQL'] };
         state.companies.push(newComp);
 
         const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'company' });
@@ -612,7 +646,7 @@ const server = http.createServer(async (req, res) => {
 
         const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'student' });
         if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
-        // Derive the human-readable student ID from MongoDB's persistent user
+        // Derive the human-readable student ID from PostgreSQL's persistent user
         // primary key so it cannot reset when the process restarts.
         const assignedStuId = `STU-2026-${String(stored.id).padStart(3, '0')}`;
         const newUser = { ...stored, student_id: assignedStuId, password_hash: hash, salt };
@@ -641,7 +675,7 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(400, { error: 'Username or email and password are required.' });
       }
 
-      // Credentials must come from MongoDB so accounts remain usable after a
+      // Credentials must come from PostgreSQL so accounts remain usable after a
       // server restart. In-memory catalog state is never an auth source.
       let user = await userDb.getUserByIdentity(loginIdentity);
       if (user && user.role !== userRole) {
@@ -714,8 +748,7 @@ const server = http.createServer(async (req, res) => {
       const profile = await userDb.getStudentProfileByUserId(userId);
       if (!profile) return sendJSON(404, { error: 'Student profile not found.' });
       const resume = await userDb.getRecord('student_resumes', { user_id: userId });
-      state.resumes[userId] = resume || state.resumes[userId] || null;
-      return sendJSON(200, { profile: { ...profile, email: authUser.email }, completion: { percentage: 80, missingItems: [] }, resume: state.resumes[userId] || null });
+      return sendJSON(200, { profile: { ...profile, email: authUser.email }, completion: { percentage: 80, missingItems: [] }, resume: resume || null });
     }
     if (pathname === '/api/student/resume' && req.method === 'POST') {
       const authUser = getAuthUser();
@@ -819,8 +852,11 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
-      const technical = await userDb.listRecords('student_skills', { user_id: userId }, { skill_name: 1 });
-      return sendJSON(200, { technical, coding: state.codingSkills[userId] || null });
+      const [technical, coding] = await Promise.all([
+        userDb.listRecords('student_skills', { user_id: userId }, { skill_name: 1 }),
+        userDb.getRecord('coding_skills', { user_id: userId })
+      ]);
+      return sendJSON(200, { technical, coding: coding || null });
     }
     if (pathname === '/api/student/skills' && req.method === 'POST') {
       const authUser = getAuthUser();
@@ -873,7 +909,16 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
-      return sendJSON(200, { projects: await userDb.listRecords('projects', { user_id: userId }, { created_at: -1 }), internships: state.internships[userId] || [], certifications: await userDb.listRecords('certifications', { user_id: userId }, { created_at: -1 }), seminars: state.seminars[userId] || [], workshops: state.workshops[userId] || [], hackathons: state.hackathons[userId] || [], achievements: state.achievements[userId] || [] });
+      const [projects, internships, certifications, seminars, workshops, hackathons, achievements] = await Promise.all([
+        userDb.listRecords('projects', { user_id: userId }, { created_at: -1 }),
+        userDb.listRecords('internships', { user_id: userId }, { created_at: -1 }),
+        userDb.listRecords('certifications', { user_id: userId }, { created_at: -1 }),
+        userDb.listRecords('seminars', { user_id: userId }, { created_at: -1 }),
+        userDb.listRecords('workshops', { user_id: userId }, { created_at: -1 }),
+        userDb.listRecords('hackathons', { user_id: userId }, { created_at: -1 }),
+        userDb.listRecords('achievements', { user_id: userId }, { created_at: -1 })
+      ]);
+      return sendJSON(200, { projects, internships, certifications, seminars, workshops, hackathons, achievements });
     }
     if (pathname === '/api/student/certificates' && req.method === 'GET') {
       const authUser = getAuthUser();
@@ -1279,7 +1324,7 @@ const server = http.createServer(async (req, res) => {
       if (!comp) return sendJSON(404, { error: 'Company profile not found.' });
       const body = await parseJSON(req);
 
-      const newJob = { id: await userDb.nextSequence('jobs', 'jobs'), company_id: comp.id, companyId: comp.companyId, company_name: comp.name, title: body.title, location: body.location || 'Remote', salary_stipend: body.salary_stipend || '₹ 12,00,000 P.A.', required_skills: (body.required_skills || 'Java,SQL').split(',').map(skill => skill.trim()).filter(Boolean), min_cgpa: Number(body.min_cgpa || 7.5), deadline: body.deadline || '2026-11-30' };
+      const newJob = { id: await userDb.nextSequence('jobs', 'jobs'), company_id: comp.id, companyId: comp.companyId, company_name: comp.name, title: body.title, location: body.location || 'Remote', salary_stipend: body.salary_stipend || 'â‚¹ 12,00,000 P.A.', required_skills: (body.required_skills || 'Java,SQL').split(',').map(skill => skill.trim()).filter(Boolean), min_cgpa: Number(body.min_cgpa || 7.5), deadline: body.deadline || '2026-11-30' };
       await userDb.insertRecord('jobs', { ...newJob, created_at: new Date().toISOString() });
       state.jobs.unshift(newJob);
       const students = state.users.filter(user => user.role === 'student');
@@ -1392,7 +1437,7 @@ async function startServer() {
     console.log('Starting SkillBridge backend...');
     console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
     console.log(`PORT: ${port}`);
-    console.log(`MongoDB URI configured: ${Boolean(process.env.MONGODB_URI || process.env.MONGODB_URL)}`);
+    console.log(`PostgreSQL URL configured: ${Boolean(process.env.DATABASE_URL)}`);
 
     await ensurePersistentUsersLoaded();
     await initializePersistentWorkflow();

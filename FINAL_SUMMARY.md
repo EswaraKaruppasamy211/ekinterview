@@ -34,7 +34,7 @@ A complete, production-ready **Applicant Tracking System (ATS) and Recruitment P
 - ✅ Smart candidate-to-job matching
 - ✅ 8-stage ATS pipeline (Applied → Selected)
 - ✅ Privacy-respecting candidate search
-- ✅ State persistence with JSON & SQLite support
+- ✅ State persistence with PostgreSQL JSONB support
 
 ### ✅ Frontend Components
 
@@ -80,7 +80,7 @@ A complete, production-ready **Applicant Tracking System (ATS) and Recruitment P
 ```
 Backend:  Node.js (native HTTP server)
 Frontend: Vanilla JavaScript ES6+
-Database: SQLite + In-memory state
+Database: PostgreSQL + in-memory catalog state
 Auth:     JWT tokens (7-day expiry)
 UI:       Custom CSS (glassmorphism design)
 ```
@@ -110,7 +110,7 @@ UI:       Custom CSS (glassmorphism design)
               (State + Persistence Layer)
                            ↓
 ┌─────────────────────────────────────────────────────────────┐
-│            SQLite Database / JSON Files                     │
+│            PostgreSQL Database / JSONB Records              │
 │  ┌─────────────────────────────────────────────────────────┤
 │  │ Users | Companies | Jobs | Applications | Assessments   │
 │  │ Interviews | Offers | Team Members | Analytics | Campus │
@@ -393,7 +393,7 @@ node backend/server.js
 3. **Privacy-First** - Student data visibility fully controlled
 4. **Multi-Tenant Safe** - 100% company data isolation
 5. **Production Ready** - Error handling, validation, authentication
-6. **Scalable** - Ready for database migration (PostgreSQL/MongoDB)
+6. **Scalable** - PostgreSQL persistence with indexed JSONB records
 7. **User-Friendly** - Glassmorphism UI with intuitive navigation
 8. **Complete Workflow** - Job posting → Application → Interview → Offer
 
