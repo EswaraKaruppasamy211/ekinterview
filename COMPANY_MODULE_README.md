@@ -8,7 +8,7 @@ This document provides a complete guide to the SkillBridge Company Recruiter Mod
 ### Backend Architecture
 - **Technology**: Node.js HTTP Server (native, no Express)
 - **Authentication**: JWT Token-based
-- **Database**: SQLite with in-memory state management
+- **Database**: PostgreSQL with JSONB workflow records
 - **Data Isolation**: 100% multi-tenant company isolation
 - **API Pattern**: RESTful endpoints under `/api` namespace
 
@@ -300,7 +300,7 @@ curl -H "Authorization: Bearer {token}" \
 - Client-side pagination capability
 
 ### Recommended
-- Add database indexing (when moving to PostgreSQL)
+- Database indexing is provided by the PostgreSQL schema
 - Implement Redis caching for candidate lists
 - Lazy-load analytics charts
 - Implement API rate limiting
@@ -362,7 +362,7 @@ Endpoint reference available at `/api/docs`
 
 ### Important Notes
 - The application uses a single-file HTTP server architecture
-- No external Node.js libraries except nodemailer, sqlite, mongoose
+- External Node.js libraries include nodemailer and pg
 - All company data is isolated by companyId
 - Student privacy settings are respected in all candidate searches
 

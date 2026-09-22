@@ -5,10 +5,11 @@
   "description": "Skillmap backend API for Render deployment",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "migrate": "node database/migrate.js"
   },
   "dependencies": {
-    "mongodb": "^6.20.0",
-    "nodemailer": "^7.0.0"
+    "nodemailer": "^7.0.0",
+    "pg": "^8.23.0"
   }
 }

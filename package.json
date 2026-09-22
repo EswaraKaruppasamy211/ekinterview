@@ -4,10 +4,11 @@
   "private": true,
   "description": "SkillBridge career dashboard with a small Node backend",
   "scripts": {
-      "start": "node backend/server.js"
+    "start": "node backend/server.js",
+    "migrate": "node backend/database/migrate.js"
   },
   "dependencies": {
-    "mongodb": "^6.20.0",
-    "nodemailer": "^9.0.5"
+    "nodemailer": "^9.0.5",
+    "pg": "^8.23.0"
   }
 }
