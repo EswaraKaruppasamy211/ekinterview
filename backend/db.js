@@ -6,10 +6,148 @@ let client = null;
 let database = null;
 let connectionPromise = null;
 
+const memoryState = {
+  collections: Object.create(null)
+};
+
+function getMemoryCollection(name) {
+  const key = String(name || '');
+  if (!memoryState.collections[key]) {
+    memoryState.collections[key] = [];
+  }
+  return memoryState.collections[key];
+}
+
+function applyMemoryUpdate(doc, update) {
+  if (!doc || !update || typeof update !== 'object') return doc;
+
+  if (update.$set && typeof update.$set === 'object') {
+    Object.assign(doc, update.$set);
+  }
+  if (update.$push && typeof update.$push === 'object') {
+    Object.entries(update.$push).forEach(([field, value]) => {
+      const existing = Array.isArray(doc[field]) ? doc[field] : [];
+      existing.push(value);
+      doc[field] = existing;
+    });
+  }
+  return doc;
+}
+
+function matchesMemoryFilter(doc, filter) {
+  if (!filter || Object.keys(filter).length === 0) return true;
+  if (Array.isArray(filter)) return false;
+
+  if (filter.$or && Array.isArray(filter.$or)) {
+    return filter.$or.some(subFilter => matchesMemoryFilter(doc, subFilter));
+  }
+
+  return Object.entries(filter).every(([key, expectedValue]) => {
+    if (key === '$or') return true;
+    if (expectedValue && typeof expectedValue === 'object' && !Array.isArray(expectedValue) && expectedValue.$in) {
+      return expectedValue.$in.includes(doc[key]);
+    }
+    if (expectedValue && typeof expectedValue === 'object' && !Array.isArray(expectedValue) && expectedValue.$type) {
+      if (expectedValue.$type === 'number') return typeof doc[key] === 'number';
+      return typeof doc[key] === expectedValue.$type;
+    }
+    return doc[key] === expectedValue;
+  });
+}
+
+function createMemoryCollection(name) {
+  const collectionName = String(name || '');
+  return {
+    async createIndex() { return null; },
+    async insertOne(document) {
+      const record = { ...document, _id: document && document._id ? document._id : `${collectionName}:${Date.now()}:${Math.random()}` };
+      getMemoryCollection(collectionName).push(record);
+      return { insertedId: record._id };
+    },
+    async updateOne(filter, update, options = {}) {
+      let result = getMemoryCollection(collectionName).find(doc => matchesMemoryFilter(doc, filter));
+      if (!result && options.upsert) {
+        const inserted = {};
+        Object.entries(filter || {}).forEach(([key, value]) => {
+          if (key !== '$or') inserted[key] = value;
+        });
+        const appended = { ...inserted, ...((update && update.$set) || {}) };
+        appended._id = `${collectionName}:${Date.now()}:${Math.random()}`;
+        getMemoryCollection(collectionName).push(appended);
+        return { matchedCount: 1, modifiedCount: 1, upsertedCount: 1 };
+      }
+      if (!result) return { matchedCount: 0, modifiedCount: 0 };
+      applyMemoryUpdate(result, update);
+      return { matchedCount: 1, modifiedCount: 1 };
+    },
+    async findOne(filter, options = {}) {
+      const record = getMemoryCollection(collectionName).find(doc => matchesMemoryFilter(doc, filter));
+      if (!record) return null;
+      const projected = { ...record };
+      if (options && options.projection && projected._id !== undefined && !options.projection._id) {
+        delete projected._id;
+      }
+      return projected;
+    },
+    find(filter = {}) {
+      const records = getMemoryCollection(collectionName).filter(doc => matchesMemoryFilter(doc, filter));
+      return {
+        sort(sortObject = {}) {
+          const entries = Object.entries(sortObject || {});
+          if (!entries.length) return this;
+          records.sort((a, b) => {
+            for (const [field, direction] of entries) {
+              const dir = direction === -1 ? -1 : 1;
+              if ((a[field] ?? '') > (b[field] ?? '')) return dir;
+              if ((a[field] ?? '') < (b[field] ?? '')) return -dir;
+            }
+            return 0;
+          });
+          return this;
+        },
+        toArray() {
+          return Promise.resolve(records.map(record => ({ ...record })));
+        }
+      };
+    },
+    async findOneAndUpdate(filter, update, options = {}) {
+      const existing = getMemoryCollection(collectionName).find(doc => matchesMemoryFilter(doc, filter));
+      if (!existing) {
+        if (options && options.upsert) {
+          const inserted = { ...((filter && filter.$or) ? {} : filter), _id: `${collectionName}:${Date.now()}:${Math.random()}` };
+          if (update && typeof update === 'object' && !Array.isArray(update) && update.$set) {
+            Object.assign(inserted, update.$set);
+          }
+          getMemoryCollection(collectionName).push(inserted);
+          return { ...inserted };
+        }
+        return null;
+      }
+      applyMemoryUpdate(existing, update);
+      return { ...existing };
+    },
+    async deleteOne(filter) {
+      const index = getMemoryCollection(collectionName).findIndex(doc => matchesMemoryFilter(doc, filter));
+      if (index === -1) return { deletedCount: 0 };
+      getMemoryCollection(collectionName).splice(index, 1);
+      return { deletedCount: 1 };
+    },
+    async deleteMany(filter) {
+      const remaining = getMemoryCollection(collectionName).filter(doc => !matchesMemoryFilter(doc, filter));
+      const deletedCount = getMemoryCollection(collectionName).length - remaining.length;
+      memoryState.collections[collectionName] = remaining;
+      return { deletedCount };
+    },
+    async command() {
+      return { ok: 1 };
+    }
+  };
+}
+
 function requireMongoUrl() {
   const mongoUrl = process.env.MONGODB_URI || process.env.MONGODB_URL;
   if (!mongoUrl) {
-    throw new Error('MONGODB_URI or MONGODB_URL is required for the application database.');
+    return null;
   }
   return mongoUrl;
 }
@@ -99,6 +237,14 @@ async function init() {
   if (connectionPromise) return connectionPromise;
 
   const mongoUrl = requireMongoUrl();
+  if (!mongoUrl) {
+    console.warn('MongoDB not configured; using in-memory fallback storage for demo mode.');
+    database = {
+      collection: (name) => createMemoryCollection(name),
+      command: async () => ({ ok: 1, databaseName: defaultDatabaseName })
+    };
+    return database;
+  }
 
   connectionPromise = (async () => {
     try {
@@ -156,6 +302,12 @@ async function init() {
 
 async function nextUserId() {
   await init();
+  const mongoUrl = requireMongoUrl();
+  if (!mongoUrl) {
+    const existing = getMemoryCollection('users').map(user => Number(user.id) || 0);
+    return existing.length ? Math.max(...existing) + 1 : 1;
+  }
+
   const highestUser = await userCollection().findOne(
     { id: { $type: 'number' } },
     { sort: { id: -1 }, projection: { id: 1 } }
@@ -274,6 +426,12 @@ async function getAllUsers() {
 
 async function nextSequence(sequenceName, collectionName, field = 'id') {
   await init();
+  const mongoUrl = requireMongoUrl();
+  if (!mongoUrl) {
+    const existing = getMemoryCollection(collectionName).map(record => Number(record[field]) || 0);
+    return existing.length ? Math.max(...existing) + 1 : 1;
+  }
+
   const highest = await workflowCollection(collectionName).findOne(
     { [field]: { $type: 'number' } },
     { sort: { [field]: -1 }, projection: { [field]: 1 } }
