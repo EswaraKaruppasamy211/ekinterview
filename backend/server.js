@@ -362,7 +362,9 @@ const server = http.createServer(async (req, res) => {
   const requestProtocol = req.headers['x-forwarded-proto'] || 'https';
   const requestHost = req.headers.host || 'interview-wc6b.onrender.com';
   const parsedUrl = new URL(req.url, `${requestProtocol}://${requestHost}`);
-  const pathname = parsedUrl.pathname;
+  const pathname = parsedUrl.pathname.startsWith('/api')
+    ? parsedUrl.pathname
+    : `/api${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname}`;
 
   const sendJSON = (statusCode, data) => {
     res.writeHead(statusCode, {
@@ -1414,5 +1416,8 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = server;
+const vercelHandler = (req, res) => server.emit('request', req, res);
+
+module.exports = vercelHandler;
 module.exports.startServer = startServer;
+module.exports.server = server;
