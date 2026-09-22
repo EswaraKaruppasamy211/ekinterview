@@ -343,7 +343,8 @@ async function createUser({
   passwordHash,
   salt,
   role,
-  dob
+  dob,
+  mobile
 }) {
   await init();
 
@@ -371,6 +372,7 @@ async function createUser({
     salt,
     role: role || 'student',
     dob: dob || null,
+    mobile: mobile || '',
     verified: 1,
     is_active: 1,
     created_at: Date.now()

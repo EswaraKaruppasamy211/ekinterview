@@ -991,10 +991,10 @@ async function handleFacultyLoginSubmit(event) {
 }
 async function handleFacultyRegisterSubmit(event) {
   event.preventDefault();
-  const fullName = document.getElementById('fac-reg-name').value.trim(), email = document.getElementById('fac-reg-email').value.trim().toLowerCase();
+  const fullName = document.getElementById('fac-reg-name').value.trim(), username = document.getElementById('fac-reg-username').value.trim().toLowerCase(), email = document.getElementById('fac-reg-email').value.trim().toLowerCase(), mobile = document.getElementById('fac-reg-mobile').value.trim();
   const collegeName = document.getElementById('fac-reg-college').value.trim(), department = document.getElementById('fac-reg-department').value.trim(), password = document.getElementById('fac-reg-pass').value.trim();
   try {
-    const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, collegeName, department, password, role: 'faculty' }) });
+    const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ fullName, username, email, mobile, collegeName, department, password, role: 'faculty' }) });
     authToken = data.token; localStorage.setItem('sb_token', authToken); currentUser = data.user; currentProfile = null; currentRole = 'faculty';
     closeModal('faculty-auth-modal'); showAppWorkspace(); switchPortalRole('faculty');
   } catch (err) { alert(err.message || 'Faculty registration failed.'); }

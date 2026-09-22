@@ -581,18 +581,22 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(201, { token, user: sanitizeUser(newUser) });
 
       } else if (userRole === 'faculty') {
-        if (!fullName) return sendJSON(400, { error: 'Faculty name, email, and password required.' });
+        if (!fullName || !normalizeIdentity(username) || !mobile) {
+          return sendJSON(400, { error: 'Full name, username, email, and mobile number are required.' });
+        }
         const stored = await userDb.createUser({
           email: normalizedEmail,
           username: normalizedUsername,
           passwordHash: hash,
           salt,
-          role: 'faculty'
+          role: 'faculty',
+          mobile: String(mobile).trim()
         });
         if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
         const newUser = {
           ...stored,
           fullName,
+          mobile: String(mobile).trim(),
           collegeName: collegeName || '',
           department: department || '',
           password_hash: hash,
