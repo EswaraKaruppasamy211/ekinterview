@@ -7,6 +7,8 @@ const API_BASE = '/api';
 let currentUser = null;
 let currentProfile = null;
 let currentRole = 'student';
+let editingCompanyInternshipId = null;
+let editingCompanyJobId = null;
 let authToken = localStorage.getItem('sb_token') || null;
 let pendingStudentOtpEmail = null;
 let otpCountdownTimer = null;
@@ -243,8 +245,10 @@ function navigateTo(viewId) {
   else if (viewId === 'assessments') loadAssessmentsView();
   else if (viewId === 'ats-resume') loadATSResumeView();
   else if (viewId === 'portfolio') loadPortfolioView();
+  else if (viewId === 'learning') loadLearningView();
   else if (viewId === 'ai-skill-analyzer') loadAISkillAnalyzerView();
   else if (viewId === 'opportunities') loadOpportunitiesView();
+  else if (viewId === 'internships') loadStudentInternships();
   else if (viewId === 'applications') loadApplicationsView();
   else if (viewId === 'interview-prep') loadInterviewPrepView();
   else if (viewId === 'notifications') loadNotificationsView();
@@ -269,7 +273,7 @@ function navigateTo(viewId) {
   else if (viewId === 'talent-finder') loadTalentFinder();
   else if (viewId === 'college-dashboard') loadCollegeDashboard();
   else if (viewId === 'college-students') loadCollegeStudentDirectory();
-  else if (viewId === 'faculty-dashboard') loadFacultyResource();
+  else if (viewId === 'faculty-dashboard') { loadFacultyDashboard(); loadFacultyResource(); }
 }
 
 // STUDENT AUTH HANDLERS
@@ -1008,8 +1012,9 @@ async function handleFacultyRegisterSubmit(event) {
 
 // FACULTY ACADEMIA WORKSPACE
 const FACULTY_RESOURCES = [
-  ['faculty-internships', 'Faculty internships'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs'], ['mentorship', 'Mentorship'], ['workshops', 'Workshops'], ['guest-lectures', 'Guest lectures'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['consultancy', 'Consultancy'], ['internship-progress', 'Progress & feedback'], ['portfolio-extensions', 'Portfolio']
+  ['faculty-internships', 'Faculty internships'], ['industrial-training', 'Industrial training'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs'], ['mentorship', 'Mentorship'], ['workshops', 'Workshops'], ['guest-lectures', 'Guest lectures'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['research-projects', 'Research projects'], ['consultancy', 'Consultancy'], ['innovation-challenges', 'Innovation challenges'], ['internship-progress', 'Progress & feedback'], ['portfolio-extensions', 'Portfolio']
 ];
+const COLLABORATION_FRONTEND_RESOURCES = ['mentorship', 'guest-lectures', 'workshops', 'innovation-challenges', 'live-projects', 'research-collaborations', 'consultancy'];
 const FACULTY_RESOURCE_SCHEMAS = {
   'faculty-internships': [
     ['title', 'Title *', 'text', true],
@@ -1025,6 +1030,9 @@ const FACULTY_RESOURCE_SCHEMAS = {
     ['mentor', 'Mentor / contact', 'text'],
     ['status', 'Status', 'select', false, ['Open', 'Shortlisted', 'Selected', 'In progress', 'Completed']],
     ['description', 'Description', 'textarea']
+  ],
+  'industrial-training': [
+    ['title', 'Training title *', 'text', true], ['company', 'Industry partner', 'text'], ['required_skills', 'Required skills', 'text'], ['duration', 'Duration', 'text'], ['location', 'Location', 'text'], ['deadline', 'Application deadline', 'date'], ['description', 'Description', 'textarea']
   ],
   fdp: [
     ['title', 'Program title *', 'text', true],
@@ -1107,6 +1115,9 @@ const FACULTY_RESOURCE_SCHEMAS = {
     ['deadline', 'Application deadline', 'date'],
     ['description', 'Description', 'textarea']
   ],
+  'research-projects': [
+    ['title', 'Project title *', 'text', true], ['domain', 'Research domain', 'text'], ['principal_investigator', 'Principal investigator', 'text'], ['required_skills', 'Required skills', 'text'], ['duration', 'Duration', 'text'], ['funding', 'Funding / grant', 'text'], ['deadline', 'Application deadline', 'date'], ['description', 'Description', 'textarea']
+  ],
   consultancy: [
     ['title', 'Consultancy opportunity *', 'text', true],
     ['company', 'Industry / client', 'text'],
@@ -1116,6 +1127,9 @@ const FACULTY_RESOURCE_SCHEMAS = {
     ['deadline', 'Deadline', 'date'],
     ['status', 'Status', 'select', false, ['Open', 'Reviewing', 'Approved', 'Completed']],
     ['description', 'Description', 'textarea']
+  ],
+  'innovation-challenges': [
+    ['title', 'Challenge title *', 'text', true], ['organizer', 'Organizer', 'text'], ['theme', 'Theme', 'text'], ['required_skills', 'Skills', 'text'], ['deadline', 'Submission deadline', 'date'], ['prize', 'Prize / recognition', 'text'], ['description', 'Description', 'textarea']
   ],
   'internship-progress': [
     ['title', 'Progress title *', 'text', true],
@@ -1205,8 +1219,36 @@ async function loadFacultyResource() {
   const select = document.getElementById('faculty-resource'); if (!select) return;
   if (!select.options.length) select.innerHTML = FACULTY_RESOURCES.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
   renderFacultyCreateFields();
+  const target = document.getElementById('faculty-items');
+  if (target) target.innerHTML = '<div class="saas-card"><p style="color:var(--text-muted);margin:0;">Loading opportunities…</p></div>';
   try { const data = await apiFetch(`/academia/${facultyResource()}`); facultyItems = Array.isArray(data) ? data : (data.items || []); renderFacultyItems(); }
   catch (err) { facultyItems = []; renderFacultyItems(err.message); }
+}
+async function loadFacultyDashboard() {
+  const summary = document.getElementById('faculty-summary');
+  try {
+    const [dashboard, profileData] = await Promise.all([apiFetch('/faculty/dashboard'), apiFetch('/faculty/profile')]);
+    const cards = [['Activities', dashboard.total], ['Active', dashboard.active], ['Completed', dashboard.completed], ['Certificates', dashboard.certificates]];
+    if (summary) summary.innerHTML = cards.map(([label, value]) => `<div class="saas-card"><div class="text-xs" style="color:var(--text-muted);">${label}</div><strong style="font-size:1.4rem;">${Number(value || 0)}</strong></div>`).join('');
+    const profile = profileData.profile || {};
+    ['name', 'college', 'department', 'bio'].forEach(key => { const field = document.getElementById(`faculty-profile-${key}`); if (field) field.value = profile[key] || ''; });
+    const expertise = document.getElementById('faculty-profile-expertise'); if (expertise) expertise.value = Array.isArray(profile.expertise) ? profile.expertise.join(', ') : (profile.expertise || '');
+  } catch (error) {
+    if (summary) summary.innerHTML = `<div class="saas-card" style="grid-column:1/-1;"><span style="color:var(--text-muted);">${facultyText(error.message || 'Unable to load faculty activity.')}</span></div>`;
+  }
+}
+async function saveFacultyProfile(event) {
+  event.preventDefault();
+  try {
+    await apiFetch('/faculty/profile', { method: 'PUT', body: JSON.stringify({
+      name: document.getElementById('faculty-profile-name')?.value.trim(),
+      college: document.getElementById('faculty-profile-college')?.value.trim(),
+      department: document.getElementById('faculty-profile-department')?.value.trim(),
+      bio: document.getElementById('faculty-profile-bio')?.value.trim(),
+      expertise: parseFacultyListValue(document.getElementById('faculty-profile-expertise')?.value)
+    }) });
+    alert('Faculty profile saved.');
+  } catch (error) { alert(error.message || 'Unable to save faculty profile.'); }
 }
 function facultyText(value) { return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
 function filterFacultyItems() { renderFacultyItems(); }
@@ -1227,8 +1269,23 @@ function renderFacultyItems(errorMessage = '') {
     const meta = [...tags.slice(0, 4), ...scope.slice(0, 4)].map(value => `<span class="badge-saas badge-blue">${facultyText(value)}</span>`).join('');
     const description = item.description || item.topic || 'Details not provided.';
     const status = item.status || 'open';
-    return `<div class="saas-card"><div class="flex-between gap-3 mb-2"><h3 style="font-weight:700;margin:0;">${facultyText(item.title || item.name || 'Academia listing')}</h3><span class="badge-saas badge-blue">${facultyText(status)}</span></div><p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem;">${facultyText(description)}</p><div class="flex-align gap-2 flex-wrap mb-3">${meta || '<span class="badge-saas badge-blue">Details available</span>'}</div><div class="text-xs mb-3" style="color:var(--text-muted);">${facultyText(item.date || item.start_date || item.deadline || item.partner || item.company || '')}</div><div class="flex-align gap-2 flex-wrap"><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','status')">Track status</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','apply')">Apply</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','register')">Register</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${facultyText(item.id)}','feedback')">Feedback</button></div></div>`;
+    const entries = [...(item.applications || []), ...(item.registrations || [])];
+    const mine = entries.find(entry => String(entry.user_id) === String(currentUser?.id));
+    const owner = String(item.created_by) === String(currentUser?.id);
+    const collaboration = COLLABORATION_FRONTEND_RESOURCES.includes(facultyResource());
+    const pending = owner ? entries.filter(entry => ['requested', 'submitted', 'registered'].includes(String(entry.status || '').toLowerCase())) : [];
+    const itemId = facultyText(item.id);
+    const progressButton = mine || owner ? `<button class="btn-saas btn-outline" onclick="facultyLifecycle('${itemId}','progress')">Update progress</button>` : '';
+    const requestButton = !owner && !mine && collaboration ? `<button class="btn-saas btn-outline" onclick="facultyLifecycle('${itemId}','request')">Request participation</button>` : '';
+    const legacyButtons = !collaboration ? `<button class="btn-saas btn-outline" onclick="facultyLifecycle('${itemId}','apply')">Apply</button><button class="btn-saas btn-outline" onclick="facultyLifecycle('${itemId}','register')">Register</button>` : '';
+    return `<div class="saas-card"><div class="flex-between gap-3 mb-2"><h3 style="font-weight:700;margin:0;">${facultyText(item.title || item.name || 'Academia listing')}</h3><span class="badge-saas badge-blue">${facultyText(status)}</span></div><p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem;">${facultyText(description)}</p><div class="flex-align gap-2 flex-wrap mb-3">${meta || '<span class="badge-saas badge-blue">Details available</span>'}</div><div class="text-xs mb-3" style="color:var(--text-muted);">${facultyText(item.date || item.start_date || item.deadline || item.partner || item.company || '')}${item.progress !== undefined ? ` · Progress: ${Number(item.progress) || 0}%` : ''}${mine ? ` · Your request: ${facultyText(mine.status || 'pending')}` : ''}</div><div class="flex-align gap-2 flex-wrap"><button class="btn-saas btn-outline" onclick="facultyLifecycle('${itemId}','status')">Track status</button>${progressButton}${requestButton}${legacyButtons}<button class="btn-saas btn-outline" onclick="facultyLifecycle('${itemId}','feedback')">Feedback</button>${pending.map(entry => `<button class="btn-saas btn-outline" onclick="facultyReview('${itemId}','${facultyText(entry.user_id)}','approved')">Approve ${facultyText(entry.user_id)}</button><button class="btn-saas btn-outline" onclick="facultyReview('${itemId}','${facultyText(entry.user_id)}','rejected')">Reject ${facultyText(entry.user_id)}</button>`).join('')}</div></div>`;
   }).join('');
+}
+async function facultyReview(id, userId, status) {
+  try {
+    await apiFetch(`/academia/${facultyResource()}/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({ user_id: userId, status }) });
+    await loadFacultyResource();
+  } catch (err) { alert(err.message || 'Unable to review request.'); }
 }
 function openFacultyCreateForm() {
   renderFacultyCreateFields();
@@ -1258,10 +1315,16 @@ async function handleFacultyCreate(event) {
 async function facultyLifecycle(id, operation) {
   try {
     if (operation === 'status') { const data = await apiFetch(`/academia/${facultyResource()}/${encodeURIComponent(id)}/status`); alert(`Status: ${data.status || 'unknown'}`); return; }
+    if (operation === 'progress') {
+      const value = prompt('Progress percentage (0-100)', '0');
+      if (value === null) return;
+      await apiFetch(`/academia/${facultyResource()}/${encodeURIComponent(id)}/progress`, { method: 'POST', body: JSON.stringify({ progress: Number(value) }) });
+      await loadFacultyResource(); return;
+    }
     const body = operation === 'feedback' ? { rating: 5, comment: prompt('Add feedback') || '' } : {};
     if (operation === 'feedback' && !body.comment) return;
     await apiFetch(`/academia/${facultyResource()}/${encodeURIComponent(id)}/${operation}`, { method: 'POST', body: JSON.stringify(body) });
-    alert(operation === 'apply' ? 'Application submitted.' : operation === 'register' ? 'Registration saved.' : 'Feedback submitted.'); await loadFacultyResource();
+    alert(operation === 'apply' ? 'Application submitted.' : operation === 'register' ? 'Registration saved.' : operation === 'request' ? 'Participation request submitted.' : 'Feedback submitted.'); await loadFacultyResource();
   } catch (err) { alert(err.message || `Unable to ${operation}.`); }
 }
 
@@ -1493,19 +1556,14 @@ async function handleResumeUpload(event) {
     let atsAnalysis = null;
     if (resumeFile) {
       if (resumeFile.type !== 'application/pdf') throw new Error('Only PDF resumes are accepted for ATS analysis.');
-      const finalUrl = await readFileAsDataUrl(resumeFile);
       const resumeText = await extractPdfText(resumeFile);
       atsAnalysis = calculateResumeATS(resumeText);
       renderResumeATSAnalysis(atsAnalysis);
-      await apiFetch('/student/resume', {
-        method: 'POST',
-        body: JSON.stringify({
-          fileUrl: finalUrl,
-          resumeUrl: finalUrl,
-          fileName: resumeFile.name,
-          atsAnalysis
-        })
-      });
+      const formData = new FormData();
+      formData.append('file', resumeFile);
+      formData.append('title', 'Resume');
+      formData.append('atsAnalysis', JSON.stringify(atsAnalysis));
+      await apiFetch('/student/resume', { method: 'POST', body: formData });
     }
     if (fileInput) fileInput.value = '';
     alert('PDF analyzed successfully.');
@@ -1656,12 +1714,15 @@ async function loadAssessmentsView() {
   } catch (e) {}
 }
 async function loadPortfolioView() {
+  const documentList = document.getElementById('career-document-list');
+  if (documentList) documentList.innerHTML = '<div class="text-sm" style="color:var(--text-muted);">Loading private documents…</div>';
   try {
-    const data = await apiFetch('/student/portfolio');
+    const [data, documentData] = await Promise.all([apiFetch('/student/portfolio'), apiFetch('/student/documents')]);
     const projects = data.projects || [];
     const certificates = data.certifications || [];
     const projectList = document.getElementById('portfolio-project-list');
     const certList = document.getElementById('portfolio-certificate-list');
+    renderCareerDocuments(documentData.documents || []);
 
     if (projectList) {
       projectList.innerHTML = projects.length ? projects.map(project => `
@@ -1683,6 +1744,7 @@ async function loadPortfolioView() {
       `).join('') : '<div class="saas-card"><p style="color:var(--text-muted); margin:0;">No project entries yet.</p></div>';
     }
 
+
     if (certList) {
       certList.innerHTML = certificates.length ? certificates.map(cert => `
         <div class="saas-card mb-3">
@@ -1695,7 +1757,7 @@ async function loadPortfolioView() {
           </div>
           <div class="flex-align gap-2 flex-wrap">
             ${cert.certificateUrl ? `<a class="btn-saas btn-outline" href="${cert.certificateUrl}" target="_blank" rel="noreferrer">Open</a>` : ''}
-            ${cert.fileUrl ? `<a class="btn-saas btn-outline" href="${cert.fileUrl}" target="_blank" rel="noreferrer">File</a>` : ''}
+            ${cert.document_id ? `<button class="btn-saas btn-outline" type="button" onclick="openCareerDocument('${encodeURIComponent(cert.document_id)}','view')">File</button>` : (cert.fileUrl ? `<a class="btn-saas btn-outline" href="${cert.fileUrl}" target="_blank" rel="noreferrer">File</a>` : '')}
             <button class="btn-saas btn-outline" type="button" onclick="deleteStudentCertificate(${cert.id})">Delete</button>
           </div>
         </div>
@@ -1703,7 +1765,101 @@ async function loadPortfolioView() {
     }
   } catch (e) {
     console.error('Portfolio load failed', e);
+    if (documentList) documentList.innerHTML = `<div class="text-sm" style="color:var(--text-danger);">Unable to load private documents. ${e.message || 'Please try again.'}</div>`;
   }
+}
+
+function renderCareerDocuments(documents) {
+  const list = document.getElementById('career-document-list');
+  if (!list) return;
+  list.innerHTML = documents.length ? documents.map(document => `
+    <div class="flex-between gap-3" style="border:1px solid var(--border-color);border-radius:var(--radius-md);padding:.75rem;">
+      <div><strong>${document.title || document.original_name}</strong><div class="text-xs" style="color:var(--text-muted);">${String(document.category || '').replaceAll('_', ' ')} · ${Math.ceil(Number(document.size_bytes || 0) / 1024)} KB</div></div>
+      <div class="flex-align gap-2"><button class="btn-saas btn-outline" type="button" onclick="openCareerDocument('${encodeURIComponent(document.id)}','view')">View</button><button class="btn-saas btn-outline" type="button" onclick="openCareerDocument('${encodeURIComponent(document.id)}','download')">Download</button><button class="btn-saas btn-outline" type="button" onclick="deleteCareerDocument('${encodeURIComponent(document.id)}')">Delete</button></div>
+    </div>
+  `).join('') : '<div class="text-sm" style="color:var(--text-muted);">No career documents uploaded yet.</div>';
+}
+
+async function handleCareerDocumentUpload(event) {
+  event.preventDefault();
+  const stateEl = document.getElementById('career-document-state');
+  const file = document.getElementById('career-document-file')?.files?.[0];
+  if (!file) return;
+  stateEl.textContent = 'Uploading…';
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('category', document.getElementById('career-document-category').value);
+    formData.append('title', document.getElementById('career-document-title').value.trim());
+    await apiFetch('/student/documents', { method: 'POST', body: formData });
+    document.getElementById('career-document-form').reset();
+    stateEl.textContent = 'Uploaded securely.';
+    await loadPortfolioView();
+  } catch (error) {
+    stateEl.textContent = error.message || 'Upload failed.';
+  }
+}
+
+async function openCareerDocument(id, action) {
+  try {
+    const response = await fetch(`${API_BASE}/student/documents/${id}/${action}`, { headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} });
+    if (!response.ok) throw new Error('Unable to access this document.');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    if (action === 'download') link.download = 'career-document';
+    link.target = '_blank';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (error) { alert(error.message || 'Unable to access document.'); }
+}
+
+async function deleteCareerDocument(id) {
+  if (!confirm('Delete this private document?')) return;
+  try {
+    await apiFetch(`/student/documents/${id}`, { method: 'DELETE' });
+    await loadPortfolioView();
+  } catch (error) { alert(error.message || 'Unable to delete document.'); }
+}
+
+async function loadLearningView() {
+  const stateEl = document.getElementById('learning-state');
+  const listEl = document.getElementById('learning-program-list');
+  const mineEl = document.getElementById('my-learning-list');
+  if (!listEl || !mineEl) return;
+  stateEl.textContent = 'Loading learning programs…';
+  try {
+    const [programData, mineData] = await Promise.all([apiFetch('/learning/programs'), apiFetch('/student/learning')]);
+    const programs = programData.items || [];
+    const mine = mineData.items || [];
+    stateEl.textContent = programs.length ? `${programs.length} published program${programs.length === 1 ? '' : 's'} available.` : 'No published learning programs are available yet.';
+    listEl.innerHTML = programs.length ? programs.map(program => `<div class="saas-card"><div class="flex-between gap-2"><span class="badge-saas badge-blue">${program.program_type || 'course'}</span><span class="text-sm">${program.duration || ''}</span></div><h3 style="font-weight:700;margin:.6rem 0;">${program.title}</h3><p class="text-sm" style="color:var(--text-muted);">${program.description || 'Program details are provided by the publisher.'}</p><div class="flex-align gap-2 mt-3"><button class="btn-saas btn-outline" onclick="viewLearningProgram('${program.id}')">Details</button><button class="btn-saas btn-primary" onclick="enrollLearningProgram('${program.id}')">Enroll</button></div></div>`).join('') : '';
+    mineEl.innerHTML = mine.length ? mine.map(entry => `<div class="flex-between mb-3"><div><strong>${entry.program?.title || 'Learning program'}</strong><div class="text-sm" style="color:var(--text-muted);">${entry.status || 'enrolled'}</div></div><div class="flex-align gap-2"><progress max="100" value="${Number(entry.progress) || 0}"></progress><button class="btn-saas btn-outline" onclick="updateLearningProgress('${entry.program_id}', ${Number(entry.progress) || 0})">${entry.progress >= 100 ? 'Completed' : 'Update progress'}</button></div></div>`).join('') : '<p class="text-sm" style="color:var(--text-muted);">You have not enrolled in a program yet.</p>';
+  } catch (error) {
+    stateEl.textContent = `Unable to load learning programs. ${error.message || 'Please try again.'}`;
+    listEl.innerHTML = '';
+    mineEl.innerHTML = '<p class="text-sm" style="color:var(--text-muted);">Unable to load your learning records.</p>';
+  }
+}
+async function viewLearningProgram(id) {
+  try { const program = await apiFetch(`/learning/programs/${encodeURIComponent(id)}`); alert(`${program.title}\n\n${program.description || 'No additional details provided.'}\n\nType: ${program.program_type || 'course'}`); }
+  catch (error) { alert(error.message || 'Unable to load program details.'); }
+}
+async function enrollLearningProgram(id) {
+  try { await apiFetch(`/learning/programs/${encodeURIComponent(id)}/enroll`, { method: 'POST', body: JSON.stringify({}) }); alert('Enrollment saved.'); loadLearningView(); }
+  catch (error) { alert(error.message || 'Unable to enroll.'); }
+}
+async function updateLearningProgress(id, current) {
+  const value = prompt('Enter completion percentage (0-100):', String(current));
+  if (value === null) return;
+  try {
+    const progress = Number(value);
+    if (!Number.isFinite(progress) || progress < 0 || progress > 100) throw new Error('Enter a percentage from 0 to 100.');
+    const result = await apiFetch(`/learning/programs/${encodeURIComponent(id)}/progress`, { method: 'PUT', body: JSON.stringify({ progress }) });
+    alert(result.certification ? 'Program completed. Your certification is now visible in My Portfolio.' : 'Progress saved.');
+    loadLearningView();
+  } catch (error) { alert(error.message || 'Unable to save progress.'); }
 }
 
 async function handleAddCertificateSubmit(event) {
@@ -1720,10 +1876,15 @@ async function handleAddCertificateSubmit(event) {
   };
 
   if (fileInput && fileInput.files && fileInput.files[0]) {
-    payload.fileUrl = await readFileAsDataUrl(fileInput.files[0]);
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('category', 'certificates');
+    formData.append('title', payload.certificateName || fileInput.files[0].name);
+    const uploaded = await apiFetch('/student/documents', { method: 'POST', body: formData });
+    payload.document_id = uploaded.document.id;
   }
 
-  if (!payload.certificateName || (!payload.certificateUrl && !payload.fileUrl)) {
+  if (!payload.certificateName || (!payload.certificateUrl && !payload.fileUrl && !payload.document_id)) {
     alert('Certificate name and either a URL or uploaded file are required.');
     return;
   }
@@ -1901,8 +2062,41 @@ async function loadAISkillAnalyzerView() {
 async function loadOpportunitiesView() {
   try {
     const jobs = await apiFetch('/opportunities');
-    document.getElementById('opportunities-list-container').innerHTML = jobs.map(j => `<div class="saas-card mb-3"><h4 style="font-weight:700;">${j.title}</h4><div style="color:var(--text-blue); font-weight:700;" class="mb-2">${j.company_name}</div><button class="btn-saas btn-primary" onclick="handleApplyJob(${j.id})">Apply Position</button></div>`).join('');
-  } catch (e) {}
+    document.getElementById('opportunities-list-container').innerHTML = jobs.length ? jobs.map(j => `<div class="saas-card mb-3"><h4 style="font-weight:700;">${j.title}</h4><div style="color:var(--text-blue); font-weight:700;" class="mb-2">${j.company_name}</div><button class="btn-saas btn-primary" onclick="handleApplyJob(${j.id})">Apply Position</button></div>`).join('') : '<div class="saas-card">No job opportunities are currently published.</div>';
+  } catch (e) { document.getElementById('opportunities-list-container').innerHTML = `<div class="saas-card">Unable to load opportunities: ${e.message}</div>`; }
+}
+async function loadStudentInternships() {
+  const list = document.getElementById('student-internships-list'), status = document.getElementById('student-internship-status');
+  if (!list) return;
+  list.innerHTML = '<div class="saas-card">Loading internships…</div>';
+  try {
+    const [catalog, mine] = await Promise.all([apiFetch('/student/internships'), apiFetch('/student/internship-applications')]);
+    const applications = mine.applications || [];
+    list.innerHTML = (catalog.internships || []).map(item => {
+      const applied = applications.find(app => String(app.internship_id) === String(item.id));
+      return `<div class="saas-card"><div class="flex-between mb-2"><h3 style="font-weight:800;margin:0;">${item.title}</h3><span class="badge-saas badge-emerald">${item.status}</span></div><p class="text-sm" style="color:var(--text-muted);">${item.company_name || 'Company'} · ${item.location || 'Remote'} · ${item.duration || 'Flexible'}</p><p class="text-sm">${item.description || 'Requirements and deliverables will be shared by the employer.'}</p><div class="flex-align gap-2 flex-wrap mb-3">${(item.requirements || item.required_skills || []).map(req => `<span class="badge-saas badge-blue">${req}</span>`).join('') || '<span class="text-sm" style="color:var(--text-muted);">No additional requirements listed.</span>'}</div>${applied ? `<span class="badge-saas badge-purple">Application: ${applied.status}</span>` : `<button class="btn-saas btn-primary" onclick="applyInternship('${item.id}')">Apply after reviewing requirements</button>`}</div>`;
+    }).join('') || '<div class="saas-card">No published internships are available yet.</div>';
+    status.innerHTML = applications.map(app => `<div class="saas-card mb-3"><div class="flex-between"><div><strong>${app.internship?.title || 'Internship'}</strong><div class="text-sm" style="color:var(--text-muted);">${app.internship?.company_name || ''}</div></div><span class="badge-saas badge-emerald">${app.status}</span></div><div class="flex-align gap-2 flex-wrap mt-3">${['Offer sent','Started','In progress','Completed'].includes(app.status) ? `<button class="btn-saas btn-outline" onclick="startInternshipProgress('${app.id}')">Start / view progress</button>` : ''}${app.status === 'Started' || app.status === 'In progress' ? `<button class="btn-saas btn-outline" onclick="updateInternshipProgress('${app.id}')">Add progress</button><button class="btn-saas btn-outline" onclick="completeInternship('${app.id}')">Complete & certificate</button>` : ''}</div></div>`).join('') || '<p class="text-sm" style="color:var(--text-muted);">No internship applications yet.</p>';
+  } catch (e) { list.innerHTML = `<div class="saas-card">Unable to load internships: ${e.message}</div>`; status.innerHTML = ''; }
+}
+async function applyInternship(id) {
+  try { await apiFetch(`/student/internships/${encodeURIComponent(id)}/apply`, { method: 'POST', body: JSON.stringify({ requirements_acknowledged: true }) }); await loadStudentInternships(); }
+  catch (e) { alert(e.message); }
+}
+async function startInternshipProgress(id) {
+  try { await apiFetch(`/student/internship-progress/${encodeURIComponent(id)}/start`, { method: 'POST', body: '{}' }); await loadStudentInternships(); }
+  catch (e) { alert(e.message); }
+}
+async function updateInternshipProgress(id) {
+  const note = prompt('Describe the milestone or progress update:');
+  if (!note) return;
+  try { await apiFetch(`/student/internship-progress/${encodeURIComponent(id)}/update`, { method: 'POST', body: JSON.stringify({ note }) }); await loadStudentInternships(); }
+  catch (e) { alert(e.message); }
+}
+async function completeInternship(id) {
+  if (!confirm('Mark this internship complete and issue your certificate?')) return;
+  try { await apiFetch(`/student/internship-progress/${encodeURIComponent(id)}/complete`, { method: 'POST', body: '{}' }); await loadStudentInternships(); }
+  catch (e) { alert(e.message); }
 }
 async function handleApplyJob(jobId) {
   try {
@@ -2120,21 +2314,75 @@ async function handleMoveCandidateStage(appId, newStage) {
 
 async function handlePostJobSubmit(e) {
   e.preventDefault();
-  const title = document.getElementById('job-post-title').value.trim();
-  const location = document.getElementById('job-post-loc').value.trim();
-  const salary_stipend = document.getElementById('job-post-salary').value.trim();
-  const min_cgpa = document.getElementById('job-post-cgpa').value;
-  const required_skills = document.getElementById('job-post-skills').value.trim();
-  const deadline = document.getElementById('job-post-deadline').value;
+  const title = document.getElementById('job-post-title')?.value.trim();
+  const location = document.getElementById('job-post-loc')?.value.trim();
+  const salary_stipend = document.getElementById('job-post-salary')?.value.trim();
+  const min_cgpa = document.getElementById('job-post-cgpa')?.value;
+  const required_skills = document.getElementById('job-post-skills')?.value.trim();
+  const deadline = document.getElementById('job-post-deadline')?.value;
+  const department = document.getElementById('job-post-department')?.value.trim();
+  const status = document.getElementById('job-post-status')?.value || 'Published';
+  if (!title || !location || !deadline) return alert('Title, location, and deadline are required.');
 
   try {
-    await apiFetch('/company/jobs', {
-      method: 'POST',
+    await apiFetch(editingCompanyJobId ? `/company/jobs/${encodeURIComponent(editingCompanyJobId)}` : '/company/jobs', {
+      method: editingCompanyJobId ? 'PUT' : 'POST',
       body: JSON.stringify({ title, location, salary_stipend, min_cgpa, required_skills, deadline })
     });
-    alert('Job Requirement Published to Candidates!');
-    navigateTo('company-dashboard');
+    editingCompanyJobId = null;
+    alert('Job requirement saved.');
+    renderCompanyJobDrives();
   } catch (err) { alert(err.message); }
+}
+
+async function loadCompanyJobsManagement() {
+  const list = document.getElementById('company-jobs-management');
+  if (!list) return;
+  list.innerHTML = '<div class="saas-card">Loading job postings…</div>';
+  try {
+    const jobs = await apiFetch('/company/jobs');
+    list.innerHTML = jobs.length ? jobs.map(job => `
+      <div class="saas-card mb-3">
+        <div class="flex-between mb-2"><strong>${companyAcademiaText(job.title || 'Untitled role')}</strong><span class="badge-saas badge-blue">${companyAcademiaText(job.status || 'Published')}</span></div>
+        <div class="text-sm" style="color:var(--text-muted);">${companyAcademiaText(job.location || 'Remote')} · deadline ${companyAcademiaText(job.deadline || 'Not set')} · ${job.applicationCount || 0} application(s)</div>
+        <div class="flex-align gap-2 mt-3 flex-wrap">
+          <button class="btn-saas btn-outline" onclick="editCompanyJob('${job.id}')">Edit</button>
+          <button class="btn-saas btn-outline" onclick="toggleCompanyJob('${job.id}','${job.status === 'Closed' ? 'Published' : 'Closed'}')">${job.status === 'Closed' ? 'Reopen' : 'Close'}</button>
+          <button class="btn-saas btn-outline" onclick="deleteCompanyJob('${job.id}')">Delete</button>
+        </div>
+      </div>`).join('') : '<div class="saas-card">No job postings yet.</div>';
+  } catch (error) {
+    list.innerHTML = `<div class="saas-card">Unable to load job postings: ${companyAcademiaText(error.message)}</div>`;
+  }
+}
+
+async function editCompanyJob(id) {
+  try {
+    const jobs = await apiFetch('/company/jobs');
+    const job = jobs.find(item => String(item.id) === String(id));
+    if (!job) return alert('Job posting not found.');
+    editingCompanyJobId = id;
+    ['title', 'loc', 'salary', 'cgpa', 'skills', 'deadline', 'department'].forEach(key => {
+      const field = document.getElementById(`job-post-${key}`);
+      if (field) field.value = key === 'skills' ? (job.required_skills || []).join(', ') : (key === 'loc' ? job.location : key === 'salary' ? (job.salary_stipend || job.salary) : key === 'cgpa' ? (job.min_cgpa || '') : (job[key] || ''));
+    });
+    const status = document.getElementById('job-post-status');
+    if (status) status.value = job.status || 'Published';
+    const submit = document.querySelector('#company-job-post-form button[type="submit"]');
+    if (submit) submit.textContent = 'Update opportunity';
+    document.getElementById('job-post-title')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (error) { alert(error.message); }
+}
+
+async function toggleCompanyJob(id, status) {
+  try { await apiFetch(`/company/jobs/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ status }) }); await loadCompanyJobsManagement(); }
+  catch (error) { alert(error.message); }
+}
+
+async function deleteCompanyJob(id) {
+  if (!confirm('Delete this job posting? Existing applications will remain available.')) return;
+  try { await apiFetch(`/company/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }); await loadCompanyJobsManagement(); }
+  catch (error) { alert(error.message); }
 }
 
 async function loadTalentFinder() {
@@ -2144,133 +2392,7 @@ async function loadTalentFinder() {
   } catch (e) {}
 }
 
-const companyRecruitmentMock = {
-  metrics: [
-    { label: 'Total Open Positions', value: 142, accent: 'blue' },
-    { label: 'Active Internships', value: 18, accent: 'emerald' },
-    { label: 'Total Applications', value: 1248, accent: 'purple' },
-    { label: 'Shortlisted Candidates', value: 264, accent: 'orange' },
-    { label: 'Interviews Scheduled', value: 86, accent: 'sky' },
-    { label: 'Offers Made', value: 41, accent: 'green' },
-    { label: 'Students Hired', value: 31, accent: 'teal' },
-    { label: 'University Partnerships', value: 14, accent: 'violet' }
-  ],
-  applicationsOverTime: [62, 74, 95, 128, 150, 184, 220, 215],
-  hiringFunnel: [
-    { label: 'Applications', value: 1248 },
-    { label: 'Screening', value: 720 },
-    { label: 'Shortlisted', value: 264 },
-    { label: 'Interview', value: 86 },
-    { label: 'Selected', value: 41 },
-    { label: 'Offer Accepted', value: 31 }
-  ],
-  demandSkills: [
-    { name: 'React', demand: 90, posted: 180, candidates: 120, gap: 'High' },
-    { name: 'Python', demand: 85, posted: 160, candidates: 110, gap: 'High' },
-    { name: 'Java', demand: 78, posted: 210, candidates: 140, gap: 'Medium' },
-    { name: 'Node.js', demand: 81, posted: 150, candidates: 98, gap: 'High' },
-    { name: 'SQL', demand: 76, posted: 170, candidates: 135, gap: 'Medium' },
-    { name: 'Cloud Computing', demand: 74, posted: 120, candidates: 70, gap: 'High' },
-    { name: 'Cybersecurity', demand: 80, posted: 95, candidates: 40, gap: 'High' },
-    { name: 'AI/ML', demand: 86, posted: 130, candidates: 75, gap: 'High' }
-  ],
-  skillDistribution: [
-    { label: 'Frontend', value: 35 },
-    { label: 'Backend', value: 24 },
-    { label: 'Data', value: 18 },
-    { label: 'Cloud', value: 14 },
-    { label: 'Security', value: 9 }
-  ],
-  hiringSplit: { internship: 58, fullTime: 42 },
-  universityDistribution: [
-    { name: 'Anna University', value: 28 },
-    { name: 'VIT', value: 22 },
-    { name: 'SRM', value: 18 },
-    { name: 'Amrita', value: 16 },
-    { name: 'PSG Tech', value: 12 },
-    { name: 'Others', value: 4 }
-  ],
-  talentCandidates: [],
-  internships: [
-    { title: 'Frontend Engineer Intern', duration: '6 months', stipend: '₹25,000 / month', positions: 12, status: 'Applications Open', skills: ['React', 'TypeScript', 'UI Design'] },
-    { title: 'Data Science Intern', duration: '4 months', stipend: '₹30,000 / month', positions: 8, status: 'Screening', skills: ['Python', 'SQL', 'ML'] },
-    { title: 'Cybersecurity Intern', duration: '3 months', stipend: '₹20,000 / month', positions: 5, status: 'Published', skills: ['Security', 'Linux', 'Networking'] }
-  ],
-  assessments: [
-    { name: 'Full Stack Screening', candidates: 82, score: 84, status: 'Active' },
-    { name: 'Aptitude Benchmark', candidates: 41, score: 76, status: 'Completed' },
-    { name: 'Technical Interview Readiness', candidates: 19, score: 89, status: 'In Progress' }
-  ],
-  interviews: [],
-  universities: [
-    { name: 'Anna University', departments: ['CSE', 'IT'], students: 480, topSkills: ['React', 'Python'], placementRate: '88%' },
-    { name: 'VIT', departments: ['CSE', 'AI/ML'], students: 360, topSkills: ['AI/ML', 'Cloud'], placementRate: '91%' },
-    { name: 'SRM', departments: ['ECE', 'CSE'], students: 310, topSkills: ['Cybersecurity', 'Java'], placementRate: '84%' }
-  ],
-  shortlist: [],
-  analytics: [
-    { label: 'Total applicants', value: 1248 },
-    { label: 'Hiring conversion rate', value: '21.4%' },
-    { label: 'Average time to hire', value: '19 days' },
-    { label: 'Offer acceptance rate', value: '76%' },
-    { label: 'Internship conversion', value: '46%' },
-    { label: 'Best source', value: 'Campus referrals' }
-  ],
-  messages: [],
-  notifications: [
-    { title: 'New application received', detail: '12 new candidates applied to Frontend Engineer roles today.', time: '10 mins ago' },
-    { title: 'AI match update', detail: '3 new candidates crossed 90% match threshold.', time: '35 mins ago' },
-    { title: 'Interview reminder', detail: 'Two technical panels are scheduled tomorrow at 10:00 AM.', time: '1 hour ago' },
-    { title: 'University response', detail: 'Anna University confirmed a campus hiring request for next week.', time: '3 hours ago' }
-  ]
-};
-
-const companyAIService = {
-  getOverview() {
-    return {
-      metrics: companyRecruitmentMock.metrics,
-      applicationsOverTime: companyRecruitmentMock.applicationsOverTime,
-      hiringFunnel: companyRecruitmentMock.hiringFunnel,
-      skillDemand: companyRecruitmentMock.demandSkills,
-      skillDistribution: companyRecruitmentMock.skillDistribution,
-      hiringSplit: companyRecruitmentMock.hiringSplit,
-      universities: companyRecruitmentMock.universityDistribution,
-      insight: 'Your company has received 142 applications in the last 30 days. 34 candidates match more than 80% of the required skills. Cybersecurity talent is limited and university partnerships in cyber programs should be prioritized.'
-    };
-  },
-  getTalentCandidates() {
-    return companyRecruitmentMock.talentCandidates;
-  },
-  getSkillDemand() {
-    return companyRecruitmentMock.demandSkills;
-  },
-  getAIRecommendations(jobDescription) {
-    const text = (jobDescription || '').toLowerCase();
-    const weightedKeywords = [
-      { phrase: 'react', score: 12 },
-      { phrase: 'node', score: 12 },
-      { phrase: 'mongodb', score: 11 },
-      { phrase: 'python', score: 10 },
-      { phrase: 'sql', score: 9 },
-      { phrase: 'cloud', score: 8 },
-      { phrase: 'cybersecurity', score: 7 },
-      { phrase: 'problem solving', score: 6 },
-      { phrase: 'api', score: 6 },
-      { phrase: 'project', score: 5 }
-    ];
-    let total = 0;
-    weightedKeywords.forEach(item => { if (text.includes(item.phrase)) total += item.score; });
-    return companyRecruitmentMock.talentCandidates.map((candidate, index) => {
-      let match = Math.min(99, 78 + Math.round((candidate.skillScore + (candidate.projects * 2) + (candidate.certifications * 3) + (index * 2) + total) / 1.8));
-      if (candidate.matchingSkills.some(skill => text.includes(skill.toLowerCase()))) match += 8;
-      return {
-        ...candidate,
-        match: Math.min(99, match),
-        why: `${candidate.name} brings strong ${candidate.matchingSkills.slice(0, 3).join(', ')} expertise with ${candidate.projects} relevant projects and ${candidate.experience}.`
-      };
-    }).sort((a, b) => b.match - a.match);
-  }
-};
+// Company analytics and workflows are populated from authenticated APIs.
 
 function renderMetricCard(label, value, accent) {
   const accents = {
@@ -2294,8 +2416,26 @@ function renderMetricCard(label, value, accent) {
 }
 
 const COMPANY_ACADEMIA_RESOURCES = [
-  ['faculty-internships', 'Faculty internships'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs'], ['mentorship', 'Mentorship'], ['workshops', 'Workshops'], ['guest-lectures', 'Guest lectures'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['consultancy', 'Consultancy']
+  ['mentorship', 'Mentorship'], ['guest-lectures', 'Guest lectures'], ['workshops', 'Workshops'], ['innovation-challenges', 'Innovation challenges'], ['live-projects', 'Live projects'], ['research-collaborations', 'Research collaborations'], ['consultancy', 'Consultancy'], ['faculty-internships', 'Faculty internships'], ['fdp', 'FDP programs'], ['learning-programs', 'Learning programs']
 ];
+
+function companyAcademiaText(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
+async function requestCompanyAcademia(resource, id, action = 'request') {
+  try {
+    await apiFetch(`/academia/${encodeURIComponent(resource)}/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: JSON.stringify({}) });
+    await loadCompanyAcademiaFeed();
+  } catch (error) { alert(error.message || 'Unable to update collaboration request.'); }
+}
+
+async function reviewCompanyAcademia(resource, id, userId, status) {
+  try {
+    await apiFetch(`/academia/${encodeURIComponent(resource)}/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({ user_id: userId, status }) });
+    await loadCompanyAcademiaFeed();
+  } catch (error) { alert(error.message || 'Unable to review request.'); }
+}
 
 async function loadCompanyAcademiaFeed() {
   const select = document.getElementById('company-academia-resource');
@@ -2307,21 +2447,34 @@ async function loadCompanyAcademiaFeed() {
   const resource = select.value || COMPANY_ACADEMIA_RESOURCES[0][0];
   const list = document.getElementById('company-academia-items');
   if (!list) return;
+  list.innerHTML = '<p class="text-sm" style="color:var(--text-muted);">Loading opportunities…</p>';
 
   try {
     const data = await apiFetch(`/academia/${resource}`);
     const items = Array.isArray(data) ? data : (data.items || []);
-    list.innerHTML = items.length ? items.slice(0, 6).map(item => `
+    list.innerHTML = items.length ? items.slice(0, 12).map(item => {
+      const owner = String(item.created_by) === String(currentUser?.id);
+      const entries = [...(item.applications || []), ...(item.registrations || [])];
+      const participant = entries.find(entry => String(entry.user_id) === String(currentUser?.id));
+      const requests = owner ? entries.filter(entry => ['requested', 'submitted', 'registered'].includes(String(entry.status || '').toLowerCase())) : [];
+      return `
       <div class="saas-card" style="padding:0.9rem; margin-bottom:0.75rem;">
-        <div class="flex-between mb-1"><strong>${item.title || 'Academia opportunity'}</strong><span class="badge-saas badge-blue">${item.status || 'Open'}</span></div>
-        <p class="text-sm" style="color:var(--text-muted); margin:0.25rem 0 0.5rem;">${item.description || 'No description provided yet.'}</p>
+        <div class="flex-between mb-1"><strong>${companyAcademiaText(item.title || 'Academia opportunity')}</strong><span class="badge-saas badge-blue">${companyAcademiaText(item.status || 'Open')}</span></div>
+        <p class="text-sm" style="color:var(--text-muted); margin:0.25rem 0 0.5rem;">${companyAcademiaText(item.description || 'No description provided yet.')}</p>
         <div class="flex-align gap-2 flex-wrap text-xs" style="color:var(--text-muted);">
-          ${item.duration ? `<span class="badge-saas badge-purple">${item.duration}</span>` : ''}
-          ${item.location ? `<span class="badge-saas badge-purple">${item.location}</span>` : ''}
-          ${item.deadline ? `<span class="badge-saas badge-purple">Deadline: ${item.deadline}</span>` : ''}
+          ${item.duration ? `<span class="badge-saas badge-purple">${companyAcademiaText(item.duration)}</span>` : ''}
+          ${item.location ? `<span class="badge-saas badge-purple">${companyAcademiaText(item.location)}</span>` : ''}
+          ${item.deadline ? `<span class="badge-saas badge-purple">Deadline: ${companyAcademiaText(item.deadline)}</span>` : ''}
+        </div>
+        ${participant ? `<div class="text-xs mt-2" style="color:var(--text-muted);">Your participation: <strong>${companyAcademiaText(participant.status || 'requested')}</strong>${participant.progress !== undefined ? ` · ${Number(participant.progress) || 0}% progress` : ''}</div>` : ''}
+        ${requests.length ? `<div class="text-xs mt-2" style="color:var(--text-muted);">${requests.length} request(s) awaiting review</div>` : ''}
+        <div class="flex-align gap-2 flex-wrap mt-3">
+          ${!owner && !participant && !['Completed', 'completed', 'Closed', 'closed'].includes(item.status) ? `<button class="btn-saas btn-outline" onclick="requestCompanyAcademia('${companyAcademiaText(resource)}','${companyAcademiaText(item.id)}')">Request to participate</button>` : ''}
+          ${participant && ['requested', 'submitted'].includes(String(participant.status || '').toLowerCase()) ? '<span class="badge-saas badge-purple">Request pending</span>' : ''}
+          ${owner ? requests.map(entry => `<span class="flex-align gap-2"><span class="text-xs">User ${companyAcademiaText(entry.user_id)}</span><button class="btn-saas btn-outline" onclick="reviewCompanyAcademia('${companyAcademiaText(resource)}','${companyAcademiaText(item.id)}','${companyAcademiaText(entry.user_id)}','approved')">Approve</button><button class="btn-saas btn-outline" onclick="reviewCompanyAcademia('${companyAcademiaText(resource)}','${companyAcademiaText(item.id)}','${companyAcademiaText(entry.user_id)}','rejected')">Reject</button></span>`).join('') : ''}
         </div>
       </div>
-    `).join('') : '<p class="text-sm" style="color:var(--text-muted);">No opportunities have been published yet.</p>';
+    `; }).join('') : '<p class="text-sm" style="color:var(--text-muted);">No opportunities have been published yet.</p>';
   } catch (error) {
     list.innerHTML = `<p class="text-sm" style="color:var(--text-muted);">Unable to load published opportunities: ${error.message || 'Unknown error'}</p>`;
   }
@@ -2347,7 +2500,8 @@ async function handleCompanyAcademiaCreate(event) {
   }
 
   try {
-    await apiFetch(`/academia/${resource}`, {
+    const phase7Program = ['learning-programs', 'mentorship', 'workshops'].includes(resource);
+    await apiFetch(phase7Program ? '/learning/programs' : `/academia/${resource}`, {
       method: 'POST',
       body: JSON.stringify({
         title,
@@ -2358,7 +2512,8 @@ async function handleCompanyAcademiaCreate(event) {
         deadline: deadline || '',
         company: partner || currentUser?.companyName || currentUser?.fullName || 'Corporate Partner',
         partner: partner || currentUser?.companyName || currentUser?.fullName || 'Corporate Partner',
-        status: 'Open'
+        status: phase7Program ? 'published' : 'Open',
+        program_type: resource === 'learning-programs' ? 'course' : resource.replace(/s$/, '')
       })
     });
     form.reset();
@@ -2713,10 +2868,28 @@ async function runCompanyAIMatch() {
   `).join('');
 }
 
-function renderCompanySkillDemand() {
+async function renderCompanySkillDemand() {
   const container = document.getElementById('company-skill-demand-content');
   if (!container) return;
-  const skills = companyAIService.getSkillDemand();
+  container.innerHTML = '<div class="saas-card">Loading skill demand…</div>';
+  let skills = [];
+  try {
+    const [jobs, candidates] = await Promise.all([apiFetch('/company/jobs'), apiFetch('/company/candidates')]);
+    const demand = new Map();
+    jobs.forEach(job => (job.required_skills || []).forEach(skill => {
+      const name = String(skill).trim();
+      if (name) demand.set(name.toLowerCase(), { name, posted: (demand.get(name.toLowerCase())?.posted || 0) + 1, candidates: 0 });
+    }));
+    candidates.forEach(candidate => (candidate.skills || []).forEach(skill => {
+      const key = String(skill).toLowerCase();
+      if (demand.has(key)) demand.get(key).candidates += 1;
+    }));
+    skills = [...demand.values()].map(item => ({ ...item, demand: Math.min(100, item.posted * 20), gap: item.candidates < item.posted ? 'High' : 'Balanced' }));
+  } catch (error) {
+    container.innerHTML = `<div class="saas-card">Unable to load skill demand: ${companyAcademiaText(error.message)}</div>`;
+    return;
+  }
+  if (!skills.length) { container.innerHTML = '<div class="saas-card">No required skills are available from your job postings yet.</div>'; return; }
   container.innerHTML = skills.map(skill => `
     <div class="saas-card mb-3">
       <div class="flex-between mb-2">
@@ -2740,20 +2913,47 @@ function renderCompanySkillDemand() {
 function renderCompanyInternships() {
   const container = document.getElementById('company-internship-content');
   if (!container) return;
-  container.innerHTML = companyRecruitmentMock.internships.map(item => `
-    <div class="saas-card mb-3">
-      <div class="flex-between mb-2">
-        <div><h4 style="font-weight:800; margin:0;">${item.title}</h4></div>
-        <span class="badge-saas badge-emerald">${item.status}</span>
-      </div>
-      <div class="grid-3 gap-3 text-sm" style="color:var(--text-muted);">
-        <div><strong>Duration:</strong> ${item.duration}</div>
-        <div><strong>Stipend:</strong> ${item.stipend}</div>
-        <div><strong>Positions:</strong> ${item.positions}</div>
-      </div>
-      <div class="mt-3 flex-align gap-2 flex-wrap">${item.skills.map(skill => `<span class="badge-saas badge-blue">${skill}</span>`).join('')}</div>
-    </div>
-  `).join('');
+  editingCompanyInternshipId = null;
+  container.innerHTML = `<div class="saas-card mb-4"><h3 id="internship-form-heading" style="font-weight:700;">Create internship</h3><form onsubmit="createCompanyInternship(event)"><div class="grid-2 gap-3"><input id="internship-title" class="saas-input" placeholder="Title" required /><input id="internship-location" class="saas-input" placeholder="Location / remote" /><input id="internship-duration" class="saas-input" placeholder="Duration" /><input id="internship-stipend" class="saas-input" placeholder="Stipend" /><input id="internship-deadline" type="date" class="saas-input" /><input id="internship-positions" type="number" min="1" value="1" class="saas-input" /><input id="internship-skills" class="saas-input" placeholder="Required skills, comma separated" /><select id="internship-status" class="saas-input"><option>Draft</option><option>Open</option><option>Closed</option></select><textarea id="internship-requirements" class="saas-input span-2" rows="2" placeholder="Requirements, comma separated"></textarea><textarea id="internship-description" class="saas-input span-2" rows="3" placeholder="Description"></textarea></div><div class="flex-align gap-2 mt-3"><button id="internship-form-submit" class="btn-saas btn-primary">Save internship</button><button type="button" class="btn-saas btn-outline" onclick="renderCompanyInternships()">Clear</button></div></form></div><div id="company-internship-list"><div class="saas-card">Loading internships…</div></div>`;
+  loadCompanyInternshipRecords();
+}
+async function createCompanyInternship(event) {
+  event.preventDefault();
+  try {
+    const payload = { title: document.getElementById('internship-title').value, location: document.getElementById('internship-location').value, duration: document.getElementById('internship-duration').value, stipend: document.getElementById('internship-stipend').value, deadline: document.getElementById('internship-deadline').value, positions: Number(document.getElementById('internship-positions').value), required_skills: document.getElementById('internship-skills').value.split(',').map(v => v.trim()).filter(Boolean), requirements: document.getElementById('internship-requirements').value.split(',').map(v => v.trim()).filter(Boolean), description: document.getElementById('internship-description').value, status: document.getElementById('internship-status').value };
+    await apiFetch(editingCompanyInternshipId ? `/company/internships/${encodeURIComponent(editingCompanyInternshipId)}` : '/company/internships', { method: editingCompanyInternshipId ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+    renderCompanyInternships();
+  } catch (e) { alert(e.message); }
+}
+async function loadCompanyInternshipRecords() {
+  const target = document.getElementById('company-internship-list'); if (!target) return;
+  try {
+    const data = await apiFetch('/company/internships');
+    target.innerHTML = (data.internships || []).map(item => `<div class="saas-card mb-3"><div class="flex-between mb-2"><h4 style="font-weight:800;margin:0;">${item.title}</h4><span class="badge-saas badge-emerald">${item.status}</span></div><p class="text-sm">${item.description || 'No description provided.'}</p><div class="text-sm" style="color:var(--text-muted);">${item.location || 'Remote'} · ${item.duration || ''} · ${item.stipend || 'Unpaid'} · ${item.positions || 1} position(s)</div><div class="flex-align gap-2 mt-3"><button class="btn-saas btn-outline" onclick="editCompanyInternship('${item.id}')">Edit</button><button class="btn-saas btn-outline" onclick="viewInternshipApplicants('${item.id}')">Review applicants</button><button class="btn-saas btn-outline" onclick="setInternshipStatus('${item.id}','${item.status === 'Open' ? 'Closed' : 'Open'}')">${item.status === 'Open' ? 'Close' : 'Publish'}</button></div><div id="internship-applicants-${item.id}" class="mt-3"></div></div>`).join('') || '<div class="saas-card">No internships created yet.</div>';
+  } catch (e) { target.innerHTML = `<div class="saas-card">Unable to load internships: ${e.message}</div>`; }
+}
+async function editCompanyInternship(id) {
+  try {
+    const data = await apiFetch(`/company/internships/${encodeURIComponent(id)}`), item = data.internship;
+    editingCompanyInternshipId = id;
+    ['title', 'location', 'duration', 'stipend', 'deadline', 'positions', 'description'].forEach(key => { const field = document.getElementById(`internship-${key}`); if (field) field.value = item[key] ?? ''; });
+    document.getElementById('internship-skills').value = (item.required_skills || []).join(', ');
+    document.getElementById('internship-requirements').value = (item.requirements || []).join(', ');
+    document.getElementById('internship-status').value = item.status || 'Draft';
+    document.getElementById('internship-form-heading').textContent = 'Edit internship';
+    document.getElementById('internship-form-submit').textContent = 'Update internship';
+    document.getElementById('internship-form-heading').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) { alert(e.message); }
+}
+async function setInternshipStatus(id, status) { try { await apiFetch(`/company/internships/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ status }) }); await loadCompanyInternshipRecords(); } catch (e) { alert(e.message); } }
+async function viewInternshipApplicants(id) {
+  try {
+    const data = await apiFetch(`/company/internships/${encodeURIComponent(id)}/applicants`), target = document.getElementById(`internship-applicants-${id}`);
+    target.innerHTML = (data.applicants || []).map(app => `<div class="saas-card mb-2"><div class="flex-between"><strong>${app.student_name || 'Student'}</strong><span class="badge-saas badge-blue">${app.status}</span></div><div class="flex-align gap-2 mt-2 flex-wrap">${['review','shortlist','interview-selection','offer'].map(op => `<button class="btn-saas btn-outline" onclick="reviewInternshipApplication('${app.id}','${op}')">${op.replace('-', ' ')}</button>`).join('')}</div></div>`).join('') || '<p class="text-sm" style="color:var(--text-muted);">No applicants yet.</p>';
+  } catch (e) { alert(e.message); }
+}
+async function reviewInternshipApplication(id, operation) {
+  try { await apiFetch(`/company/internship-applications/${encodeURIComponent(id)}/${operation}`, { method: 'POST', body: JSON.stringify({}) }); alert(`Application ${operation} updated.`); } catch (e) { alert(e.message); }
 }
 
 function renderCompanyOpportunityForm() {
@@ -2761,20 +2961,23 @@ function renderCompanyOpportunityForm() {
   if (!container) return;
   container.innerHTML = `
     <div class="saas-card">
-      <form onsubmit="handlePostJobSubmit(event)">
+      <form id="company-job-post-form" onsubmit="handlePostJobSubmit(event)">
         <div class="grid-2 gap-4 mb-4">
-          <div><label class="block text-xs font-bold mb-1">Job title</label><input type="text" id="job-post-title" class="saas-input" value="Senior Software Engineer" required /></div>
-          <div><label class="block text-xs font-bold mb-1">Department</label><input type="text" id="job-post-department" class="saas-input" value="Product Engineering" required /></div>
-          <div><label class="block text-xs font-bold mb-1">Location</label><input type="text" id="job-post-loc" class="saas-input" value="Bengaluru / Hybrid" required /></div>
-          <div><label class="block text-xs font-bold mb-1">Salary / stipend</label><input type="text" id="job-post-salary" class="saas-input" value="₹12 LPA + ESOPs" required /></div>
-          <div><label class="block text-xs font-bold mb-1">Minimum CGPA</label><input type="number" step="0.1" id="job-post-cgpa" class="saas-input" value="7.5" required /></div>
-          <div><label class="block text-xs font-bold mb-1">Application deadline</label><input type="date" id="job-post-deadline" class="saas-input" value="2026-10-30" required /></div>
-          <div class="span-2"><label class="block text-xs font-bold mb-1">Required skills</label><input type="text" id="job-post-skills" class="saas-input" value="React, Node.js, MongoDB, SQL, Problem Solving" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Job title</label><input type="text" id="job-post-title" class="saas-input" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Department</label><input type="text" id="job-post-department" class="saas-input" /></div>
+          <div><label class="block text-xs font-bold mb-1">Location</label><input type="text" id="job-post-loc" class="saas-input" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Salary / stipend</label><input type="text" id="job-post-salary" class="saas-input" /></div>
+          <div><label class="block text-xs font-bold mb-1">Minimum CGPA</label><input type="number" step="0.1" id="job-post-cgpa" class="saas-input" /></div>
+          <div><label class="block text-xs font-bold mb-1">Application deadline</label><input type="date" id="job-post-deadline" class="saas-input" required /></div>
+          <div><label class="block text-xs font-bold mb-1">Status</label><select id="job-post-status" class="saas-input"><option>Draft</option><option>Published</option><option>Open</option><option>Closed</option></select></div>
+          <div class="span-2"><label class="block text-xs font-bold mb-1">Required skills</label><input type="text" id="job-post-skills" class="saas-input" placeholder="React, Node.js, PostgreSQL" /></div>
         </div>
-        <button type="submit" class="btn-saas btn-primary">Publish opportunity</button>
+        <div class="flex-align gap-2"><button type="submit" class="btn-saas btn-primary">Publish opportunity</button><button type="button" class="btn-saas btn-outline" onclick="renderCompanyOpportunityForm()">Clear</button></div>
       </form>
     </div>
+    <div id="company-jobs-management" class="mt-4"><div class="saas-card">Loading job postings…</div></div>
   `;
+  loadCompanyJobsManagement();
 }
 
 function renderCompanyJobDrives() {
@@ -2786,19 +2989,23 @@ function renderCompanyJobDrives() {
 function renderCompanyAssessments() {
   const container = document.getElementById('company-assessment-content');
   if (!container) return;
-  container.innerHTML = companyRecruitmentMock.assessments.map(item => `
+  container.innerHTML = '<div class="saas-card">Loading assessments…</div>';
+  apiFetch('/company/assessments').then(items => { container.innerHTML = (items || []).map(item => `
     <div class="saas-card mb-3">
-      <div class="flex-between mb-2">
-        <h4 style="font-weight:800; margin:0;">${item.name}</h4>
-        <span class="badge-saas ${item.status === 'Active' ? 'badge-emerald' : 'badge-blue'}">${item.status}</span>
+      <div class="flex-between mb-2"><h4 style="font-weight:800; margin:0;">${item.title || item.name}</h4><span class="badge-saas badge-blue">${item.status || 'Draft'}</span>
       </div>
-      <div class="grid-3 gap-3 text-sm" style="color:var(--text-muted);">
-        <div><strong>Candidates:</strong> ${item.candidates}</div>
-        <div><strong>Score:</strong> ${item.score}%</div>
-        <div><strong>Shortlist rule:</strong> score > 80</div>
-      </div>
+      <div class="text-sm" style="color:var(--text-muted);">Candidates: ${item.candidates || 0} · Pass score: ${item.passScore || item.pass_score || 'Not set'}</div>
+      <button class="btn-saas btn-outline mt-3" onclick="updateAssessmentApplicantStatus('${item.assessmentId}')">Update applicant status</button>
     </div>
-  `).join('');
+  `).join('') || '<div class="saas-card">No assessments created yet.</div>'; }).catch(error => { container.innerHTML = `<div class="saas-card">Unable to load assessments: ${error.message}</div>`; });
+}
+async function updateAssessmentApplicantStatus(assessmentId) {
+  const applicantId = prompt('Enter the existing assessment applicant ID:');
+  if (!applicantId) return;
+  const status = prompt('Enter status: Assessment scheduled or Assessment completed:');
+  if (!status) return;
+  try { await apiFetch(`/company/assessments/${encodeURIComponent(assessmentId)}/applicants/${encodeURIComponent(applicantId)}/status`, { method: 'POST', body: JSON.stringify({ status }) }); alert('Assessment applicant status updated.'); }
+  catch (error) { alert(error.message); }
 }
 
 function companyCreateAssessment() {
@@ -2807,15 +3014,28 @@ function companyCreateAssessment() {
   container.innerHTML = `
     <div class="saas-card">
       <h3 style="font-weight:800; margin-bottom:1rem;">Create candidate assessment</h3>
-      <div class="grid-2 gap-4">
-        <div><label class="block text-xs font-bold mb-1">Assessment name</label><input class="saas-input" value="Technical Screening - Full Stack" /></div>
-        <div><label class="block text-xs font-bold mb-1">Type</label><select class="saas-input"><option>MCQ</option><option>Technical</option><option>Coding</option><option>Skill-based</option></select></div>
-        <div><label class="block text-xs font-bold mb-1">Duration</label><input class="saas-input" value="60 minutes" /></div>
-        <div><label class="block text-xs font-bold mb-1">Pass score</label><input class="saas-input" value="75" /></div>
-      </div>
-      <div class="mt-3"><button class="btn-saas btn-primary" onclick="renderCompanyAssessments()">Save assessment</button></div>
+      <form onsubmit="saveCompanyAssessment(event)"><div class="grid-2 gap-4">
+        <div><label class="block text-xs font-bold mb-1">Assessment name</label><input id="company-assessment-title" class="saas-input" required /></div>
+        <div><label class="block text-xs font-bold mb-1">Type</label><select id="company-assessment-type" class="saas-input"><option>MCQ</option><option>Technical</option><option>Coding</option><option>Skill-based</option></select></div>
+        <div><label class="block text-xs font-bold mb-1">Duration</label><input id="company-assessment-duration" class="saas-input" /></div>
+        <div><label class="block text-xs font-bold mb-1">Pass score</label><input id="company-assessment-pass-score" class="saas-input" type="number" min="0" max="100" /></div>
+      </div><div class="mt-3"><button class="btn-saas btn-primary">Save assessment</button></div></form>
     </div>
   `;
+}
+
+async function saveCompanyAssessment(event) {
+  event.preventDefault();
+  try {
+    await apiFetch('/company/assessments', { method: 'POST', body: JSON.stringify({
+      title: document.getElementById('company-assessment-title').value.trim(),
+      type: document.getElementById('company-assessment-type').value,
+      duration: document.getElementById('company-assessment-duration').value.trim(),
+      pass_score: Number(document.getElementById('company-assessment-pass-score').value || 0),
+      status: 'Draft'
+    }) });
+    await renderCompanyAssessments();
+  } catch (error) { alert(error.message); }
 }
 
 async function renderCompanyInterviewPipeline() {
@@ -2849,57 +3069,88 @@ async function renderCompanyInterviewPipeline() {
   container.innerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:1rem;">${candidateColumns}</div>`;
 }
 
-function renderCompanyCampusConnect() {
+async function renderCompanyCampusConnect() {
   const container = document.getElementById('company-campus-connect-content');
   if (!container) return;
-  container.innerHTML = companyRecruitmentMock.universities.map(university => `
-    <div class="saas-card mb-3">
-      <div class="flex-between mb-2">
-        <div><h4 style="font-weight:800; margin:0;">${university.name}</h4></div>
-        <span class="badge-saas badge-emerald">${university.placementRate}</span>
-      </div>
-      <div class="grid-2 gap-3 text-sm" style="color:var(--text-muted);">
-        <div><strong>Departments:</strong> ${university.departments.join(', ')}</div>
-        <div><strong>Available students:</strong> ${university.students}</div>
-        <div><strong>Top skills:</strong> ${university.topSkills.join(', ')}</div>
-        <div><strong>Internship participation:</strong> High</div>
-      </div>
-    </div>
-  `).join('');
+  container.innerHTML = '<div class="saas-card">Loading campus drives…</div>';
+  try {
+    const drives = await apiFetch('/company/campus-drives');
+    container.innerHTML = (drives || []).length ? drives.map(drive => `
+      <div class="saas-card mb-3">
+        <div class="flex-between mb-2"><strong>${companyAcademiaText(drive.position || 'Campus opportunity')}</strong><span class="badge-saas badge-emerald">${companyAcademiaText(drive.status || 'Open')}</span></div>
+        <div class="text-sm" style="color:var(--text-muted);">${companyAcademiaText(drive.university || drive.college || 'University not specified')} · ${companyAcademiaText(drive.date || drive.driveDate || 'Date not set')} · ${companyAcademiaText(drive.location || 'Location not set')}</div>
+        <div class="flex-align gap-2 mt-3"><button class="btn-saas btn-outline" onclick="updateCompanyCampusDrive('${drive.driveId}','${drive.status === 'Closed' ? 'Open' : 'Closed'}')">${drive.status === 'Closed' ? 'Reopen' : 'Close'}</button><button class="btn-saas btn-outline" onclick="deleteCompanyCampusDrive('${drive.driveId}')">Delete</button></div>
+      </div>`).join('') : '<div class="saas-card">No campus drives created yet. Use “Send campus request” to create one.</div>';
+  } catch (error) { container.innerHTML = `<div class="saas-card">Unable to load campus drives: ${companyAcademiaText(error.message)}</div>`; }
 }
 
-function companySendCampusRequest() {
-  alert('Campus hiring request sent to the selected university partnerships.');
+async function companySendCampusRequest() {
+  const university = prompt('University or college name:');
+  const position = prompt('Position for this campus drive:');
+  if (!university || !position) return;
+  try {
+    await apiFetch('/company/campus-drives', { method: 'POST', body: JSON.stringify({ university, position, status: 'Open' }) });
+    await renderCompanyCampusConnect();
+  } catch (error) { alert(error.message); }
+}
+
+async function updateCompanyCampusDrive(id, status) {
+  try { await apiFetch(`/company/campus-drives/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ status }) }); await renderCompanyCampusConnect(); }
+  catch (error) { alert(error.message); }
+}
+
+async function deleteCompanyCampusDrive(id) {
+  if (!confirm('Delete this campus drive?')) return;
+  try { await apiFetch(`/company/campus-drives/${encodeURIComponent(id)}`, { method: 'DELETE' }); await renderCompanyCampusConnect(); }
+  catch (error) { alert(error.message); }
 }
 
 async function renderCompanyShortlist() {
   const container = document.getElementById('company-shortlist-content');
   if (!container) return;
-  let candidates;
+  let applications;
   try {
-    candidates = await apiFetch('/company/candidates');
+    applications = await apiFetch('/company/applications');
   } catch (error) {
-    container.innerHTML = '<div class="saas-card">Unable to load registered student details.</div>';
-    console.error('Failed to load registered students:', error.message);
+    container.innerHTML = `<div class="saas-card">Unable to load applications: ${companyAcademiaText(error.message)}</div>`;
     return;
   }
-  container.innerHTML = candidates.map(candidate => `
+  const shortlisted = (applications || []).filter(item => ['Shortlisted', 'Assessment', 'Technical Interview', 'HR Interview', 'Selected', 'Offer'].includes(item.stage || item.status));
+  container.innerHTML = shortlisted.map(candidate => `
     <div class="saas-card mb-3">
       <div class="flex-between mb-2">
-        <div><h4 style="font-weight:800; margin:0;">${candidate.name}</h4></div>
-        <span class="badge-saas badge-blue">Registered student</span>
+        <div><h4 style="font-weight:800; margin:0;">${companyAcademiaText(candidate.studentName || candidate.candidate_name || 'Candidate')}</h4></div>
+        <span class="badge-saas badge-blue">${companyAcademiaText(candidate.stage || candidate.status || 'Applied')}</span>
       </div>
       <div class="grid-2 gap-3 text-sm" style="color:var(--text-muted);">
-        <div><strong>Student ID:</strong> ${candidate.studentId}</div>
-        <div><strong>Department:</strong> ${candidate.department}</div>
-        <div><strong>Skills:</strong> ${(candidate.skills || []).join(', ') || 'Not provided'}</div>
-        <div><strong>CGPA:</strong> ${candidate.cgpa ?? 'Not provided'}</div>
-        <div><strong>Projects:</strong> ${candidate.projects}</div>
-        <div><strong>Certifications:</strong> ${candidate.certifications}</div>
+        <div><strong>Role:</strong> ${companyAcademiaText(candidate.jobTitle || candidate.job_title || 'Job')}</div>
+        <div><strong>Match:</strong> ${Number(candidate.matchScore || candidate.match_percentage || 0)}%</div>
+        <div><strong>Applied:</strong> ${companyAcademiaText(candidate.applied_at || 'Not available')}</div>
       </div>
-      <div class="mt-3"><strong>Career goal:</strong> ${candidate.goal}</div>
+      <div class="flex-align gap-2 mt-3 flex-wrap">
+        <button class="btn-saas btn-outline" onclick="handleMoveCandidateStage('${candidate.applicationId || candidate.id}','Shortlisted')">Shortlist</button>
+        <button class="btn-saas btn-outline" onclick="scheduleCompanyInterview('${candidate.applicationId || candidate.id}')">Schedule interview</button>
+        <button class="btn-saas btn-primary" onclick="sendCompanyOffer('${candidate.applicationId || candidate.id}')">Send offer</button>
+      </div>
     </div>
-  `).join('') || '<div class="saas-card">No registered students are available.</div>';
+  `).join('') || '<div class="saas-card">No shortlisted applications yet. Move candidates to Shortlisted from the dashboard pipeline.</div>';
+}
+
+async function scheduleCompanyInterview(applicationId) {
+  const scheduledAt = prompt('Interview date/time (ISO or local text):');
+  if (!scheduledAt) return;
+  try { await apiFetch('/company/interviews/schedule', { method: 'POST', body: JSON.stringify({ applicationId, scheduledAt, status: 'Scheduled' }) }); alert('Interview scheduled.'); }
+  catch (error) { alert(error.message); }
+}
+
+async function sendCompanyOffer(applicationId) {
+  const salary = prompt('Salary or stipend:');
+  if (salary === null) return;
+  try {
+    await apiFetch('/company/offers', { method: 'POST', body: JSON.stringify({ applicationId, salary }) });
+    await handleMoveCandidateStage(applicationId, 'Selected');
+    alert('Offer sent.');
+  } catch (error) { alert(error.message); }
 }
 
 async function companyCompareCandidates() {
@@ -2967,27 +3218,21 @@ async function renderCompanyAnalytics() {
   }
 }
 
-function renderCompanyMessages() {
+async function renderCompanyMessages() {
   const container = document.getElementById('company-messages-content');
   if (!container) return;
-  container.innerHTML = companyRecruitmentMock.messages.map(message => `
-    <div class="saas-card mb-3">
-      <div class="flex-between mb-2"><strong>${message.sender}</strong><span style="font-size:0.75rem; color:var(--text-muted);">${message.time}</span></div>
-      <div style="font-weight:700; margin-bottom:0.35rem;">${message.topic}</div>
-      <div style="font-size:0.82rem; color:var(--text-muted);">${message.preview}</div>
-    </div>
-  `).join('');
+  container.innerHTML = '<div class="saas-card">Messaging is available through scheduled interviews and application updates. No direct messages are recorded yet.</div>';
 }
 
-function renderCompanyNotifications() {
+async function renderCompanyNotifications() {
   const container = document.getElementById('company-notifications-content');
   if (!container) return;
-  container.innerHTML = companyRecruitmentMock.notifications.map(item => `
-    <div class="saas-card mb-3">
-      <div class="flex-between mb-2"><h4 style="font-weight:800; margin:0;">${item.title}</h4><span style="font-size:0.75rem; color:var(--text-muted);">${item.time}</span></div>
-      <div style="font-size:0.82rem; color:var(--text-muted);">${item.detail}</div>
-    </div>
-  `).join('');
+  container.innerHTML = '<div class="saas-card">Loading company notifications…</div>';
+  try {
+    const [interviews, offers] = await Promise.all([apiFetch('/company/interviews'), apiFetch('/company/offers')]);
+    const items = [...(interviews || []).map(item => ({ title: 'Interview scheduled', detail: `${item.scheduledAt || item.scheduled_at || 'Date not set'} · ${item.status || 'Scheduled'}` })), ...(offers || []).map(item => ({ title: 'Offer activity', detail: `${item.jobTitle || 'Role'} · ${item.status || 'Sent'}` }))];
+    container.innerHTML = items.length ? items.map(item => `<div class="saas-card mb-3"><strong>${companyAcademiaText(item.title)}</strong><div class="text-sm mt-2" style="color:var(--text-muted);">${companyAcademiaText(item.detail)}</div></div>`).join('') : '<div class="saas-card">No company notifications yet.</div>';
+  } catch (error) { container.innerHTML = `<div class="saas-card">Unable to load notifications: ${companyAcademiaText(error.message)}</div>`; }
 }
 
 function renderCompanySettings() {
@@ -3015,16 +3260,16 @@ function renderCompanySettings() {
 
 // COLLEGE ADMIN LOADERS
 async function loadCollegeDashboard() {
+  const overview = document.getElementById('college-overview-cards');
+  if (overview) overview.innerHTML = '<div class="saas-card">Loading university analytics...</div>';
   try {
-    const data = await apiFetch('/api/college/dashboard');
     const analytics = await apiFetch('/api/college/analytics');
-    document.getElementById('col-total-students').textContent = data.total_students;
-    document.getElementById('col-placed-students').textContent = data.placed_students;
-    document.getElementById('col-placement-rate').textContent = `${data.placement_rate}%`;
+    document.getElementById('col-total-students').textContent = analytics.total_students;
+    document.getElementById('col-placed-students').textContent = analytics.placed_students;
+    document.getElementById('col-placement-rate').textContent = `${analytics.placement_rate}%`;
 
     const tbody = document.getElementById('college-dept-table');
-    tbody.innerHTML = (data.department_stats || []).map(d => `<tr><td style="font-weight:700;">${d.name}</td><td>${d.total}</td><td style="color:var(--text-emerald); font-weight:800;">${d.placed}</td><td><span class="badge-saas badge-emerald">${d.percentage}%</span></td></tr>`).join('');
-    const overview = document.getElementById('college-overview-cards');
+    tbody.innerHTML = (analytics.department_stats || []).map(d => `<tr><td style="font-weight:700;">${d.name}</td><td>${d.total}</td><td style="color:var(--text-emerald); font-weight:800;">${d.placed}</td><td><span class="badge-saas badge-emerald">${d.percentage}%</span></td></tr>`).join('') || '<tr><td colspan="4">No department data available.</td></tr>';
     if (overview) {
       overview.innerHTML = [
         ['Students', analytics.students],
@@ -3036,14 +3281,21 @@ async function loadCollegeDashboard() {
     }
     const skills = document.getElementById('college-skill-demand-list');
     if (skills) skills.innerHTML = (analytics.topSkills || []).map(item => `<div class="flex-between mb-2"><span>${item.skill}</span><strong>${item.count}</strong></div>`).join('') || '<div>No skill data available.</div>';
-  } catch (e) {}
+  } catch (e) {
+    if (overview) overview.innerHTML = `<div class="saas-card">Unable to load university analytics. ${e.message || 'Please try again later.'}</div>`;
+  }
 }
 
 async function loadCollegeStudentDirectory() {
+  const container = document.getElementById('college-students-list');
+  if (!container) return;
+  container.innerHTML = '<div class="saas-card">Loading student directory...</div>';
   try {
-    const students = await apiFetch('/college/students');
-    document.getElementById('college-students-list').innerHTML = students.map(s => `<div class="saas-card"><h4 style="font-weight:700;">${s.name}</h4><div style="font-size:0.8rem; color:var(--text-muted);">${s.student_id} • ${s.department}</div></div>`).join('');
-  } catch (e) {}
+    const students = await apiFetch('/api/college/students');
+    container.innerHTML = students.length ? students.map(s => `<div class="saas-card"><h4 style="font-weight:700;">${s.name}</h4><div style="font-size:0.8rem; color:var(--text-muted);">${s.student_id || 'ID not provided'} • ${s.department}</div><div style="font-size:0.8rem;margin-top:.5rem;">Skills: ${(s.skills || []).join(', ') || 'Not recorded'}<br>Applications: ${s.applications || 0} · Internships: ${s.internship_participation || 0} · ${s.placed ? 'Placed' : 'Placement pending'}</div></div>`).join('') : '<div class="saas-card">No students are associated with this university.</div>';
+  } catch (e) {
+    container.innerHTML = `<div class="saas-card">Unable to load student directory. ${e.message || 'Please try again later.'}</div>`;
+  }
 }
 
 // UTILS

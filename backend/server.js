@@ -351,6 +351,87 @@ function parseJSON(req) {
   });
 }
 
+const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+const DOCUMENT_CATEGORIES = new Set([
+  'resume', 'certificates', 'academic_records', 'internship_reports',
+  'project_documents', 'other_career_documents'
+]);
+const DOCUMENT_TYPES = new Map([
+  ['.pdf', ['application/pdf']],
+  ['.doc', ['application/msword', 'application/octet-stream']],
+  ['.docx', ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream']],
+  ['.jpg', ['image/jpeg']], ['.jpeg', ['image/jpeg']], ['.png', ['image/png']],
+  ['.txt', ['text/plain']]
+]);
+
+function parseMultipart(req, maxBytes = DOCUMENT_MAX_BYTES + 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const contentType = String(req.headers['content-type'] || '');
+    const match = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+    if (!match) return reject(new Error('A multipart form upload is required.'));
+    const boundary = Buffer.from(`--${match[1] || match[2]}`);
+    const chunks = [];
+    let total = 0;
+    req.on('data', chunk => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        req.destroy();
+        reject(Object.assign(new Error('Uploaded request is too large.'), { code: 'LIMIT_FILE_SIZE' }));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('error', reject);
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const fields = {};
+        let file = null;
+        let cursor = 0;
+        while (cursor < buffer.length) {
+          const start = buffer.indexOf(boundary, cursor);
+          if (start < 0) break;
+          const headerStart = start + boundary.length;
+          if (buffer.slice(headerStart, headerStart + 2).toString() === '--') break;
+          const contentStart = buffer.indexOf(Buffer.from('\r\n\r\n'), headerStart);
+          if (contentStart < 0) break;
+          const headerText = buffer.slice(headerStart + 2, contentStart).toString('utf8');
+          const nextBoundary = buffer.indexOf(boundary, contentStart + 4);
+          if (nextBoundary < 0) break;
+          const valueEnd = nextBoundary - 2;
+          const value = buffer.slice(contentStart + 4, valueEnd);
+          const disposition = headerText.match(/content-disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]*)")?/i);
+          if (disposition) {
+            const name = disposition[1];
+            if (disposition[2] !== undefined) {
+              const typeMatch = headerText.match(/content-type:\s*([^\r\n]+)/i);
+              file = { fieldName: name, originalName: path.basename(disposition[2]), contentType: typeMatch ? typeMatch[1].trim().toLowerCase() : 'application/octet-stream', buffer: value };
+            } else fields[name] = value.toString('utf8');
+          }
+          cursor = nextBoundary;
+        }
+        resolve({ fields, file });
+      } catch (error) { reject(error); }
+    });
+  });
+}
+
+function validateDocument(file, category) {
+  if (!DOCUMENT_CATEGORIES.has(category)) return 'Select a supported document category.';
+  if (!file || !file.buffer.length) return 'A document file is required.';
+  if (file.buffer.length > DOCUMENT_MAX_BYTES) return 'Documents must be 10 MB or smaller.';
+  const ext = path.extname(file.originalName).toLowerCase();
+  const allowedTypes = DOCUMENT_TYPES.get(ext);
+  if (!allowedTypes || !allowedTypes.includes(file.contentType)) return 'Unsupported file type. Use PDF, DOC, DOCX, JPG, PNG, or TXT.';
+  return null;
+}
+
+function documentPublicMetadata(record) {
+  if (!record) return null;
+  const { storage_path, ...safe } = record;
+  return { ...safe, view_url: `/api/student/documents/${encodeURIComponent(record.id)}/view`, download_url: `/api/student/documents/${encodeURIComponent(record.id)}/download` };
+}
+
 const otpStore = {};
 
 function generateOtpCode() {
@@ -432,8 +513,101 @@ const server = http.createServer(async (req, res) => {
     await ensurePersistentUsersLoaded();
 
     // ----------------------------------------------------
+    // PHASE 7: LEARNING + CERTIFICATION
+    // ----------------------------------------------------
+    const learningMatch = pathname.match(/^\/api\/learning\/programs(?:\/([^/]+))?(?:\/([^/]+))?$/);
+    const learningMine = pathname === '/api/student/learning';
+    if (learningMatch || learningMine) {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await parseJSON(req) : {};
+      const [, programId, operation] = learningMatch || [];
+      const managerRoles = ['company', 'faculty', 'college', 'admin', 'university_admin'];
+      const programResource = 'learning-programs';
+
+      if (learningMine) {
+        if (authUser.role !== 'student' || req.method !== 'GET') return sendJSON(403, { error: 'Student access required.' });
+        const enrollments = await userDb.listRecords('learning_enrollments', { user_id: String(authUser.id) });
+        const programs = await academiaDb.list(programResource);
+        return sendJSON(200, { items: enrollments.map(enrollment => ({ ...enrollment, program: programs.find(item => String(item.id) === String(enrollment.program_id)) || null })) });
+      }
+      if (!programId && req.method === 'GET') {
+        const items = await academiaDb.list(programResource);
+        const visible = managerRoles.includes(authUser.role) && parsedUrl.searchParams.get('mine') === 'true'
+          ? items.filter(item => String(item.created_by) === String(authUser.id))
+          : items.filter(item => item.status === 'published' || String(item.created_by) === String(authUser.id));
+        return sendJSON(200, { items: visible });
+      }
+      if (!programId && req.method === 'POST') {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Program manager access required.' });
+        const title = String(body.title || '').trim();
+        if (!title) return sendJSON(400, { error: 'Program title is required.' });
+        const item = await academiaDb.create(programResource, {
+          ...body, title, program_type: body.program_type || body.type || 'course',
+          status: body.status === 'published' ? 'published' : 'draft',
+          registrations: []
+        }, authUser);
+        return sendJSON(201, { success: true, item });
+      }
+      if (!programId) return sendJSON(405, { error: 'Method not allowed.' });
+      const item = await academiaDb.get(programResource, programId, authUser);
+      if (!item) return sendJSON(404, { error: 'Learning program not found.' });
+      if (operation === 'enroll' && req.method === 'POST') {
+        if (authUser.role !== 'student') return sendJSON(403, { error: 'Student access required.' });
+        if (item.status !== 'published') return sendJSON(409, { error: 'This program is not published.' });
+        const result = await academiaDb.enroll(programResource, programId, authUser);
+        if (result.error === 'duplicate') return sendJSON(409, { error: 'You are already enrolled in this program.', item: result.item });
+        const enrollment = { id: crypto.randomUUID(), user_id: String(authUser.id), program_id: String(programId), progress: 0, status: 'enrolled', enrolled_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+        await userDb.insertRecord('learning_enrollments', enrollment);
+        return sendJSON(201, { success: true, enrollment, item: result.item });
+      }
+      if (operation === 'progress' && req.method === 'PUT') {
+        if (authUser.role !== 'student') return sendJSON(403, { error: 'Student access required.' });
+        const enrollment = await userDb.getRecord('learning_enrollments', { user_id: String(authUser.id), program_id: String(programId) });
+        if (!enrollment) return sendJSON(404, { error: 'Enrollment not found.' });
+        const progress = Math.max(0, Math.min(100, Number(body.progress)));
+        if (!Number.isFinite(progress)) return sendJSON(400, { error: 'Progress must be a number from 0 to 100.' });
+        const completed = progress >= 100;
+        const updated = await userDb.updateRecord('learning_enrollments', { id: enrollment.id }, { $set: { ...enrollment, progress, status: completed ? 'completed' : 'in_progress', updated_at: new Date().toISOString(), completed_at: completed ? (enrollment.completed_at || new Date().toISOString()) : null } });
+        let certification = null;
+        if (completed) {
+          certification = await userDb.getRecord('certifications', { user_id: String(authUser.id), program_id: String(programId) });
+          if (!certification) certification = await userDb.insertRecord('certifications', { id: crypto.randomUUID(), user_id: String(authUser.id), program_id: String(programId), certificateName: `${item.title} Certificate`, name: `${item.title} Certificate`, issuer: item.provider || item.company_name || 'SkillBridge', issueDate: new Date().toISOString().slice(0, 10), credentialId: `SB-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, issued_at: new Date().toISOString(), source: 'learning-program' });
+        }
+        return sendJSON(200, { success: true, enrollment: updated, certification });
+      }
+      if (!operation && req.method === 'GET') return sendJSON(200, item);
+      if (!operation && ['PUT', 'PATCH'].includes(req.method)) {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Program manager access required.' });
+        const updated = await academiaDb.update(programResource, programId, body, authUser);
+        return updated ? sendJSON(200, { success: true, item: updated }) : sendJSON(404, { error: 'Program not found or not owned by you.' });
+      }
+      return sendJSON(405, { error: 'Method not allowed.' });
+    }
+
+    // ----------------------------------------------------
     // ACADEMIA / FACULTY FEATURE APIs
     // ----------------------------------------------------
+    if (pathname === '/api/faculty/profile' && ['GET', 'PUT', 'PATCH'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'faculty') return sendJSON(403, { error: 'Faculty access required.' });
+      if (req.method === 'GET') {
+        const profile = await academiaDb.get('faculty-profiles', String(authUser.id), authUser);
+        return sendJSON(200, { profile: profile || { id: String(authUser.id), name: authUser.fullName || authUser.username, email: authUser.email, college: authUser.collegeName || '', department: authUser.department || '' } });
+      }
+      const body = await parseJSON(req);
+      const current = await academiaDb.get('faculty-profiles', String(authUser.id), authUser);
+      const profile = current ? await academiaDb.update('faculty-profiles', String(authUser.id), body, authUser) : await academiaDb.create('faculty-profiles', { ...body, id: String(authUser.id), name: body.name || authUser.fullName || authUser.username, email: authUser.email }, authUser);
+      return sendJSON(200, { success: true, profile });
+    }
+    if (pathname === '/api/faculty/dashboard' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'faculty') return sendJSON(403, { error: 'Faculty access required.' });
+      const items = [];
+      for (const resource of academiaDb.RESOURCE_NAMES) items.push(...await academiaDb.list(resource, {}, authUser));
+      const involved = items.filter(item => String(item.created_by) === String(authUser.id) || (item.applications || []).some(a => String(a.user_id) === String(authUser.id)) || (item.registrations || []).some(a => String(a.user_id) === String(authUser.id)));
+      return sendJSON(200, { profile: await academiaDb.get('faculty-profiles', String(authUser.id), authUser), total: involved.length, active: involved.filter(item => !['completed', 'Completed', 'closed', 'Closed'].includes(item.status)).length, completed: involved.filter(item => ['completed', 'Completed'].includes(item.status)).length, certificates: involved.filter(item => item.certificate || item.certificate_url || item.achievement).length, items: involved });
+    }
     const academiaMatch = pathname.match(/^\/api\/(academia|faculty)\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?$/);
     if (academiaMatch) {
       const [, , resourceName, itemId, operation] = academiaMatch;
@@ -443,7 +617,7 @@ const server = http.createServer(async (req, res) => {
       if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
 
       const managerRoles = ['company', 'faculty', 'college', 'admin', 'university_admin'];
-      const participantRoles = ['student', 'faculty', 'college', 'admin', 'university_admin'];
+      const participantRoles = ['student', 'company', 'faculty', 'college', 'admin', 'university_admin'];
       const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await parseJSON(req) : {};
 
       if (!itemId && req.method === 'GET') {
@@ -458,11 +632,19 @@ const server = http.createServer(async (req, res) => {
       if (operation === 'apply' && req.method === 'POST') {
         if (!participantRoles.includes(authUser.role)) return sendJSON(403, { error: 'Participant access required.' });
         const item = await academiaDb.apply(resource, itemId, authUser, body);
+        if (item && item.duplicate) return sendJSON(409, { error: 'You have already applied to this opportunity.', item });
         return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (operation === 'request' && req.method === 'POST') {
+        if (!participantRoles.includes(authUser.role)) return sendJSON(403, { error: 'Participant access required.' });
+        const item = await academiaDb.request(resource, itemId, authUser, body);
+        if (item && item.duplicate) return sendJSON(409, { error: 'You have already requested this opportunity.', item });
+        return item ? sendJSON(201, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
       }
       if (operation === 'register' && req.method === 'POST') {
         if (!participantRoles.includes(authUser.role)) return sendJSON(403, { error: 'Participant access required.' });
         const item = await academiaDb.register(resource, itemId, authUser, body);
+        if (item && item.duplicate) return sendJSON(409, { error: 'You are already registered for this opportunity.', item });
         return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
       }
       if (operation === 'status' && req.method === 'GET') {
@@ -472,10 +654,62 @@ const server = http.createServer(async (req, res) => {
       if (operation === 'status' && req.method === 'POST') {
         if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Faculty or institutional access required.' });
         const item = await academiaDb.setStatus(resource, itemId, body.status, authUser);
+        if (item && ['completed', 'Completed'].includes(body.status)) {
+          const records = await academiaDb.list('portfolio-extensions', { source_id: String(itemId) }, authUser);
+          if (!records.some(record => String(record.owner_id || record.created_by) === String(item.created_by))) {
+            await academiaDb.create('portfolio-extensions', { title: `${item.title || resource} completion`, type: body.certificate ? 'Certificate' : 'Achievement', source_id: String(itemId), owner_id: String(item.created_by), certificate: body.certificate || '', achievement: body.achievement || `Completed ${item.title || resource}`, status: 'Verified' }, authUser);
+          }
+        }
         return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (operation === 'progress' && ['POST', 'PUT', 'PATCH'].includes(req.method)) {
+        const item = await academiaDb.get(resource, itemId, authUser);
+        if (!item) return sendJSON(404, { error: 'Academia item not found.' });
+        const progress = Math.max(0, Math.min(100, Number(body.progress)));
+        if (!Number.isFinite(progress)) return sendJSON(400, { error: 'Progress must be a number from 0 to 100.' });
+        const ownsItem = String(item.created_by) === String(authUser.id) || ['admin', 'college', 'university_admin'].includes(authUser.role);
+        const progressPatch = { progress, progress_updated_at: new Date().toISOString(), status: progress >= 100 ? 'Completed' : 'In progress' };
+        if (progress >= 100) progressPatch.completed_at = new Date().toISOString();
+        const updated = ownsItem
+          ? await academiaDb.update(resource, itemId, progressPatch, authUser)
+          : await academiaDb.updateParticipant(resource, itemId, authUser, progressPatch);
+        if (updated && updated.error === 'not_participant') return sendJSON(403, { error: 'You must be an approved participant to update progress.' });
+        return sendJSON(200, { success: true, item: updated });
+      }
+      if (operation === 'complete' && req.method === 'POST') {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Manager access required.' });
+        const updated = await academiaDb.complete(resource, itemId, authUser, body);
+        return updated ? sendJSON(200, { success: true, item: updated }) : sendJSON(404, { error: 'Academia item not found or not owned by you.' });
+      }
+      if (operation === 'mentor' && req.method === 'POST') {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Manager access required.' });
+        const updated = await academiaDb.update(resource, itemId, { mentor_id: body.mentor_id || body.user_id, mentor: body.mentor || body.mentor_name || '' }, authUser);
+        return updated ? sendJSON(200, { success: true, item: updated }) : sendJSON(404, { error: 'Academia item not found.' });
+      }
+      if (operation === 'approve' && req.method === 'POST') {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Manager access required.' });
+        const item = await academiaDb.get(resource, itemId, authUser);
+        if (!item) return sendJSON(404, { error: 'Academia item not found.' });
+        const userId = String(body.user_id || body.userId || '');
+        if (!userId) return sendJSON(400, { error: 'Applicant or registrant user_id is required.' });
+        const status = String(body.status || 'approved');
+        const updateEntries = entries => (Array.isArray(entries) ? entries : []).map(entry => String(entry.user_id) === userId ? { ...entry, status, reviewed_at: new Date().toISOString(), reviewed_by: String(authUser.id) } : entry);
+        const updated = await academiaDb.update(resource, itemId, { applications: updateEntries(item.applications), registrations: updateEntries(item.registrations) }, authUser);
+        return sendJSON(200, { success: true, item: updated });
+      }
+      if (operation === 'reject' && req.method === 'POST') {
+        if (!managerRoles.includes(authUser.role)) return sendJSON(403, { error: 'Manager access required.' });
+        const item = await academiaDb.get(resource, itemId, authUser);
+        if (!item) return sendJSON(404, { error: 'Academia item not found.' });
+        const userId = String(body.user_id || body.userId || '');
+        if (!userId) return sendJSON(400, { error: 'Applicant or registrant user_id is required.' });
+        const updateEntries = entries => (Array.isArray(entries) ? entries : []).map(entry => String(entry.user_id) === userId ? { ...entry, status: 'rejected', reviewed_at: new Date().toISOString(), reviewed_by: String(authUser.id) } : entry);
+        const updated = await academiaDb.update(resource, itemId, { applications: updateEntries(item.applications), registrations: updateEntries(item.registrations) }, authUser);
+        return sendJSON(200, { success: true, item: updated });
       }
       if (operation === 'feedback' && req.method === 'POST') {
         const item = await academiaDb.feedback(resource, itemId, authUser, body);
+        if (item && item.error === 'not_authorized') return sendJSON(403, { error: 'Only the owner or an approved participant can provide feedback.' });
         return item ? sendJSON(200, { success: true, item }) : sendJSON(404, { error: 'Academia item not found.' });
       }
       if (!operation && req.method === 'GET') {
@@ -493,6 +727,140 @@ const server = http.createServer(async (req, res) => {
         return removed ? sendJSON(200, { success: true }) : sendJSON(404, { error: 'Academia item not found.' });
       }
       return sendJSON(405, { error: 'Method not allowed.' });
+    }
+
+    // ----------------------------------------------------
+    // INTERNSHIP LIFECYCLE APIs
+    // ----------------------------------------------------
+    const internshipPath = pathname.match(/^\/api\/(company|student)\/internships(?:\/([^/]+))?(?:\/([^/]+))?$/);
+    const studentInternshipApplicationsPath = pathname === '/api/student/internship-applications';
+    const internshipApplicationPath = pathname.match(/^\/api\/company\/internship-applications\/([^/]+)\/([^/]+)$/);
+    const progressPath = pathname.match(/^\/api\/student\/internship-progress\/([^/]+)\/([^/]+)$/);
+    const companyProgressPath = pathname.match(/^\/api\/company\/internship-progress\/([^/]+)\/feedback$/);
+    if (internshipPath || internshipApplicationPath || progressPath || companyProgressPath || studentInternshipApplicationsPath) {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await parseJSON(req) : {};
+      const now = new Date().toISOString();
+
+      if (studentInternshipApplicationsPath) {
+        if (authUser.role !== 'student') return sendJSON(403, { error: 'Student access required.' });
+        if (req.method !== 'GET') return sendJSON(405, { error: 'Method not allowed.' });
+        const applications = await userDb.listRecords('internship_applications', { student_id: String(authUser.id) }, { applied_at: -1 });
+        const internships = await userDb.listRecords('internships', {});
+        return sendJSON(200, { applications: applications.map(app => ({ ...app, internship: internships.find(item => String(item.id) === String(app.internship_id)) || null })) });
+      }
+
+      if (internshipPath) {
+        const [, portal, internshipId, operation] = internshipPath;
+        if (portal === 'company' && authUser.role !== 'company') return sendJSON(403, { error: 'Company access required.' });
+        if (portal === 'student' && authUser.role !== 'student') return sendJSON(403, { error: 'Student access required.' });
+        if (portal === 'company' && !internshipId && req.method === 'POST') {
+          if (!String(body.title || '').trim()) return sendJSON(400, { error: 'Internship title is required.' });
+          const company = state.companies.find(item => item.companyId === authUser.companyId);
+          const internship = {
+            id: crypto.randomUUID(), companyId: authUser.companyId, company_name: company?.name || authUser.companyName || authUser.username,
+            title: String(body.title).trim(), description: String(body.description || '').trim(),
+            requirements: Array.isArray(body.requirements) ? body.requirements : String(body.requirements || '').split(',').map(v => v.trim()).filter(Boolean),
+            required_skills: Array.isArray(body.required_skills) ? body.required_skills : String(body.required_skills || '').split(',').map(v => v.trim()).filter(Boolean),
+            location: body.location || 'Remote', work_mode: body.work_mode || 'Remote', duration: body.duration || '',
+            stipend: body.stipend || '', positions: Number(body.positions || 1), deadline: body.deadline || '',
+            status: ['Draft', 'Open', 'Closed'].includes(body.status) ? body.status : 'Draft',
+            created_by: String(authUser.id), created_at: now, updated_at: now
+          };
+          await userDb.insertRecord('internships', internship);
+          return sendJSON(201, { success: true, internship });
+        }
+        if (!internshipId && req.method === 'GET') {
+          const filter = portal === 'company' ? { companyId: authUser.companyId } : { status: 'Open' };
+          const internships = await userDb.listRecords('internships', filter, { created_at: -1 });
+          return sendJSON(200, { internships });
+        }
+        if (!internshipId) return sendJSON(405, { error: 'Method not allowed.' });
+        const ownedFilter = portal === 'company' ? { id: internshipId, companyId: authUser.companyId } : { id: internshipId };
+        const internship = await userDb.getRecord('internships', ownedFilter);
+        if (!internship) return sendJSON(404, { error: 'Internship not found.' });
+        if (!operation && req.method === 'GET') return sendJSON(200, { internship });
+        if (portal === 'company' && operation === 'applicants' && req.method === 'GET') {
+          const applicants = await userDb.listRecords('internship_applications', { internship_id: internship.id, companyId: authUser.companyId }, { applied_at: -1 });
+          return sendJSON(200, { internship, applicants });
+        }
+        if (portal === 'company' && !operation && ['PUT', 'PATCH'].includes(req.method)) {
+          const allowed = ['title', 'description', 'requirements', 'required_skills', 'location', 'work_mode', 'duration', 'stipend', 'positions', 'deadline', 'status'];
+          const changes = Object.fromEntries(allowed.filter(key => body[key] !== undefined).map(key => [key, body[key]]));
+          if (changes.status && !['Draft', 'Open', 'Closed'].includes(changes.status)) return sendJSON(400, { error: 'Invalid internship status.' });
+          const saved = await userDb.updateRecord('internships', ownedFilter, { $set: { ...changes, updated_at: now } });
+          return sendJSON(200, { success: true, internship: saved });
+        }
+        if (portal === 'student' && operation === 'apply' && req.method === 'POST') {
+          if (internship.status !== 'Open') return sendJSON(400, { error: 'This internship is not accepting applications.' });
+          const existing = await userDb.getRecord('internship_applications', { internship_id: internship.id, student_id: authUser.id });
+          if (existing) return sendJSON(409, { error: 'You have already applied.' });
+          const profile = await userDb.getStudentProfileByUserId(authUser.id);
+          const application = { id: crypto.randomUUID(), internship_id: internship.id, companyId: internship.companyId, student_id: String(authUser.id), student_name: profile?.name || authUser.username, status: 'Applied', requirements_acknowledged: body.requirements_acknowledged !== false, cover_note: body.cover_note || '', applied_at: now, updated_at: now };
+          await userDb.insertRecord('internship_applications', application);
+          return sendJSON(201, { success: true, application });
+        }
+        if (portal === 'student' && operation === 'applications' && req.method === 'GET') {
+          const applications = await userDb.listRecords('internship_applications', { internship_id: internship.id, student_id: String(authUser.id) });
+          return sendJSON(200, { applications });
+        }
+        return sendJSON(405, { error: 'Method not allowed.' });
+      }
+
+      if (internshipApplicationPath) {
+        if (authUser.role !== 'company') return sendJSON(403, { error: 'Company access required.' });
+        const [, applicationId, operation] = internshipApplicationPath;
+        const application = await userDb.getRecord('internship_applications', { id: applicationId, companyId: authUser.companyId });
+        if (!application) return sendJSON(404, { error: 'Internship application not found.' });
+        const statusByOperation = { review: 'Under review', shortlist: 'Shortlisted', interview: 'Interview selected', 'interview-selection': 'Interview selected', offer: 'Offer sent' };
+        if (!statusByOperation[operation] || req.method !== 'POST') return sendJSON(405, { error: 'Method not allowed.' });
+        const changes = { status: statusByOperation[operation], updated_at: now };
+        if (operation === 'review') changes.review = body.review || body.notes || '';
+        if (operation === 'interview' || operation === 'interview-selection') changes.interview = { date: body.date || '', time: body.time || '', mode: body.mode || 'Online', notes: body.notes || '' };
+        if (operation === 'offer') changes.offer = { title: body.title || '', stipend: body.stipend || '', start_date: body.start_date || '', expiry: body.expiry || '' };
+        const saved = await userDb.updateRecord('internship_applications', { id: application.id, companyId: authUser.companyId }, { $set: changes });
+        return sendJSON(200, { success: true, application: saved });
+      }
+
+      if (progressPath) {
+        if (authUser.role !== 'student') return sendJSON(403, { error: 'Student access required.' });
+        const [, applicationId, operation] = progressPath;
+        const application = await userDb.getRecord('internship_applications', { id: applicationId, student_id: String(authUser.id) });
+        if (!application || !['Offer sent', 'Started', 'In progress', 'Completed'].includes(application.status)) return sendJSON(404, { error: 'Active internship not found.' });
+        let progress = await userDb.getRecord('internship_progress', { application_id: applicationId, student_id: String(authUser.id) });
+        if (operation === 'start' && req.method === 'POST') {
+          progress = progress || { id: crypto.randomUUID(), application_id: applicationId, student_id: String(authUser.id), companyId: application.companyId, updates: [], started_at: now };
+          progress.status = 'Started'; progress.updated_at = now;
+        } else if (operation === 'update' && req.method === 'POST') {
+          if (!progress) return sendJSON(404, { error: 'Start the internship before adding progress.' });
+          progress.updates = [...(progress.updates || []), { note: String(body.note || '').trim(), milestone: body.milestone || '', created_at: now }];
+          progress.status = 'In progress'; progress.updated_at = now;
+        } else if (operation === 'feedback' && req.method === 'POST') {
+          if (!progress) return sendJSON(404, { error: 'Start the internship before requesting feedback.' });
+          progress.feedback = [...(progress.feedback || []), { comment: body.comment || '', rating: body.rating || null, created_at: now }];
+          progress.updated_at = now;
+        } else if (operation === 'complete' && req.method === 'POST') {
+          if (!progress) return sendJSON(404, { error: 'Start the internship before completing it.' });
+          progress.status = 'Completed'; progress.completed_at = now; progress.certificate = { id: crypto.randomUUID(), issued_at: now, title: body.title || 'Internship completion certificate' }; progress.updated_at = now;
+          await userDb.updateRecord('internship_applications', { id: applicationId, student_id: String(authUser.id) }, { $set: { status: 'Completed', updated_at: now } });
+        } else return sendJSON(405, { error: 'Method not allowed.' });
+        await userDb.insertRecord('internship_progress', progress);
+        return sendJSON(200, { success: true, progress });
+      }
+
+      if (companyProgressPath) {
+        if (authUser.role !== 'company' || req.method !== 'POST') return sendJSON(403, { error: 'Company access required.' });
+        const applicationId = companyProgressPath[1];
+        const application = await userDb.getRecord('internship_applications', { id: applicationId, companyId: authUser.companyId });
+        if (!application) return sendJSON(404, { error: 'Internship application not found.' });
+        const progress = await userDb.getRecord('internship_progress', { application_id: applicationId, companyId: authUser.companyId });
+        if (!progress) return sendJSON(404, { error: 'Internship progress not found.' });
+        progress.feedback = [...(progress.feedback || []), { comment: body.comment || '', rating: body.rating || null, reviewer_id: String(authUser.id), created_at: now }];
+        progress.updated_at = now;
+        await userDb.insertRecord('internship_progress', progress);
+        return sendJSON(200, { success: true, progress });
+      }
     }
 
     // ----------------------------------------------------
@@ -610,8 +978,12 @@ const server = http.createServer(async (req, res) => {
         const stored = await userDb.createUser({ email: normalizedEmail, username: normalizedUsername, passwordHash: hash, salt, role: 'college' });
         if (!stored) return sendJSON(500, { error: 'Unable to create account. Please try again.' });
         const newUser = { ...stored, collegeName, adminName: adminName || 'University Admin', password_hash: hash, salt };
+        await userDb.insertRecord('college_profiles', {
+          user_id: String(stored.id), institution_id: String(stored.id),
+          institution: collegeName, college: collegeName, admin_name: adminName || 'University Admin'
+        });
         state.users.push(newUser);
-        const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'college' });
+        const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'college', collegeName });
         return sendJSON(201, { token, user: sanitizeUser(newUser) });
 
       } else if (userRole === 'faculty') {
@@ -695,7 +1067,11 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(401, { error: `Invalid ${userRole.toUpperCase()} credentials.` });
       }
 
-      const token = generateToken({ id: user.id, email: user.email, companyId: user.companyId, role: user.role });
+      const collegeProfile = user.role === 'college' ? await userDb.getRecord('college_profiles', { user_id: String(user.id) }) : null;
+      const token = generateToken({
+        id: user.id, email: user.email, companyId: user.companyId, role: user.role,
+        collegeName: collegeProfile && (collegeProfile.institution || collegeProfile.college || collegeProfile.university)
+      });
       const profile = user.role === 'student' ? (await userDb.getStudentProfileByUserId(user.id)) : null;
       return sendJSON(200, { token, user: sanitizeUser(user), ...(profile ? { profile: { ...profile, email: user.email } } : {}) });
     }
@@ -741,6 +1117,73 @@ const server = http.createServer(async (req, res) => {
         recommendedJobs
       });
     }
+    // PHASE 10: private career-document storage. Metadata lives in workflow_records;
+    // the storage path is never returned or exposed by the static asset server.
+    const documentMatch = pathname.match(/^\/api\/student\/documents(?:\/([^/]+)(?:\/(view|download))?)?$/);
+    if (documentMatch) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(403, { error: 'Student authentication required.' });
+      const userId = String(authUser.id);
+      const documentId = documentMatch[1] ? decodeURIComponent(documentMatch[1]) : null;
+      const action = documentMatch[2];
+      if (req.method === 'GET' && !documentId) {
+        const documents = await userDb.listRecords('career_documents', { user_id: userId }, { created_at: -1 });
+        return sendJSON(200, { documents: documents.map(documentPublicMetadata) });
+      }
+      if (req.method === 'POST' && !documentId) {
+        let upload;
+        try { upload = await parseMultipart(req); } catch (error) {
+          return sendJSON(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400, { error: error.message });
+        }
+        const category = String(upload.fields.category || '').trim().toLowerCase();
+        const validationError = validateDocument(upload.file, category);
+        if (validationError) return sendJSON(400, { error: validationError });
+        const id = crypto.randomUUID();
+        const extension = path.extname(upload.file.originalName).toLowerCase();
+        const userDirectory = path.join(uploadsDir, 'private', userId);
+        fs.mkdirSync(userDirectory, { recursive: true });
+        const storagePath = path.join(userDirectory, `${id}${extension}`);
+        fs.writeFileSync(storagePath, upload.file.buffer, { flag: 'wx', mode: 0o600 });
+        const record = {
+          id, user_id: userId, category,
+          title: String(upload.fields.title || upload.file.originalName).trim().slice(0, 180),
+          original_name: upload.file.originalName.slice(0, 255),
+          content_type: upload.file.contentType, size_bytes: upload.file.buffer.length,
+          storage_path: storagePath, created_at: new Date().toISOString()
+        };
+        try {
+          await userDb.insertRecord('career_documents', record);
+        } catch (error) {
+          try { fs.unlinkSync(storagePath); } catch (ignored) {}
+          throw error;
+        }
+        return sendJSON(201, { success: true, document: documentPublicMetadata(record) });
+      }
+      if (!documentId) return sendJSON(405, { error: 'Method not allowed.' });
+      const record = await userDb.getRecord('career_documents', { id: documentId, user_id: userId });
+      if (!record) return sendJSON(404, { error: 'Document not found.' });
+      if (req.method === 'DELETE' && !action) {
+        await userDb.deleteRecord('career_documents', { id: documentId, user_id: userId });
+        if (record.storage_path) {
+          try { fs.unlinkSync(record.storage_path); } catch (ignored) {}
+        }
+        return sendJSON(200, { success: true });
+      }
+      if (req.method === 'GET' && (action === 'view' || action === 'download')) {
+        const resolved = path.resolve(record.storage_path || '');
+        const privateRoot = path.resolve(uploadsDir, 'private', userId);
+        if (!resolved.startsWith(`${privateRoot}${path.sep}`) || !fs.existsSync(resolved)) return sendJSON(404, { error: 'Document file is unavailable.' });
+        res.writeHead(200, {
+          'Content-Type': record.content_type || 'application/octet-stream',
+          'Content-Length': fs.statSync(resolved).size,
+          'Content-Disposition': `${action === 'download' ? 'attachment' : 'inline'}; filename="${String(record.original_name || 'document').replace(/["\r\n]/g, '')}"`,
+          'Cache-Control': 'private, no-store',
+          'X-Content-Type-Options': 'nosniff'
+        });
+        return fs.createReadStream(resolved).pipe(res);
+      }
+      return sendJSON(405, { error: 'Method not allowed.' });
+    }
     if (pathname === '/api/student/profile' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
@@ -754,15 +1197,43 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const userId = authUser.id;
+      if (String(req.headers['content-type'] || '').toLowerCase().startsWith('multipart/form-data')) {
+        let upload;
+        try { upload = await parseMultipart(req); } catch (error) {
+          return sendJSON(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400, { error: error.message });
+        }
+        const validationError = validateDocument(upload.file, 'resume');
+        if (validationError) return sendJSON(400, { error: validationError });
+        const id = crypto.randomUUID();
+        const extension = path.extname(upload.file.originalName).toLowerCase();
+        const userDirectory = path.join(uploadsDir, 'private', String(userId));
+        fs.mkdirSync(userDirectory, { recursive: true });
+        const storagePath = path.join(userDirectory, `${id}${extension}`);
+        fs.writeFileSync(storagePath, upload.file.buffer, { flag: 'wx', mode: 0o600 });
+        const document = { id, user_id: String(userId), category: 'resume', title: upload.fields.title || 'Resume', original_name: upload.file.originalName.slice(0, 255), content_type: upload.file.contentType, size_bytes: upload.file.buffer.length, storage_path: storagePath, created_at: new Date().toISOString() };
+        let atsAnalysis = null;
+        if (upload.fields.atsAnalysis) {
+          try { atsAnalysis = JSON.parse(upload.fields.atsAnalysis); } catch (error) {
+            try { fs.unlinkSync(storagePath); } catch (ignored) {}
+            return sendJSON(400, { error: 'Resume analysis metadata is invalid.' });
+          }
+        }
+        const resume = { file_name: document.original_name, upload_date: new Date().toISOString().split('T')[0], status: 'Verified & Active', document_id: id, ats_analysis: atsAnalysis };
+        try {
+          await userDb.insertRecord('career_documents', document);
+          await userDb.updateRecord('student_resumes', { user_id: userId }, { $set: resume }, { upsert: true });
+        } catch (error) {
+          try { fs.unlinkSync(storagePath); } catch (ignored) {}
+          throw error;
+        }
+        state.resumes[userId] = resume;
+        return sendJSON(201, { success: true, resume: { ...resume, document: documentPublicMetadata(document) } });
+      }
+      // Preserve the legacy JSON resume workflow for existing records, without
+      // turning it into a public file endpoint.
       const body = await parseJSON(req);
       if (!body.fileUrl && !body.resumeUrl) return sendJSON(400, { error: 'Resume file or URL is required.' });
-      state.resumes[userId] = {
-        file_name: body.fileName || 'Resume.pdf',
-        file_url: body.fileUrl || body.resumeUrl,
-        upload_date: new Date().toISOString().split('T')[0],
-        status: 'Verified & Active',
-        ats_analysis: body.atsAnalysis || null
-      };
+      state.resumes[userId] = { file_name: body.fileName || 'Resume.pdf', file_url: body.fileUrl || body.resumeUrl, upload_date: new Date().toISOString().split('T')[0], status: 'Verified & Active', ats_analysis: body.atsAnalysis || null };
       await userDb.updateRecord('student_resumes', { user_id: userId }, { $set: state.resumes[userId] }, { upsert: true });
       return sendJSON(201, { success: true, resume: state.resumes[userId] });
     }
@@ -970,6 +1441,10 @@ const server = http.createServer(async (req, res) => {
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const body = await parseJSON(req);
       if (!String(body.certificateName || body.name || '').trim()) return sendJSON(400, { error: 'Certificate name is required.' });
+      if (body.document_id) {
+        const document = await userDb.getRecord('career_documents', { id: String(body.document_id), user_id: authUser.id, category: 'certificates' });
+        if (!document) return sendJSON(400, { error: 'The certificate document is not available.' });
+      }
       const certificate = { ...body, id: await userDb.nextSequence('certifications', 'certifications'), user_id: authUser.id, created_at: new Date().toISOString() };
       await userDb.insertRecord('certifications', certificate);
       return sendJSON(201, { success: true, certificate });
@@ -1120,7 +1595,11 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/student/account' && req.method === 'DELETE') {
       const authUser = getAuthUser();
       if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
-      const collections = ['student_profiles', 'student_academics', 'student_academic_summary', 'student_preferences', 'student_skills', 'student_resumes', 'certifications', 'student_placements', 'campus_registrations', 'user_settings'];
+      const documents = await userDb.listRecords('career_documents', { user_id: String(authUser.id) });
+      for (const document of documents) {
+        if (document.storage_path) { try { fs.unlinkSync(document.storage_path); } catch (ignored) {} }
+      }
+      const collections = ['student_profiles', 'student_academics', 'student_academic_summary', 'student_preferences', 'student_skills', 'student_resumes', 'career_documents', 'certifications', 'student_placements', 'campus_registrations', 'user_settings'];
       for (const collection of collections) await userDb.deleteRecords(collection, { user_id: authUser.id });
       await userDb.deleteRecord('users', { id: authUser.id });
       state.users = state.users.filter(user => String(user.id) !== String(authUser.id));
@@ -1396,6 +1875,51 @@ const server = http.createServer(async (req, res) => {
       const applications = await userDb.listRecords('applications', { companyId: authUser.companyId });
       return sendJSON(200, jobs.map(job => ({ ...job, jobId: job.jobId || job.id, status: job.status || 'Published', applicationCount: applications.filter(app => String(app.job_id) === String(job.id)).length })));
     }
+
+    // Company-owned apprenticeship/internship postings. These records use the
+    // existing workflow-record persistence and never expose another company’s
+    // postings or applicants.
+    if (pathname === '/api/company/internships' && ['GET', 'POST'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      if (req.method === 'GET') return sendJSON(200, { internships: await userDb.listRecords('company_internships', { companyId: authUser.companyId }, { created_at: -1 }) });
+      const body = await parseJSON(req);
+      if (!String(body.title || '').trim()) return sendJSON(400, { error: 'Internship title is required.' });
+      const internship = { ...body, id: await userDb.nextSequence('company_internships', 'company_internships'), companyId: authUser.companyId, status: body.status || 'Draft', created_at: new Date().toISOString() };
+      await userDb.insertRecord('company_internships', internship);
+      return sendJSON(201, { success: true, internship });
+    }
+    const internshipMatch = pathname.match(/^\/api\/company\/internships\/([^/]+)(?:\/applicants)?$/);
+    if (internshipMatch && ['GET', 'PUT'].includes(req.method) && pathname.includes('/applicants') === false) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const filter = { id: Number(internshipMatch[1]), companyId: authUser.companyId };
+      if (req.method === 'GET') {
+        const internship = await userDb.getRecord('company_internships', filter);
+        return internship ? sendJSON(200, { internship }) : sendJSON(404, { error: 'Internship not found.' });
+      }
+      const body = await parseJSON(req);
+      const saved = await userDb.updateRecord('company_internships', filter, { $set: { ...body, companyId: authUser.companyId, updated_at: new Date().toISOString() } });
+      return saved ? sendJSON(200, { success: true, internship: saved }) : sendJSON(404, { error: 'Internship not found.' });
+    }
+    const internshipApplicantsMatch = pathname.match(/^\/api\/company\/internships\/([^/]+)\/applicants$/);
+    if (internshipApplicantsMatch && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const internship = await userDb.getRecord('company_internships', { id: Number(internshipApplicantsMatch[1]), companyId: authUser.companyId });
+      if (!internship) return sendJSON(404, { error: 'Internship not found.' });
+      return sendJSON(200, { applicants: await userDb.listRecords('company_internship_applications', { internshipId: internship.id, companyId: authUser.companyId }, { created_at: -1 }) });
+    }
+    const internshipApplicationMatch = pathname.match(/^\/api\/company\/internship-applications\/([^/]+)\/(review|shortlist|interview-selection|offer)$/);
+    if (internshipApplicationMatch && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const application = await userDb.getRecord('company_internship_applications', { id: Number(internshipApplicationMatch[1]), companyId: authUser.companyId });
+      if (!application) return sendJSON(404, { error: 'Internship application not found.' });
+      const statusMap = { review: 'Under review', shortlist: 'Shortlisted', 'interview-selection': 'Interview selected', offer: 'Offer' };
+      const saved = await userDb.updateRecord('company_internship_applications', { id: application.id, companyId: authUser.companyId }, { $set: { status: statusMap[internshipApplicationMatch[2]], updated_at: new Date().toISOString() } });
+      return sendJSON(200, { success: true, application: saved });
+    }
     const jobMatch = pathname.match(/^\/api\/company\/jobs\/([^/]+)$/);
     if (jobMatch && ['PUT', 'DELETE'].includes(req.method)) {
       const authUser = getAuthUser();
@@ -1409,6 +1933,9 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJSON(req);
       const allowed = ['title', 'description', 'location', 'department', 'vacancies', 'salary', 'salary_stipend', 'type', 'deadline', 'requiredSkills', 'required_skills', 'minCGPA', 'min_cgpa', 'eligibleDepartments', 'status'];
       const changes = Object.fromEntries(allowed.filter(key => body[key] !== undefined).map(key => [key, body[key]]));
+      if (changes.requiredSkills !== undefined && changes.required_skills === undefined) changes.required_skills = changes.requiredSkills;
+      if (changes.required_skills !== undefined) changes.required_skills = (Array.isArray(changes.required_skills) ? changes.required_skills : String(changes.required_skills).split(',')).map(skill => String(skill).trim()).filter(Boolean);
+      if (changes.minCGPA !== undefined && changes.min_cgpa === undefined) changes.min_cgpa = Number(changes.minCGPA);
       if (changes.status) changes.status = ['Closed', 'Open', 'Published', 'Draft'].includes(String(changes.status)) ? String(changes.status) : null;
       if (changes.status === null) return sendJSON(400, { error: 'Invalid job status.' });
       const saved = await userDb.updateRecord('jobs', { id: job.id, companyId: authUser.companyId }, { $set: { ...changes, updated_at: new Date().toISOString() } });
@@ -1493,6 +2020,22 @@ const server = http.createServer(async (req, res) => {
       const removed = await userDb.deleteRecord('company_assessments', { assessmentId: assessmentMatch[1], companyId: authUser.companyId });
       return removed ? sendJSON(200, { success: true }) : sendJSON(404, { error: 'Assessment not found.' });
     }
+    const assessmentApplicantStatusMatch = pathname.match(/^\/api\/company\/assessments\/([^/]+)\/applicants\/([^/]+)\/status$/);
+    if (assessmentApplicantStatusMatch && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'company') return sendJSON(401, { error: 'Company authentication required.' });
+      const body = await parseJSON(req);
+      const assessment = await userDb.getRecord('company_assessments', { assessmentId: assessmentApplicantStatusMatch[1], companyId: authUser.companyId });
+      if (!assessment) return sendJSON(404, { error: 'Assessment not found.' });
+      const status = String(body.status || '').trim();
+      const allowedStatuses = ['Assessment scheduled', 'Assessment completed'];
+      if (!allowedStatuses.includes(status)) return sendJSON(400, { error: 'Status must be Assessment scheduled or Assessment completed.' });
+      const filter = { assessmentId: assessmentApplicantStatusMatch[1], applicantId: assessmentApplicantStatusMatch[2], companyId: authUser.companyId };
+      const applicant = await userDb.getRecord('company_assessment_applicants', filter);
+      if (!applicant) return sendJSON(404, { error: 'Assessment applicant not found for this company.' });
+      const saved = await userDb.updateRecord('company_assessment_applicants', filter, { $set: { status, updated_at: new Date().toISOString() } });
+      return sendJSON(200, { success: true, applicant: saved });
+    }
 
     if (pathname === '/api/company/interviews' && req.method === 'GET') {
       const authUser = getAuthUser();
@@ -1574,43 +2117,38 @@ const server = http.createServer(async (req, res) => {
     // ----------------------------------------------------
     // UNIVERSITY ADMIN MODULE APIs
     // ----------------------------------------------------
+    async function collegeScope(authUser) {
+      const profile = await userDb.getRecord('college_profiles', { user_id: String(authUser.id) });
+      const values = [
+        profile && profile.institution_id, profile && profile.college_id, profile && profile.university_id,
+        profile && profile.college, profile && profile.institution, profile && profile.university,
+        authUser.collegeName, authUser.college_name
+      ].map(normalizeIdentity).filter(Boolean);
+      return { profile: profile || {}, values };
+    }
+    function belongsToCollege(record, scope, studentIds) {
+      const value = ['institution_id', 'college_id', 'university_id', 'institution', 'college', 'university', 'institution_name', 'college_name', 'university_name', 'collegeName']
+        .map(key => normalizeIdentity(record && record[key])).find(Boolean);
+      if (value) return scope.values.includes(value);
+      const owner = record && (record.user_id || record.student_id || record.studentId);
+      return owner !== undefined && studentIds.has(String(owner));
+    }
+    function privateStudentView(profile) {
+      const copy = { ...profile };
+      delete copy.email; delete copy.phone; delete copy.mobile; delete copy.address;
+      delete copy.date_of_birth; delete copy.dob;
+      return copy;
+    }
     if (pathname === '/api/college/dashboard' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'college') return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
-      const profiles = Object.values(state.studentProfiles);
-      const placedStatuses = new Set(['Selected', 'Offer', 'Placed']);
-      const placedStudentIds = new Set(
-        state.applications
-          .filter(application => placedStatuses.has(application.status))
-          .map(application => application.student_id)
-      );
-      const departments = {};
-      profiles.forEach(profile => {
-        const name = profile.department || 'Department not provided';
-        departments[name] = departments[name] || { name, total: 0, placed: 0 };
-        departments[name].total += 1;
-        if (placedStudentIds.has(profile.user_id)) departments[name].placed += 1;
-      });
-      const departmentStats = Object.values(departments).map(department => ({
-        ...department,
-        percentage: department.total ? Number(((department.placed / department.total) * 100).toFixed(1)) : 0
-      }));
-      const totalStudents = profiles.length;
-      const placedStudents = placedStudentIds.size;
-      const recruiterNames = [...new Set(state.jobs.map(job => job.company_name).filter(Boolean))];
-      return sendJSON(200, {
-        total_students: totalStudents,
-        placed_students: placedStudents,
-        placement_rate: totalStudents ? Number(((placedStudents / totalStudents) * 100).toFixed(1)) : 0,
-        top_recruiters: recruiterNames,
-        department_stats: departmentStats,
-        skill_signals: []
-      });
+      return sendJSON(200, await buildCollegeAnalytics(authUser));
     }
     if (pathname === '/api/college/students' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'college') return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
-      return sendJSON(200, Object.values(state.studentProfiles));
+      const analytics = await buildCollegeAnalytics(authUser);
+      return sendJSON(200, analytics.student_directory);
     }
     if (pathname === '/api/college/companies' && req.method === 'GET') {
       const authUser = getAuthUser();
@@ -1631,35 +2169,69 @@ const server = http.createServer(async (req, res) => {
         });
       return sendJSON(200, registeredCompanies);
     }
+    async function buildCollegeAnalytics(authUser) {
+      const scope = await collegeScope(authUser);
+      const profiles = await userDb.listStudentProfiles();
+      const scopedProfiles = profiles.filter(profile => belongsToCollege(profile, scope, new Set()));
+      const studentIds = new Set(scopedProfiles.map(profile => String(profile.user_id)));
+      const collections = ['student_skills', 'applications', 'internships', 'student_placements',
+        'campus_registrations', 'jobs'];
+      const loaded = await Promise.all(collections.map(collection => userDb.listRecords(collection)));
+      const scoped = loaded.map(items => items.filter(item => belongsToCollege(item, scope, studentIds)
+        || studentIds.has(String(item.user_id || item.student_id || ''))));
+      const [skills, applications, internships, placements, registrations, jobs] = scoped;
+      const placedStatuses = new Set(['selected', 'offer', 'placed', 'hired', 'accepted']);
+      const placedIds = new Set(applications.filter(item => placedStatuses.has(normalizeIdentity(item.status)))
+        .map(item => String(item.student_id || item.user_id || '')));
+      placements.forEach(item => { if (item.user_id || item.student_id) placedIds.add(String(item.user_id || item.student_id)); });
+      const departments = {};
+      scopedProfiles.forEach(profile => {
+        const name = profile.department || 'Department not provided';
+        departments[name] = departments[name] || { name, total: 0, placed: 0 };
+        departments[name].total += 1;
+        if (placedIds.has(String(profile.user_id))) departments[name].placed += 1;
+      });
+      const skillCounts = {};
+      skills.forEach(item => {
+        const name = String(item.skill_name || item.name || '').trim();
+        if (name) skillCounts[name] = (skillCounts[name] || 0) + 1;
+      });
+      const demand = {};
+      jobs.forEach(job => (Array.isArray(job.required_skills) ? job.required_skills : String(job.required_skills || '').split(','))
+        .map(skill => String(skill).trim()).filter(Boolean).forEach(skill => { demand[skill] = (demand[skill] || 0) + 1; }));
+      const topSkills = Object.entries(skillCounts).sort((a, b) => b[1] - a[1]).slice(0, 10)
+        .map(([skill, count]) => ({ skill, count }));
+      const industryDemand = Object.entries(demand).sort((a, b) => b[1] - a[1]).slice(0, 10)
+        .map(([skill, count]) => ({ skill, count }));
+      const directory = scopedProfiles.map(profile => ({
+        user_id: profile.user_id, name: profile.name || profile.username || 'Student',
+        student_id: profile.student_id || '', department: profile.department || 'Not provided',
+        college: profile.college || profile.institution || '',
+        skills: skills.filter(item => String(item.user_id) === String(profile.user_id))
+          .map(item => item.skill_name || item.name).filter(Boolean),
+        internship_participation: internships.filter(item => String(item.user_id || item.student_id) === String(profile.user_id)).length,
+        applications: applications.filter(item => String(item.user_id || item.student_id) === String(profile.user_id)).length,
+        placed: placedIds.has(String(profile.user_id))
+      }));
+      return {
+        total_students: scopedProfiles.length, students: scopedProfiles.length,
+        placed_students: placedIds.size, placements: placements.length,
+        applications: applications.length, internships: internships.length,
+        skills: skills.length, campus_drives: registrations.length,
+        placement_rate: scopedProfiles.length ? Number(((placedIds.size / scopedProfiles.length) * 100).toFixed(1)) : 0,
+        department_stats: Object.values(departments).map(item => ({ ...item,
+          percentage: item.total ? Number(((item.placed / item.total) * 100).toFixed(1)) : 0 })),
+        topSkills, industry_demand: industryDemand,
+        skill_gaps: industryDemand.filter(item => !skillCounts[item.skill]),
+        readiness: { students_with_skills: new Set(skills.map(item => String(item.user_id))).size },
+        partners: [...new Set(jobs.map(item => item.company_name || item.company || item.companyId).filter(Boolean))],
+        campus_drives: registrations.length, student_directory: directory
+      };
+    }
     if (pathname === '/api/college/analytics' && req.method === 'GET') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'college') return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
-      const [profiles, skills, applications, internships, placements] = await Promise.all([
-        userDb.listRecords('student_profiles'),
-        userDb.listRecords('student_skills'),
-        userDb.listRecords('applications'),
-        userDb.listRecords('internships'),
-        userDb.listRecords('student_placements')
-      ]);
-      const skillDemand = {};
-      skills.forEach(item => {
-        const name = String(item.skill_name || '').trim();
-        if (name) skillDemand[name] = (skillDemand[name] || 0) + 1;
-      });
-      const placementStatuses = new Set(['Selected', 'Offer', 'Placed']);
-      const placed = applications.filter(item => placementStatuses.has(item.status)).length;
-      return sendJSON(200, {
-        students: profiles.length,
-        skills: skills.length,
-        internships: internships.length,
-        applications: applications.length,
-        placements: placements.length,
-        placedApplications: placed,
-        topSkills: Object.entries(skillDemand)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 10)
-          .map(([skill, count]) => ({ skill, count }))
-      });
+      return sendJSON(200, await buildCollegeAnalytics(authUser));
     }
 
     // Static Asset Server Fallback (Supports root & frontend directory)

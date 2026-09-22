@@ -126,7 +126,7 @@ async function loadATSKanbanBoard(applications) {
 }
 
 // POST JOB
-async function handlePostJobSubmit(e) {
+async function legacyHandlePostJobSubmit(e) {
   e.preventDefault();
   
   const jobData = {
@@ -155,7 +155,7 @@ async function handlePostJobSubmit(e) {
 }
 
 // TALENT FINDER
-async function loadTalentFinder() {
+async function legacyLoadTalentFinder() {
   try {
     const candidates = await apiFetch('/company/talent-finder');
     const container = document.getElementById('talent-candidates-list');
@@ -296,7 +296,8 @@ function setupCompanyEventListeners() {
 // Export functions
 window.initializeCompanyModule = initializeCompanyModule;
 window.loadCompanyDashboard = loadCompanyDashboard;
-window.handlePostJobSubmit = handlePostJobSubmit;
-window.loadTalentFinder = loadTalentFinder;
+// The active company portal is implemented in app.js. Keep these legacy
+// helpers private so loading this optional extension cannot overwrite active
+// job-management and candidate-discovery workflows.
 window.viewCandidateProfile = viewCandidateProfile;
 window.shortlistCandidate = shortlistCandidate;

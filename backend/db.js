@@ -114,7 +114,18 @@ async function profile(table, userId, value) {
 }
 const createOrUpdateStudentProfile = (id, value) => profile('student_profiles', id, value);
 const getStudentProfileByUserId = id => profile('student_profiles', id);
+async function listStudentProfiles() {
+  return rows(`SELECT u.id AS user_id, u.email, u.username, p.profile
+    FROM users u JOIN student_profiles p ON p.user_id = u.id
+    WHERE u.role = 'student' AND u.is_active = 1
+    ORDER BY u.id`).then(items => items.map(item => ({
+    ...item.profile,
+    user_id: item.user_id,
+    email: item.profile && item.profile.email ? item.profile.email : item.email,
+    username: item.username
+  })));
+}
 const createOrUpdateCompanyProfile = (id, value) => profile('company_profiles', id, value);
 const getCompanyProfileByUserId = id => profile('company_profiles', id);
 
-module.exports = { init, createUser, getUserByEmail, getUserByUsername, getUserByIdentity, getUserById, getAllUsers, nextSequence, listRecords, getRecord, insertRecord, updateRecord, deleteRecord, deleteRecords, createOrUpdateStudentProfile, getStudentProfileByUserId, createOrUpdateCompanyProfile, getCompanyProfileByUserId };
+module.exports = { init, createUser, getUserByEmail, getUserByUsername, getUserByIdentity, getUserById, getAllUsers, nextSequence, listRecords, getRecord, insertRecord, updateRecord, deleteRecord, deleteRecords, createOrUpdateStudentProfile, getStudentProfileByUserId, listStudentProfiles, createOrUpdateCompanyProfile, getCompanyProfileByUserId };

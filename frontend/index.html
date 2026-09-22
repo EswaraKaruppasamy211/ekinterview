@@ -118,8 +118,10 @@
         <a href="#" class="sidebar-item" data-target="skills" onclick="navigateTo('skills')"><i class="fa-solid fa-code"></i> <span>Skills</span></a>
         <a href="#" class="sidebar-item" data-target="assessments" onclick="navigateTo('assessments')"><i class="fa-solid fa-chart-simple"></i> <span>Assessments</span></a>
         <a href="#" class="sidebar-item" data-target="portfolio" onclick="navigateTo('portfolio')"><i class="fa-solid fa-folder-open"></i> <span>My Portfolio</span></a>
+        <a href="#" class="sidebar-item" data-target="learning" onclick="navigateTo('learning')"><i class="fa-solid fa-certificate"></i> <span>Learning & Certification</span></a>
         <a href="#" class="sidebar-item" data-target="ai-skill-analyzer" onclick="navigateTo('ai-skill-analyzer')"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>AI Skill Analyzer</span></a>
         <a href="#" class="sidebar-item" data-target="opportunities" onclick="navigateTo('opportunities')"><i class="fa-solid fa-briefcase"></i> <span>Opportunities</span></a>
+        <a href="#" class="sidebar-item" data-target="internships" onclick="navigateTo('internships')"><i class="fa-solid fa-user-clock"></i> <span>Internships</span></a>
         <a href="#" class="sidebar-item" data-target="applications" onclick="navigateTo('applications')"><i class="fa-solid fa-paper-plane"></i> <span>Applications</span></a>
         <a href="#" class="sidebar-item" data-target="interview-prep" onclick="navigateTo('interview-prep')"><i class="fa-solid fa-microphone-lines"></i> <span>Voice Interview Prep</span></a>
         <a href="#" class="sidebar-item" data-target="notifications" onclick="navigateTo('notifications')"><i class="fa-solid fa-bell"></i> <span>Notifications</span></a>
@@ -134,9 +136,13 @@
         <a href="#" class="sidebar-item active" data-target="faculty-dashboard" onclick="navigateTo('faculty-dashboard')"><i class="fa-solid fa-house"></i> <span>Faculty Dashboard</span></a>
         <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('learning-programs')"><i class="fa-solid fa-book-open"></i> <span>Academia Programs</span></a>
         <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('faculty-internships')"><i class="fa-solid fa-briefcase"></i> <span>Internships</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('industrial-training')"><i class="fa-solid fa-industry"></i> <span>Industrial Training</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('fdp')"><i class="fa-solid fa-chalkboard"></i> <span>FDP</span></a>
         <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('mentorship')"><i class="fa-solid fa-user-friends"></i> <span>Mentorship</span></a>
         <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('workshops')"><i class="fa-solid fa-chalkboard-user"></i> <span>Workshops</span></a>
         <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('research-collaborations')"><i class="fa-solid fa-flask-vial"></i> <span>Research</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('research-projects')"><i class="fa-solid fa-microscope"></i> <span>Research Projects</span></a>
+        <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('innovation-challenges')"><i class="fa-solid fa-lightbulb"></i> <span>Innovation Challenges</span></a>
         <a href="#" class="sidebar-item" data-target="faculty-dashboard" onclick="navigateToFacultyResource('portfolio-extensions')"><i class="fa-solid fa-folder-open"></i> <span>Portfolio</span></a>
       </div>
 
@@ -349,6 +355,22 @@
       </section>
       <section id="view-portfolio" class="workspace-view hidden">
         <h1 class="mb-4">Portfolio</h1>
+        <div class="saas-card mb-4">
+          <div class="flex-between gap-3 mb-3">
+            <div><h3 style="font-weight:700; margin:0;">Private career documents</h3><p class="text-sm" style="color:var(--text-muted); margin:.25rem 0 0;">Only you can access these files. PDF, DOC, DOCX, JPG, PNG, and TXT up to 10 MB.</p></div>
+            <span class="badge-saas badge-blue">Secure storage</span>
+          </div>
+          <form id="career-document-form" onsubmit="handleCareerDocumentUpload(event)">
+            <div class="grid-2 gap-3 mb-3">
+              <div><label class="block text-xs font-bold mb-1">Document type</label><select id="career-document-category" class="saas-input" required><option value="resume">Resume</option><option value="certificates">Certificate</option><option value="academic_records">Academic record</option><option value="internship_reports">Internship report</option><option value="project_documents">Project document</option><option value="other_career_documents">Other career document</option></select></div>
+              <div><label class="block text-xs font-bold mb-1">Title (optional)</label><input id="career-document-title" class="saas-input" maxlength="180" placeholder="e.g. B.Tech transcript" /></div>
+              <div class="span-2"><label class="block text-xs font-bold mb-1">File</label><input id="career-document-file" type="file" class="saas-input" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt" required /></div>
+            </div>
+            <button type="submit" class="btn-saas btn-primary">Upload document</button>
+            <span id="career-document-state" class="text-sm" style="color:var(--text-muted); margin-left:.75rem;" aria-live="polite"></span>
+          </form>
+          <div id="career-document-list" class="flex-col gap-2 mt-4"><div class="text-sm" style="color:var(--text-muted);">Documents will appear here.</div></div>
+        </div>
         <div class="grid-2 gap-4 mb-4">
           <div class="saas-card">
             <h3 style="font-weight:700; margin-bottom: 1rem;">Upload Certificate</h3>
@@ -396,8 +418,15 @@
           </div>
         </div>
       </section>
+      <section id="view-learning" class="workspace-view hidden">
+        <div class="flex-between mb-4"><div><h1 class="mb-1">Learning & Certification</h1><p style="color:var(--text-muted);">Discover published courses, workshops, and mentorships.</p></div><button class="btn-saas btn-outline" onclick="loadLearningView()">Refresh</button></div>
+        <div id="learning-state" class="saas-card mb-4">Loading learning programs…</div>
+        <div id="learning-program-list" class="grid-2 gap-4"></div>
+        <div class="saas-card mt-4"><h3 style="font-weight:700;">My Learning</h3><div id="my-learning-list" class="mt-3">Loading…</div></div>
+      </section>
       <section id="view-ai-skill-analyzer" class="workspace-view hidden"><h1 class="mb-4">AI Skill Analyzer</h1><div class="saas-card mb-4"><h2 id="ai-match-pct">92% Match</h2></div><div id="ai-score-breakdown"></div></section>
       <section id="view-opportunities" class="workspace-view hidden"><h1 class="mb-4">Opportunities</h1><div id="opportunities-list-container" class="grid-2 gap-4"></div></section>
+      <section id="view-internships" class="workspace-view hidden"><div class="flex-between mb-4"><div><h1 class="mb-1">Internships</h1><p style="color:var(--text-muted);">Discover internships, review requirements, apply, and track your lifecycle.</p></div><button class="btn-saas btn-outline" onclick="loadStudentInternships()">Refresh</button></div><div id="student-internships-list" class="grid-2 gap-4"></div><div class="saas-card mt-4"><h3 style="font-weight:700;">My internship applications & progress</h3><div id="student-internship-status" class="mt-3"></div></div></section>
       <section id="view-applications" class="workspace-view hidden"><h1 class="mb-4">Applications</h1><div id="applications-list-container"></div></section>
       <section id="view-interview-prep" class="workspace-view hidden">
         <div class="flex-between mb-4 interview-heading">
@@ -479,6 +508,8 @@
       <!-- COMPANY RECRUITER MODULE VIEWS -->
       <section id="view-faculty-dashboard" class="workspace-view hidden">
         <div class="flex-between mb-4"><div><h1 style="font-size:1.6rem;font-weight:800;">Faculty Workspace</h1><p style="color:var(--text-muted);">Discover, publish, and track academia–industry opportunities.</p></div><span class="badge-saas badge-purple">Faculty Portal</span></div>
+        <div class="grid-4 gap-3 mb-4" id="faculty-summary"><div class="saas-card"><span class="text-xs">Loading activity…</span></div></div>
+        <div class="saas-card mb-4"><form id="faculty-profile-form" onsubmit="saveFacultyProfile(event)"><div class="flex-between mb-2"><h3 style="font-weight:700;margin:0;">Faculty profile</h3><button class="btn-saas btn-outline" type="submit">Save profile</button></div><div class="grid-3 gap-3"><input id="faculty-profile-name" class="saas-input" placeholder="Name" required><input id="faculty-profile-college" class="saas-input" placeholder="College / university"><input id="faculty-profile-department" class="saas-input" placeholder="Department"><input id="faculty-profile-expertise" class="saas-input" placeholder="Expertise (comma separated)"><input id="faculty-profile-bio" class="saas-input" placeholder="Short bio"></div></form></div>
         <div class="saas-card mb-4"><div class="grid-3 gap-3">
           <div><label class="block text-xs font-bold mb-1">Academia feature</label><select id="faculty-resource" class="saas-input" onchange="loadFacultyResource()"></select></div>
           <div><label class="block text-xs font-bold mb-1">Search</label><input id="faculty-search" class="saas-input" placeholder="Search title, topic, or partner" oninput="filterFacultyItems()" /></div>
@@ -656,7 +687,7 @@
       <section id="view-company-internships" class="workspace-view hidden">
         <div class="flex-between mb-4">
           <div><h1 style="font-size: 1.6rem; font-weight: 800;">Internship Programs</h1><p style="color: var(--text-muted);">Create, publish, and manage internship opportunities end-to-end.</p></div>
-          <button class="btn-saas btn-primary" onclick="navigateTo('company-job-drives')">Create internship</button>
+          <button class="btn-saas btn-primary" onclick="navigateTo('company-internships')">Create internship</button>
         </div>
         <div id="company-internship-content"></div>
       </section>
