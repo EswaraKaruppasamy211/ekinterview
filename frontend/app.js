@@ -1687,7 +1687,7 @@ function populateSemesterForm(record) {
   setValue('semester-status', record.academic_status || record.status || 'Pending');
   setValue('semester-gpa', record.gpa ?? '');
   setValue('semester-cgpa', record.cgpa ?? '');
-  setValue('semester-total-marks', record.total_marks ?? '');
+  setValue('semester-total-marks', record.total_marks ?? record.semester_marks ?? '');
   setValue('semester-percentage', record.percentage ?? '');
   setValue('semester-total-subjects', record.subjects_count ?? '');
   setValue('semester-passed', record.passed_subjects ?? '');
@@ -1718,6 +1718,7 @@ function buildSemesterRecordPayload() {
     gpa: getNum('semester-gpa'),
     cgpa: getNum('semester-cgpa'),
     total_marks: getNum('semester-total-marks'),
+    semester_marks: getNum('semester-total-marks'),
     percentage: getNum('semester-percentage'),
     subjects_count: getNum('semester-total-subjects'),
     passed_subjects: getNum('semester-passed'),
@@ -1782,11 +1783,19 @@ async function loadAcademicsView() {
   try {
     const data = await apiFetch('/student/semester-records');
     const records = Array.isArray(data.records) ? data.records : [];
+    const calculatedCgpa = data.cgpa;
+    const semesterCgpa = document.getElementById('semester-calculated-cgpa');
+    if (semesterCgpa) semesterCgpa.textContent = calculatedCgpa === null || calculatedCgpa === undefined ? '—' : formatSemesterField(calculatedCgpa);
     const tbody = document.getElementById('semester-table-body');
     if (!tbody) return;
     if (!records.length) {
       tbody.innerHTML = '<tr><td colspan="13" style="text-align:center; color: var(--text-muted);">No semester records available yet.</td></tr>';
       return;
+    }
+
+    const cgpaSummary = document.getElementById('stat-cgpa');
+    if (cgpaSummary && calculatedCgpa !== null && calculatedCgpa !== undefined) {
+      cgpaSummary.textContent = formatSemesterField(calculatedCgpa);
     }
 
     tbody.innerHTML = records.map(record => {
@@ -1795,7 +1804,7 @@ async function loadAcademicsView() {
       const academicStatus = record.academic_status || record.status || 'Pending';
       const gpa = formatSemesterField(record.gpa);
       const cgpa = formatSemesterField(record.cgpa);
-      const totalMarks = formatSemesterField(record.total_marks, 0);
+      const totalMarks = formatSemesterField(record.total_marks ?? record.semester_marks, 0);
       const percentage = formatSemesterField(record.percentage);
       const subjects = formatSemesterField(record.subjects_count, 0);
       const passed = formatSemesterField(record.passed_subjects, 0);

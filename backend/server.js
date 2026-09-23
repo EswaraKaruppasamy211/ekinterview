@@ -152,6 +152,19 @@ async function canAccessStudentAcademicData(studentUserId, authUser) {
   return false;
 }
 
+async function refreshStudentAcademicCgpa(userId) {
+  const records = await userDb.listRecords('student_academics', { user_id: userId }, { semester_number: 1, semester: 1 });
+  const values = records
+    .map(record => Number(record.gpa ?? record.cgpa))
+    .filter(Number.isFinite);
+  const cgpa = values.length
+    ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2))
+    : null;
+  const profile = await userDb.getStudentProfileByUserId(userId) || {};
+  await userDb.createOrUpdateStudentProfile(userId, { ...profile, cgpa });
+  return cgpa;
+}
+
 // Unique Security Cryptographic Functions
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -1263,13 +1276,20 @@ const server = http.createServer(async (req, res) => {
       const userId = authUser.id;
       const profile = await userDb.getStudentProfileByUserId(userId);
       if (!profile) return sendJSON(404, { error: 'Student profile not found.' });
-      const [technicalSkills, projects, certificates, applications, jobs] = await Promise.all([
+      const [technicalSkills, projects, certificates, applications, jobs, academicRecords] = await Promise.all([
         userDb.listRecords('student_skills', { user_id: userId }),
         userDb.listRecords('projects', { user_id: userId }),
         userDb.listRecords('certifications', { user_id: userId }),
         userDb.listRecords('applications', { student_id: userId }),
-        userDb.listRecords('jobs', {}, { created_at: -1, id: -1 })
+        userDb.listRecords('jobs', {}, { created_at: -1, id: -1 }),
+        userDb.listRecords('student_academics', { user_id: userId }, { semester_number: 1, semester: 1 })
       ]);
+      const academicValues = academicRecords
+        .map(record => Number(record.gpa ?? record.cgpa))
+        .filter(Number.isFinite);
+      const calculatedCgpa = academicValues.length
+        ? Number((academicValues.reduce((sum, value) => sum + value, 0) / academicValues.length).toFixed(2))
+        : null;
       const recommendedJobs = jobs.map(job => {
         const company = state.companies.find(item => item.companyId === job.companyId);
         if (!company) return null;
@@ -1278,7 +1298,7 @@ const server = http.createServer(async (req, res) => {
       }).filter(Boolean);
 
       return sendJSON(200, {
-        profile,
+        profile: { ...profile, cgpa: calculatedCgpa ?? profile.cgpa ?? null },
         profileCompletion: { percentage: 80, missingItems: [] },
         technicalSkills: technicalSkills.length,
         projects: projects.length,
@@ -1468,7 +1488,11 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const records = await userDb.listRecords('student_academics', { user_id: authUser.id }, { semester_number: 1, semester: 1 });
-      return sendJSON(200, { records: records.map(record => normalizeAcademicRecord(record, authUser.id)) });
+      const values = records.map(record => Number(record.gpa ?? record.cgpa)).filter(Number.isFinite);
+      const cgpa = values.length
+        ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2))
+        : null;
+      return sendJSON(200, { cgpa, records: records.map(record => normalizeAcademicRecord(record, authUser.id)) });
     }
     if (pathname === '/api/student/semester-records' && req.method === 'POST') {
       const authUser = getAuthUser();
@@ -1482,7 +1506,8 @@ const server = http.createServer(async (req, res) => {
         academic_year: body.academic_year || body.year || '',
         gpa: body.gpa,
         cgpa: body.cgpa,
-        total_marks: body.total_marks,
+        total_marks: body.total_marks ?? body.semester_marks,
+        semester_marks: body.semester_marks ?? body.total_marks,
         percentage: body.percentage,
         subjects_count: body.subjects_count ?? body.number_of_subjects,
         passed_subjects: body.passed_subjects ?? body.passed,
@@ -1493,7 +1518,8 @@ const server = http.createServer(async (req, res) => {
       }, authUser.id);
       await userDb.insertRecord('student_academics', record);
       const saved = await userDb.getRecord('student_academics', { id: record.id, user_id: authUser.id });
-      return sendJSON(201, { success: true, record: normalizeAcademicRecord(saved || record, authUser.id) });
+      const cgpa = await refreshStudentAcademicCgpa(authUser.id);
+      return sendJSON(201, { success: true, cgpa, record: normalizeAcademicRecord(saved || record, authUser.id) });
     }
     if (pathname.match(/^\/api\/student\/semester-records\/([^/]+)$/) && ['GET', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
       const authUser = getAuthUser();
@@ -1504,12 +1530,21 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET') return sendJSON(200, { record: normalizeAcademicRecord(existing, authUser.id) });
       if (req.method === 'DELETE') {
         await userDb.deleteRecord('student_academics', { id: recordId, user_id: authUser.id });
-        return sendJSON(200, { success: true });
+        const cgpa = await refreshStudentAcademicCgpa(authUser.id);
+        return sendJSON(200, { success: true, cgpa });
       }
       const body = await parseJSON(req);
-      const merged = normalizeAcademicRecord({ ...existing, ...body, id: recordId, user_id: authUser.id }, authUser.id);
+      const merged = normalizeAcademicRecord({
+        ...existing,
+        ...body,
+        total_marks: body.total_marks ?? body.semester_marks ?? existing.total_marks ?? existing.semester_marks,
+        semester_marks: body.semester_marks ?? body.total_marks ?? existing.semester_marks ?? existing.total_marks,
+        id: recordId,
+        user_id: authUser.id
+      }, authUser.id);
       await userDb.insertRecord('student_academics', merged);
-      return sendJSON(200, { success: true, record: normalizeAcademicRecord(merged, authUser.id) });
+      const cgpa = await refreshStudentAcademicCgpa(authUser.id);
+      return sendJSON(200, { success: true, cgpa, record: normalizeAcademicRecord(merged, authUser.id) });
     }
     if (pathname === '/api/student/academics' && req.method === 'PUT') {
       const authUser = getAuthUser();
