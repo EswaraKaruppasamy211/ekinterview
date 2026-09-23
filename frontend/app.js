@@ -1396,7 +1396,13 @@ async function loadDashboardHome() {
       missingItems.innerHTML = items.slice(0, 4).map(item => `<span class="badge-saas badge-blue">${item}</span>`).join('');
     }
 
-    document.getElementById('stat-cgpa').textContent = Number((dashboard.profile && dashboard.profile.cgpa) || 0).toFixed(2);
+    const dashboardCgpa = dashboard.profile && dashboard.profile.cgpa;
+    const cgpaStat = document.getElementById('stat-cgpa');
+    if (cgpaStat) {
+      cgpaStat.textContent = dashboardCgpa === null || dashboardCgpa === undefined || dashboardCgpa === ''
+        ? 'Add GPA'
+        : Number(dashboardCgpa).toFixed(2);
+    }
     document.getElementById('stat-skills').textContent = dashboard.technicalSkills || 0;
     document.getElementById('stat-projects').textContent = dashboard.projects || 0;
     document.getElementById('stat-certs').textContent = dashboard.certificates || 0;
