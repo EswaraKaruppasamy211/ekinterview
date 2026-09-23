@@ -128,4 +128,56 @@ async function listStudentProfiles() {
 const createOrUpdateCompanyProfile = (id, value) => profile('company_profiles', id, value);
 const getCompanyProfileByUserId = id => profile('company_profiles', id);
 
-module.exports = { init, createUser, getUserByEmail, getUserByUsername, getUserByIdentity, getUserById, getAllUsers, nextSequence, listRecords, getRecord, insertRecord, updateRecord, deleteRecord, deleteRecords, createOrUpdateStudentProfile, getStudentProfileByUserId, listStudentProfiles, createOrUpdateCompanyProfile, getCompanyProfileByUserId };
+async function upsertFacultyStudentAuthorization(input = {}) {
+  if (missing(input.faculty_user_id) || missing(input.student_user_id)) return null;
+  const facultyUserId = Number(input.faculty_user_id);
+  const studentUserId = Number(input.student_user_id);
+  if (!Number.isSafeInteger(facultyUserId) || !Number.isSafeInteger(studentUserId)) return null;
+  const universityId = normalizeUniversityValue(input.university_id);
+  const universityName = normalizeUniversityValue(input.university_name);
+  const createdBy = Number(input.created_by ?? facultyUserId);
+  const isActive = Number(input.is_active ?? 1) === 1 ? 1 : 0;
+  const notes = String(input.notes || '');
+  const result = await rows(`INSERT INTO faculty_student_authorizations
+      (faculty_user_id, student_user_id, university_id, university_name, created_by, is_active, notes)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (faculty_user_id, student_user_id)
+      DO UPDATE SET
+        university_id = EXCLUDED.university_id,
+        university_name = EXCLUDED.university_name,
+        created_by = EXCLUDED.created_by,
+        is_active = EXCLUDED.is_active,
+        notes = EXCLUDED.notes,
+        updated_at = now()
+      RETURNING *`, [facultyUserId, studentUserId, universityId, universityName, createdBy, isActive, notes]);
+  return result[0] || null;
+}
+
+async function getFacultyStudentAuthorization(facultyUserId, studentUserId) {
+  if (missing(facultyUserId) || missing(studentUserId)) return null;
+  const result = await rows('SELECT * FROM faculty_student_authorizations WHERE faculty_user_id=$1 AND student_user_id=$2 LIMIT 1', [Number(facultyUserId), Number(studentUserId)]);
+  return result[0] || null;
+}
+
+async function listFacultyStudentAuthorizationsForFaculty(facultyUserId) {
+  if (missing(facultyUserId)) return [];
+  return rows('SELECT * FROM faculty_student_authorizations WHERE faculty_user_id=$1 AND is_active=1 ORDER BY updated_at DESC', [Number(facultyUserId)]);
+}
+
+async function listFacultyStudentAuthorizationsForStudent(studentUserId) {
+  if (missing(studentUserId)) return [];
+  return rows('SELECT * FROM faculty_student_authorizations WHERE student_user_id=$1 AND is_active=1 ORDER BY updated_at DESC', [Number(studentUserId)]);
+}
+
+async function deleteFacultyStudentAuthorization(facultyUserId, studentUserId) {
+  if (missing(facultyUserId) || missing(studentUserId)) return false;
+  const result = await rows('DELETE FROM faculty_student_authorizations WHERE faculty_user_id=$1 AND student_user_id=$2 RETURNING *', [Number(facultyUserId), Number(studentUserId)]);
+  return result.length > 0;
+}
+
+function normalizeUniversityValue(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+module.exports = { init, createUser, getUserByEmail, getUserByUsername, getUserByIdentity, getUserById, getAllUsers, nextSequence, listRecords, getRecord, insertRecord, updateRecord, deleteRecord, deleteRecords, createOrUpdateStudentProfile, getStudentProfileByUserId, listStudentProfiles, createOrUpdateCompanyProfile, getCompanyProfileByUserId, upsertFacultyStudentAuthorization, getFacultyStudentAuthorization, listFacultyStudentAuthorizationsForFaculty, listFacultyStudentAuthorizationsForStudent, deleteFacultyStudentAuthorization };

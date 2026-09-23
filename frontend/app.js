@@ -72,6 +72,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     transcript.addEventListener('input', updateInterviewAnswerState);
   }
 
+  const addSemesterBtn = document.getElementById('add-semester-record-btn');
+  if (addSemesterBtn) {
+    addSemesterBtn.addEventListener('click', () => {
+      resetSemesterForm();
+      const semesterNumberField = document.getElementById('semester-number');
+      if (semesterNumberField) semesterNumberField.focus();
+    });
+  }
+
   if (authToken) {
     await fetchCurrentUser();
   } else {
@@ -1231,8 +1240,24 @@ async function loadFacultyDashboard() {
     const cards = [['Activities', dashboard.total], ['Active', dashboard.active], ['Completed', dashboard.completed], ['Certificates', dashboard.certificates]];
     if (summary) summary.innerHTML = cards.map(([label, value]) => `<div class="saas-card"><div class="text-xs" style="color:var(--text-muted);">${label}</div><strong style="font-size:1.4rem;">${Number(value || 0)}</strong></div>`).join('');
     const profile = profileData.profile || {};
-    ['name', 'college', 'department', 'bio'].forEach(key => { const field = document.getElementById(`faculty-profile-${key}`); if (field) field.value = profile[key] || ''; });
-    const expertise = document.getElementById('faculty-profile-expertise'); if (expertise) expertise.value = Array.isArray(profile.expertise) ? profile.expertise.join(', ') : (profile.expertise || '');
+    const profileFields = {
+      name: profile.name || '',
+      email: profile.email || '',
+      phone: profile.phone || profile.mobile || '',
+      college: profile.college || profile.institution || profile.university || '',
+      department: profile.department || '',
+      designation: profile.designation || '',
+      bio: profile.bio || '',
+      expertise: Array.isArray(profile.expertise) ? profile.expertise.join(', ') : (profile.expertise || ''),
+      skills: Array.isArray(profile.skills) ? profile.skills.join(', ') : (profile.skills || ''),
+      experience: profile.experience || '',
+      research: profile.research_interests || profile.research || '',
+      contact: profile.contact_info || profile.contact || ''
+    };
+    Object.entries(profileFields).forEach(([key, value]) => {
+      const field = document.getElementById(`faculty-profile-${key}`);
+      if (field) field.value = value || '';
+    });
   } catch (error) {
     if (summary) summary.innerHTML = `<div class="saas-card" style="grid-column:1/-1;"><span style="color:var(--text-muted);">${facultyText(error.message || 'Unable to load faculty activity.')}</span></div>`;
   }
@@ -1630,12 +1655,180 @@ async function handleSaveProfile(e) {
     alert('Profile updated!');
   } catch (err) { alert(err.message || 'Profile update failed.'); }
 }
+function formatSemesterField(value, digits = 2) {
+  if (value === null || value === undefined || value === '') return '—';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value);
+  return digits === 0 ? String(Math.round(numeric)) : numeric.toFixed(digits);
+}
+
+function resetSemesterForm() {
+  const form = document.getElementById('semester-record-form');
+  if (form) form.reset();
+  const idField = document.getElementById('semester-record-id');
+  if (idField) idField.value = '';
+  const submitBtn = document.getElementById('semester-submit-btn');
+  if (submitBtn) submitBtn.textContent = 'Save Semester Record';
+  const cancelBtn = document.getElementById('cancel-edit-semester-btn');
+  if (cancelBtn) cancelBtn.classList.add('hidden');
+  const addBtn = document.getElementById('add-semester-record-btn');
+  if (addBtn) addBtn.textContent = 'Add Semester Record';
+}
+
+function populateSemesterForm(record) {
+  if (!record) return resetSemesterForm();
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value === null || value === undefined ? '' : value;
+  };
+  setValue('semester-record-id', record.id || '');
+  setValue('semester-number', record.semester_number ?? record.semester ?? '');
+  setValue('semester-year', record.academic_year || record.year || '');
+  setValue('semester-status', record.academic_status || record.status || 'Pending');
+  setValue('semester-gpa', record.gpa ?? '');
+  setValue('semester-cgpa', record.cgpa ?? '');
+  setValue('semester-total-marks', record.total_marks ?? '');
+  setValue('semester-percentage', record.percentage ?? '');
+  setValue('semester-total-subjects', record.subjects_count ?? '');
+  setValue('semester-passed', record.passed_subjects ?? '');
+  setValue('semester-failed', record.failed_subjects ?? '');
+  setValue('semester-backlogs', record.backlogs ?? '');
+  setValue('semester-remarks', record.remarks || record.comment || '');
+  const submitBtn = document.getElementById('semester-submit-btn');
+  if (submitBtn) submitBtn.textContent = 'Update Semester Record';
+  const cancelBtn = document.getElementById('cancel-edit-semester-btn');
+  if (cancelBtn) cancelBtn.classList.remove('hidden');
+  const addBtn = document.getElementById('add-semester-record-btn');
+  if (addBtn) addBtn.textContent = 'Add New Record';
+}
+
+function buildSemesterRecordPayload() {
+  const getNum = id => {
+    const value = document.getElementById(id)?.value;
+    if (value === '' || value === null || value === undefined) return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+  const getText = id => (document.getElementById(id)?.value || '').trim();
+  const semesterNumber = getNum('semester-number');
+  return {
+    semester_number: semesterNumber,
+    semester: semesterNumber ? `Semester ${semesterNumber}` : 'Semester 1',
+    academic_year: getText('semester-year'),
+    gpa: getNum('semester-gpa'),
+    cgpa: getNum('semester-cgpa'),
+    total_marks: getNum('semester-total-marks'),
+    percentage: getNum('semester-percentage'),
+    subjects_count: getNum('semester-total-subjects'),
+    passed_subjects: getNum('semester-passed'),
+    failed_subjects: getNum('semester-failed'),
+    backlogs: getNum('semester-backlogs'),
+    academic_status: getText('semester-status') || 'Pending',
+    remarks: getText('semester-remarks')
+  };
+}
+
+async function handleSemesterRecordSubmit(event) {
+  event.preventDefault();
+  const form = document.getElementById('semester-record-form');
+  if (!form) return;
+  const id = document.getElementById('semester-record-id')?.value;
+  const payload = buildSemesterRecordPayload();
+
+  try {
+    if (id) {
+      await apiFetch(`/student/semester-records/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+    } else {
+      await apiFetch('/student/semester-records', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+    }
+    resetSemesterForm();
+    await loadAcademicsView();
+    alert(id ? 'Semester record updated successfully.' : 'Semester record saved successfully.');
+  } catch (err) {
+    alert(err.message || 'Unable to save semester record.');
+  }
+}
+
+async function editSemesterRecord(recordId) {
+  try {
+    const data = await apiFetch(`/student/semester-records/${encodeURIComponent(recordId)}`);
+    populateSemesterForm(data.record || data);
+  } catch (err) {
+    alert(err.message || 'Unable to load semester record for editing.');
+  }
+}
+
+async function deleteSemesterRecord(recordId) {
+  if (!recordId) return;
+  const confirmed = window.confirm('Delete this semester record?');
+  if (!confirmed) return;
+  try {
+    await apiFetch(`/student/semester-records/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
+    await loadAcademicsView();
+    resetSemesterForm();
+    alert('Semester record deleted successfully.');
+  } catch (err) {
+    alert(err.message || 'Unable to delete semester record.');
+  }
+}
+
 async function loadAcademicsView() {
   try {
-    const data = await apiFetch('/student/academics');
+    const data = await apiFetch('/student/semester-records');
+    const records = Array.isArray(data.records) ? data.records : [];
     const tbody = document.getElementById('semester-table-body');
-    tbody.innerHTML = (data.records || []).map(r => `<tr><td style="font-weight:700;">${r.semester}</td><td>${r.gpa.toFixed(2)}</td><td><span class="badge-saas badge-emerald">${r.status}</span></td></tr>`).join('');
-  } catch (e) {}
+    if (!tbody) return;
+    if (!records.length) {
+      tbody.innerHTML = '<tr><td colspan="13" style="text-align:center; color: var(--text-muted);">No semester records available yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = records.map(record => {
+      const semesterNumber = record.semester_number ?? record.semester ?? '—';
+      const academicYear = record.academic_year || '—';
+      const academicStatus = record.academic_status || record.status || 'Pending';
+      const gpa = formatSemesterField(record.gpa);
+      const cgpa = formatSemesterField(record.cgpa);
+      const totalMarks = formatSemesterField(record.total_marks, 0);
+      const percentage = formatSemesterField(record.percentage);
+      const subjects = formatSemesterField(record.subjects_count, 0);
+      const passed = formatSemesterField(record.passed_subjects, 0);
+      const failed = formatSemesterField(record.failed_subjects, 0);
+      const backlogs = formatSemesterField(record.backlogs, 0);
+      const remarks = record.remarks || '—';
+      const semesterLabel = record.semester || `Semester ${semesterNumber}`;
+      return `<tr>
+        <td style="font-weight:700;">${semesterLabel}</td>
+        <td>${academicYear}</td>
+        <td>${gpa}</td>
+        <td>${cgpa}</td>
+        <td>${totalMarks}</td>
+        <td>${percentage}</td>
+        <td>${subjects}</td>
+        <td>${passed}</td>
+        <td>${failed}</td>
+        <td>${backlogs}</td>
+        <td><span class="badge-saas badge-emerald">${academicStatus}</span></td>
+        <td>${remarks}</td>
+        <td>
+          <div class="flex-align gap-2">
+            <button class="btn-saas btn-outline" type="button" onclick="editSemesterRecord('${record.id || ''}')">Edit</button>
+            <button class="btn-saas btn-outline" type="button" onclick="deleteSemesterRecord('${record.id || ''}')">Delete</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    const tbody = document.getElementById('semester-table-body');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="13" style="text-align:center; color: var(--text-muted);">Unable to load semester records.</td></tr>';
+    console.error('Semester records load failed', e);
+  }
 }
 async function loadSkillsView() {
   try {

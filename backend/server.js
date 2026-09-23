@@ -48,6 +48,110 @@ function sanitizeUser(user) {
   return safeUser;
 }
 
+const ADMIN_ROLES = new Set(['admin', 'college', 'university_admin']);
+
+function normalizeUniversityValue(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function normalizeAcademicRecord(record, userId) {
+  if (!record || typeof record !== 'object') return record;
+  const safe = { ...record };
+  safe.user_id = String(userId ?? safe.user_id ?? '');
+  if (!safe.id) safe.id = String(safe.record_id || `${safe.user_id}-${safe.semester_number ?? safe.semester ?? 'record'}`);
+  if (safe.semester_number === undefined && safe.semester !== undefined) {
+    const parsed = Number(String(safe.semester).replace(/[^\d.]/g, ''));
+    safe.semester_number = Number.isFinite(parsed) ? parsed : safe.semester;
+  }
+  if (safe.gpa !== undefined && safe.gpa !== null && safe.gpa !== '') safe.gpa = Number(safe.gpa);
+  if (safe.cgpa !== undefined && safe.cgpa !== null && safe.cgpa !== '') safe.cgpa = Number(safe.cgpa);
+  if (safe.total_marks !== undefined && safe.total_marks !== null && safe.total_marks !== '') safe.total_marks = Number(safe.total_marks);
+  if (safe.percentage !== undefined && safe.percentage !== null && safe.percentage !== '') safe.percentage = Number(safe.percentage);
+  safe.subjects_count = safe.subjects_count ?? safe.number_of_subjects ?? safe.subjects ?? null;
+  safe.passed_subjects = safe.passed_subjects ?? safe.passed ?? null;
+  safe.failed_subjects = safe.failed_subjects ?? safe.failed ?? null;
+  safe.backlogs = safe.backlogs ?? safe.backlog ?? null;
+  safe.academic_status = safe.academic_status ?? safe.status ?? 'Pending';
+  if (safe.remarks === undefined) safe.remarks = safe.remark || '';
+  return safe;
+}
+
+function resolveUniversityScope(profile, user = null) {
+  const profileUniversityId = profile && (profile.university_id ?? profile.universityId ?? profile.college_id ?? profile.institution_id);
+  const userUniversityId = user && (user.university_id ?? user.universityId ?? user.college_id ?? user.collegeId);
+  const profileUniversityName = profile && (profile.university ?? profile.college ?? profile.institution);
+  const userUniversityName = user && (user.university ?? user.college ?? user.collegeName ?? user.college_name);
+  const candidates = [
+    profile && profile.university_id,
+    profile && profile.universityId,
+    profile && profile.college_id,
+    profile && profile.institution_id,
+    profile && profile.university,
+    profile && profile.college,
+    profile && profile.institution,
+    user && user.university_id,
+    user && user.universityId,
+    user && user.college_id,
+    user && user.collegeId,
+    user && user.collegeName,
+    user && user.college_name,
+    user && user.university,
+    user && user.college,
+  ];
+  const normalized = candidates
+    .map(value => normalizeUniversityValue(value).toLowerCase())
+    .filter(Boolean)
+    .filter(value => value !== 'null' && value !== 'undefined');
+  return {
+    university_id: normalizeUniversityValue(profileUniversityId ?? userUniversityId),
+    university_name: normalizeUniversityValue(profileUniversityName ?? userUniversityName),
+    values: normalized
+  };
+}
+
+async function canAccessStudentAcademicData(studentUserId, authUser) {
+  if (!authUser || !studentUserId) return false;
+  if (String(authUser.id) === String(studentUserId)) return true;
+
+  const targetUser = state.users.find(user => String(user.id) === String(studentUserId)) || null;
+  const targetProfile = await userDb.getStudentProfileByUserId(studentUserId).catch(() => null) || {};
+  const targetScope = resolveUniversityScope(targetProfile, targetUser);
+
+  if (ADMIN_ROLES.has(String(authUser.role))) {
+    const adminProfile = await userDb.getStudentProfileByUserId(authUser.id).catch(() => null) || await userDb.getRecord('college_profiles', { user_id: String(authUser.id) }) || {};
+    const adminScope = resolveUniversityScope(adminProfile, authUser);
+    if (targetScope.university_id && adminScope.university_id) {
+      return targetScope.university_id === adminScope.university_id;
+    }
+    if (targetScope.university_name && adminScope.university_name) {
+      return targetScope.university_name === adminScope.university_name;
+    }
+    return false;
+  }
+
+  if (String(authUser.role) === 'faculty') {
+    const facultyProfile = await academiaDb.get('faculty-profiles', String(authUser.id), authUser).catch(() => null) || {};
+    const facultyScope = resolveUniversityScope(facultyProfile, authUser);
+    if (facultyScope.university_id && targetScope.university_id && facultyScope.university_id !== targetScope.university_id) return false;
+    if (facultyScope.university_name && targetScope.university_name && facultyScope.university_name !== targetScope.university_name) return false;
+
+    const authorization = await userDb.getFacultyStudentAuthorization(authUser.id, studentUserId);
+    if (!authorization || Number(authorization.is_active ?? 1) !== 1) return false;
+
+    const authorizationUniversityId = normalizeUniversityValue(authorization.university_id);
+    const authorizationUniversityName = normalizeUniversityValue(authorization.university_name);
+    if (authorizationUniversityId && facultyScope.university_id && authorizationUniversityId !== facultyScope.university_id) return false;
+    if (authorizationUniversityId && targetScope.university_id && authorizationUniversityId !== targetScope.university_id) return false;
+    if (authorizationUniversityName && facultyScope.university_name && authorizationUniversityName !== facultyScope.university_name) return false;
+    if (authorizationUniversityName && targetScope.university_name && authorizationUniversityName !== targetScope.university_name) return false;
+
+    return true;
+  }
+
+  return false;
+}
+
 // Unique Security Cryptographic Functions
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -607,6 +711,73 @@ const server = http.createServer(async (req, res) => {
       for (const resource of academiaDb.RESOURCE_NAMES) items.push(...await academiaDb.list(resource, {}, authUser));
       const involved = items.filter(item => String(item.created_by) === String(authUser.id) || (item.applications || []).some(a => String(a.user_id) === String(authUser.id)) || (item.registrations || []).some(a => String(a.user_id) === String(authUser.id)));
       return sendJSON(200, { profile: await academiaDb.get('faculty-profiles', String(authUser.id), authUser), total: involved.length, active: involved.filter(item => !['completed', 'Completed', 'closed', 'Closed'].includes(item.status)).length, completed: involved.filter(item => ['completed', 'Completed'].includes(item.status)).length, certificates: involved.filter(item => item.certificate || item.certificate_url || item.achievement).length, items: involved });
+    }
+    if (pathname === '/api/faculty/students' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'faculty') return sendJSON(403, { error: 'Faculty access required.' });
+      const rows = await userDb.listFacultyStudentAuthorizationsForFaculty(authUser.id);
+      const students = await Promise.all(rows.map(async (row) => {
+        const user = await userDb.getUserById(row.student_user_id).catch(() => null) || state.users.find(item => String(item.id) === String(row.student_user_id)) || null;
+        const profile = await userDb.getStudentProfileByUserId(row.student_user_id).catch(() => null) || {};
+        return {
+          faculty_user_id: row.faculty_user_id,
+          student_user_id: row.student_user_id,
+          user_id: row.student_user_id,
+          student_id: row.student_user_id,
+          student: user ? { id: user.id, username: user.username, email: user.email, fullname: user.fullName || user.fullname || user.username, role: user.role } : null,
+          profile,
+          university_id: row.university_id,
+          university_name: row.university_name,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          is_active: Number(row.is_active ?? 1) === 1,
+          notes: row.notes || ''
+        };
+      }));
+      return sendJSON(200, { items: students, total: students.length });
+    }
+    if (pathname === '/api/faculty/students/assign' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'faculty') return sendJSON(403, { error: 'Faculty access required.' });
+      const body = await parseJSON(req);
+      const studentUserId = Number(body.student_user_id ?? body.studentId ?? body.student_id ?? body.user_id);
+      if (!Number.isSafeInteger(studentUserId)) return sendJSON(400, { error: 'A valid student user id is required.' });
+      const studentUser = await userDb.getUserById(studentUserId).catch(() => null) || state.users.find(item => String(item.id) === String(studentUserId)) || null;
+      if (!studentUser || String(studentUser.role).toLowerCase() !== 'student') return sendJSON(404, { error: 'Student not found.' });
+
+      const targetProfile = await userDb.getStudentProfileByUserId(studentUserId).catch(() => null) || {};
+      const targetScope = resolveUniversityScope(targetProfile, studentUser);
+      const facultyProfile = await academiaDb.get('faculty-profiles', String(authUser.id), authUser).catch(() => null) || {};
+      const facultyScope = resolveUniversityScope(facultyProfile, authUser);
+      const targetUniversityId = normalizeUniversityValue(targetScope.university_id || (studentUser && (studentUser.university_id || studentUser.universityId)) || '');
+      const targetUniversityName = normalizeUniversityValue(targetScope.university_name || (studentUser && (studentUser.university || studentUser.college || studentUser.collegeName)) || '');
+      const facultyUniversityId = normalizeUniversityValue(facultyScope.university_id || (authUser && (authUser.university_id || authUser.universityId)) || '');
+      const facultyUniversityName = normalizeUniversityValue(facultyScope.university_name || (authUser && (authUser.university || authUser.college || authUser.collegeName)) || '');
+
+      if ((facultyUniversityId && targetUniversityId && facultyUniversityId !== targetUniversityId) ||
+          (facultyUniversityName && targetUniversityName && facultyUniversityName !== targetUniversityName)) {
+        return sendJSON(403, { error: 'Faculty cannot authorize students from a different university.' });
+      }
+
+      const authorization = await userDb.upsertFacultyStudentAuthorization({
+        faculty_user_id: authUser.id,
+        student_user_id: studentUserId,
+        university_id: targetUniversityId || facultyUniversityId,
+        university_name: targetUniversityName || facultyUniversityName,
+        created_by: authUser.id,
+        is_active: 1,
+        notes: body.notes || ''
+      });
+      return sendJSON(201, { success: true, authorization });
+    }
+    if (pathname.match(/^\/api\/faculty\/students\/([^/]+)$/) && req.method === 'DELETE') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'faculty') return sendJSON(403, { error: 'Faculty access required.' });
+      const targetUserId = Number(decodeURIComponent(pathname.split('/')[4] || ''));
+      if (!Number.isSafeInteger(targetUserId)) return sendJSON(400, { error: 'A valid student id is required.' });
+      const deleted = await userDb.deleteFacultyStudentAuthorization(authUser.id, targetUserId);
+      if (!deleted) return sendJSON(404, { error: 'Faculty authorization not found.' });
+      return sendJSON(200, { success: true, deleted: true, student_user_id: targetUserId });
     }
     const academiaMatch = pathname.match(/^\/api\/(academia|faculty)\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?$/);
     if (academiaMatch) {
@@ -1286,25 +1457,94 @@ const server = http.createServer(async (req, res) => {
       const userId = authUser.id;
       const profile = await userDb.getStudentProfileByUserId(userId);
       const [records, summary] = await Promise.all([
-        userDb.listRecords('student_academics', { user_id: userId }, { semester: 1 }),
+        userDb.listRecords('student_academics', { user_id: userId }, { semester_number: 1, semester: 1 }),
         userDb.getRecord('student_academic_summary', { user_id: userId })
       ]);
-      const values = records.map(record => Number(record.gpa)).filter(Number.isFinite);
-      return sendJSON(200, { cgpa: profile && profile.cgpa != null ? profile.cgpa : (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null), records, school: summary && summary.school, backlog: summary && summary.backlog });
+      const normalized = records.map(record => normalizeAcademicRecord(record, userId));
+      const values = normalized.map(record => Number(record.gpa)).filter(Number.isFinite);
+      return sendJSON(200, { cgpa: profile && profile.cgpa != null ? profile.cgpa : (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null), records: normalized, school: summary && summary.school, backlog: summary && summary.backlog });
+    }
+    if (pathname === '/api/student/semester-records' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const records = await userDb.listRecords('student_academics', { user_id: authUser.id }, { semester_number: 1, semester: 1 });
+      return sendJSON(200, { records: records.map(record => normalizeAcademicRecord(record, authUser.id)) });
+    }
+    if (pathname === '/api/student/semester-records' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const record = normalizeAcademicRecord({
+        id: body.id || `${authUser.id}-${Date.now()}`,
+        user_id: authUser.id,
+        semester_number: Number(body.semester_number ?? body.semester ?? 1),
+        semester: body.semester || `Semester ${body.semester_number ?? body.semester ?? 1}`,
+        academic_year: body.academic_year || body.year || '',
+        gpa: body.gpa,
+        cgpa: body.cgpa,
+        total_marks: body.total_marks,
+        percentage: body.percentage,
+        subjects_count: body.subjects_count ?? body.number_of_subjects,
+        passed_subjects: body.passed_subjects ?? body.passed,
+        failed_subjects: body.failed_subjects ?? body.failed,
+        backlogs: body.backlogs ?? body.backlog,
+        academic_status: body.academic_status || body.status || 'Pending',
+        remarks: body.remarks || body.comment || ''
+      }, authUser.id);
+      await userDb.insertRecord('student_academics', record);
+      const saved = await userDb.getRecord('student_academics', { id: record.id, user_id: authUser.id });
+      return sendJSON(201, { success: true, record: normalizeAcademicRecord(saved || record, authUser.id) });
+    }
+    if (pathname.match(/^\/api\/student\/semester-records\/([^/]+)$/) && ['GET', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const recordId = decodeURIComponent(pathname.split('/').pop());
+      const existing = await userDb.getRecord('student_academics', { id: recordId, user_id: authUser.id });
+      if (!existing) return sendJSON(404, { error: 'Academic record not found.' });
+      if (req.method === 'GET') return sendJSON(200, { record: normalizeAcademicRecord(existing, authUser.id) });
+      if (req.method === 'DELETE') {
+        await userDb.deleteRecord('student_academics', { id: recordId, user_id: authUser.id });
+        return sendJSON(200, { success: true });
+      }
+      const body = await parseJSON(req);
+      const merged = normalizeAcademicRecord({ ...existing, ...body, id: recordId, user_id: authUser.id }, authUser.id);
+      await userDb.insertRecord('student_academics', merged);
+      return sendJSON(200, { success: true, record: normalizeAcademicRecord(merged, authUser.id) });
     }
     if (pathname === '/api/student/academics' && req.method === 'PUT') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
       const body = await parseJSON(req);
       const userId = authUser.id;
-      const records = (body.semesterGpa || []).map((gpa, index) => ({ user_id: userId, semester: `Semester ${index + 1}`, gpa: gpa === null ? null : Number(gpa) })).filter(record => record.gpa !== null && Number.isFinite(record.gpa));
+      const records = (body.records || body.semesterGpa || []).map((entry, index) => {
+        if (typeof entry === 'number' || typeof entry === 'string') {
+          return { user_id: userId, semester: `Semester ${index + 1}`, gpa: entry === null ? null : Number(entry) };
+        }
+        return {
+          user_id: userId,
+          semester_number: Number(entry.semester_number ?? entry.semester ?? index + 1),
+          semester: entry.semester || `Semester ${Number(entry.semester_number ?? entry.semester ?? index + 1)}`,
+          academic_year: entry.academic_year || entry.year || '',
+          gpa: entry.gpa == null ? null : Number(entry.gpa),
+          cgpa: entry.cgpa == null ? null : Number(entry.cgpa),
+          total_marks: entry.total_marks == null ? null : Number(entry.total_marks),
+          percentage: entry.percentage == null ? null : Number(entry.percentage),
+          subjects_count: entry.subjects_count ?? entry.number_of_subjects ?? null,
+          passed_subjects: entry.passed_subjects ?? entry.passed ?? null,
+          failed_subjects: entry.failed_subjects ?? entry.failed ?? null,
+          backlogs: entry.backlogs ?? entry.backlog ?? null,
+          academic_status: entry.academic_status || entry.status || 'Pending',
+          remarks: entry.remarks || entry.comment || '',
+          id: entry.id || `${userId}-${Number(entry.semester_number ?? entry.semester ?? index + 1)}-${Date.now()}`
+        };
+      }).filter(record => record.gpa !== null && Number.isFinite(Number(record.gpa)) || (record.cgpa !== null && Number.isFinite(Number(record.cgpa))));
       await userDb.deleteRecords('student_academics', { user_id: userId });
-      if (records.length) await Promise.all(records.map(record => userDb.insertRecord('student_academics', record)));
-      const values = records.map(record => record.gpa);
+      if (records.length) await Promise.all(records.map(record => userDb.insertRecord('student_academics', normalizeAcademicRecord(record, userId))));
+      const values = records.map(record => Number(record.gpa ?? record.cgpa)).filter(Number.isFinite);
       const cgpa = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
       await userDb.updateRecord('student_academic_summary', { user_id: userId }, { $set: { user_id: userId, school: body.school || null, backlog: body.backlog || null, updated_at: new Date().toISOString() } }, { upsert: true });
-      await userDb.createOrUpdateStudentProfile(userId, { cgpa });
-      return sendJSON(200, { success: true, cgpa, records });
+      await userDb.createOrUpdateStudentProfile(userId, { cgpa, university_id: body.university_id || (await userDb.getStudentProfileByUserId(userId))?.university_id || null });
+      return sendJSON(200, { success: true, cgpa, records: records.map(record => normalizeAcademicRecord(record, userId)) });
     }
     if (pathname === '/api/student/preferences' && req.method === 'GET') {
       const authUser = getAuthUser();
@@ -2118,16 +2358,19 @@ const server = http.createServer(async (req, res) => {
     // UNIVERSITY ADMIN MODULE APIs
     // ----------------------------------------------------
     async function collegeScope(authUser) {
-      const profile = await userDb.getRecord('college_profiles', { user_id: String(authUser.id) });
+      const profile = await userDb.getRecord('college_profiles', { user_id: String(authUser.id) }) || await userDb.getStudentProfileByUserId(authUser.id) || {};
       const values = [
         profile && profile.institution_id, profile && profile.college_id, profile && profile.university_id,
-        profile && profile.college, profile && profile.institution, profile && profile.university,
-        authUser.collegeName, authUser.college_name
+        profile && profile.universityId, profile && profile.institution, profile && profile.college, profile && profile.university,
+        authUser.university_id, authUser.universityId, authUser.college_id, authUser.collegeId,
+        authUser.collegeName, authUser.college_name, authUser.university, authUser.college
       ].map(normalizeIdentity).filter(Boolean);
       return { profile: profile || {}, values };
     }
     function belongsToCollege(record, scope, studentIds) {
-      const value = ['institution_id', 'college_id', 'university_id', 'institution', 'college', 'university', 'institution_name', 'college_name', 'university_name', 'collegeName']
+      const universityId = normalizeIdentity(record && (record.university_id || record.universityId));
+      if (universityId && scope.values.some(value => value === universityId)) return true;
+      const value = ['institution_id', 'college_id', 'university_id', 'institution', 'college', 'university', 'institution_name', 'college_name', 'university_name', 'collegeName', 'universityId']
         .map(key => normalizeIdentity(record && record[key])).find(Boolean);
       if (value) return scope.values.includes(value);
       const owner = record && (record.user_id || record.student_id || record.studentId);
@@ -2146,9 +2389,25 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/college/students' && req.method === 'GET') {
       const authUser = getAuthUser();
-      if (!authUser || authUser.role !== 'college') return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
+      if (!authUser || !ADMIN_ROLES.has(String(authUser.role))) return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
       const analytics = await buildCollegeAnalytics(authUser);
       return sendJSON(200, analytics.student_directory);
+    }
+    if (pathname.match(/^\/api\/college\/students\/([^/]+)\/academics$/) && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || !ADMIN_ROLES.has(String(authUser.role))) return sendJSON(401, { error: 'Access Denied. College Admin Auth Required.' });
+      const targetUserId = decodeURIComponent(pathname.split('/')[4]);
+      if (!(await canAccessStudentAcademicData(targetUserId, authUser))) return sendJSON(403, { error: 'This student is outside your university scope.' });
+      const records = await userDb.listRecords('student_academics', { user_id: targetUserId }, { semester_number: 1, semester: 1 });
+      return sendJSON(200, { user_id: targetUserId, records: records.map(record => normalizeAcademicRecord(record, targetUserId)) });
+    }
+    if (pathname.match(/^\/api\/students\/([^/]+)\/academics$/) && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
+      const targetUserId = decodeURIComponent(pathname.split('/')[3]);
+      if (!(await canAccessStudentAcademicData(targetUserId, authUser))) return sendJSON(403, { error: 'Access denied for this student academic record.' });
+      const records = await userDb.listRecords('student_academics', { user_id: targetUserId }, { semester_number: 1, semester: 1 });
+      return sendJSON(200, { user_id: targetUserId, records: records.map(record => normalizeAcademicRecord(record, targetUserId)) });
     }
     if (pathname === '/api/college/companies' && req.method === 'GET') {
       const authUser = getAuthUser();
