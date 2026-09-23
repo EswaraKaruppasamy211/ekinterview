@@ -273,6 +273,17 @@
             <button type="submit" class="btn-saas btn-primary">Save Profile</button>
           </form>
         </div>
+        <div class="saas-card mb-6">
+          <div class="flex-between gap-3">
+            <div>
+              <h3 style="font-weight: 800; margin: 0;">Interview eligibility</h3>
+              <p style="color: var(--text-muted); margin: 0.35rem 0 0;">Your CGPA is calculated from the GPA values entered for each semester.</p>
+            </div>
+            <strong id="profile-cgpa-value" style="font-size: 1.5rem;">—</strong>
+          </div>
+          <div id="profile-interview-eligibility" class="mt-3 text-sm" style="color: var(--text-muted);">Add semester GPA records to check your eligibility.</div>
+          <button type="button" class="btn-saas btn-outline mt-3" onclick="navigateTo('academics')">Enter semester GPA</button>
+        </div>
       </section>
 
       <section id="view-academics" class="workspace-view hidden">
@@ -288,8 +299,8 @@
               <div><label class="block text-xs font-bold mb-1">Semester Number</label><input type="number" id="semester-number" class="saas-input" min="1" max="12" required /></div>
               <div><label class="block text-xs font-bold mb-1">Academic Year</label><input type="text" id="semester-year" class="saas-input" placeholder="2024-2025" /></div>
               <div><label class="block text-xs font-bold mb-1">Academic Status</label><select id="semester-status" class="saas-input"><option value="Pending">Pending</option><option value="Pass">Pass</option><option value="Fail">Fail</option><option value="Backlog">Backlog</option><option value="Distinction">Distinction</option><option value="First Class">First Class</option><option value="Second Class">Second Class</option></select></div>
-              <div><label class="block text-xs font-bold mb-1">GPA</label><input type="number" id="semester-gpa" class="saas-input" step="0.01" min="0" max="10" /></div>
-              <div><label class="block text-xs font-bold mb-1">CGPA</label><input type="number" id="semester-cgpa" class="saas-input" step="0.01" min="0" max="10" /></div>
+              <div><label class="block text-xs font-bold mb-1">GPA <span style="color:var(--text-red);">*</span></label><input type="number" id="semester-gpa" class="saas-input" step="0.01" min="0" max="10" required /></div>
+              <div><label class="block text-xs font-bold mb-1">CGPA (calculated)</label><input type="number" id="semester-cgpa" class="saas-input" step="0.01" min="0" max="10" readonly /></div>
               <div><label class="block text-xs font-bold mb-1">Semester Marks</label><input type="number" id="semester-total-marks" class="saas-input" step="0.01" min="0" placeholder="Marks obtained" /></div>
               <div><label class="block text-xs font-bold mb-1">Percentage</label><input type="number" id="semester-percentage" class="saas-input" step="0.01" min="0" max="100" /></div>
               <div><label class="block text-xs font-bold mb-1">Total Subjects</label><input type="number" id="semester-total-subjects" class="saas-input" min="0" /></div>

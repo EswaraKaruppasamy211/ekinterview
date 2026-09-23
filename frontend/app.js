@@ -65,6 +65,7 @@ const interviewQuestions = [
     ta: '2 வருடங்களில் நீங்களே எங்கு இருப்பீர்கள், உங்கள் இலக்குகள் என்ன?'
   }
 ];
+const INTERVIEW_MIN_CGPA = 7;
 
 document.addEventListener('DOMContentLoaded', async () => {
   const transcript = document.getElementById('interview-transcript');
@@ -666,9 +667,24 @@ async function handleCollegeRegisterSubmit(e) {
   }
 }
 
-function loadInterviewPrepView() {
-  setInterviewLanguage(document.getElementById('interview-language')?.value || voiceInterview.language);
-  if (!voiceInterview.sessionStarted && !voiceInterview.answers.length && voiceInterview.questionIndex === 0) resetInterviewView();
+async function loadInterviewPrepView() {
+  const startButton = document.getElementById('interview-start-btn');
+  if (startButton) startButton.disabled = true;
+  try {
+    const data = await apiFetch('/student/semester-records');
+    const cgpa = data.cgpa === null || data.cgpa === undefined || data.cgpa === '' ? NaN : Number(data.cgpa);
+    const eligible = Number.isFinite(cgpa) && cgpa >= INTERVIEW_MIN_CGPA;
+    if (Number.isFinite(cgpa)) currentProfile = { ...(currentProfile || {}), cgpa };
+    setInterviewLanguage(document.getElementById('interview-language')?.value || voiceInterview.language);
+    if (!voiceInterview.sessionStarted && !voiceInterview.answers.length && voiceInterview.questionIndex === 0) resetInterviewView();
+    if (startButton) startButton.disabled = !eligible;
+    setInterviewStatus(eligible
+      ? `Eligible for interview (CGPA ${cgpa.toFixed(2)}).`
+      : `Interview access requires a CGPA of ${INTERVIEW_MIN_CGPA.toFixed(2)}. Add or update your semester GPA records.`);
+  } catch (err) {
+    if (startButton) startButton.disabled = true;
+    setInterviewStatus(err.message || 'Unable to verify interview eligibility.');
+  }
 }
 
 function setInterviewLanguage(language) {
@@ -819,6 +835,11 @@ function updateInterviewAnswerState() {
 }
 
 function startVoiceInterview() {
+  const cgpa = Number(currentProfile && currentProfile.cgpa);
+  if (!Number.isFinite(cgpa) || cgpa < INTERVIEW_MIN_CGPA) {
+    setInterviewStatus(`Interview access requires a CGPA of ${INTERVIEW_MIN_CGPA.toFixed(2)}.`);
+    return;
+  }
   resetInterviewView();
   voiceInterview.sessionStarted = true;
   const question = interviewQuestions[0];
@@ -1403,8 +1424,27 @@ async function loadDashboardHome() {
 
 async function loadProfileView() {
   try {
-    const data = await apiFetch('/student/profile');
+    const [data, academics] = await Promise.all([
+      apiFetch('/student/profile'),
+      apiFetch('/student/semester-records')
+    ]);
     const p = data.profile || {};
+    const cgpa = academics.cgpa === null || academics.cgpa === undefined || academics.cgpa === '' ? NaN : Number(academics.cgpa);
+    const profileCgpa = document.getElementById('profile-cgpa-value');
+    const eligibility = document.getElementById('profile-interview-eligibility');
+    if (Number.isFinite(cgpa)) {
+      if (profileCgpa) profileCgpa.textContent = cgpa.toFixed(2);
+      if (eligibility) {
+        eligibility.textContent = cgpa >= INTERVIEW_MIN_CGPA
+          ? `Eligible to attend interviews. Minimum required CGPA: ${INTERVIEW_MIN_CGPA.toFixed(2)}.`
+          : `Not eligible yet. Minimum required CGPA: ${INTERVIEW_MIN_CGPA.toFixed(2)}.`;
+      }
+      currentProfile = { ...p, cgpa };
+    } else {
+      if (profileCgpa) profileCgpa.textContent = '—';
+      if (eligibility) eligibility.textContent = `Add semester GPA records to calculate your CGPA and check interview eligibility (minimum ${INTERVIEW_MIN_CGPA.toFixed(2)}).`;
+      currentProfile = p;
+    }
     const onboardingCard = document.getElementById('profile-onboarding-card');
     document.getElementById('prof-name').value = p.name || '';
     document.getElementById('prof-student-id').value = p.student_id || (currentUser && currentUser.student_id) || '';
