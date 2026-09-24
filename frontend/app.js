@@ -1436,9 +1436,11 @@ async function loadProfileView() {
     ]);
     const p = data.profile || {};
     const cgpa = academics.cgpa === null || academics.cgpa === undefined || academics.cgpa === '' ? NaN : Number(academics.cgpa);
+    const profileCgpaField = document.getElementById('prof-cgpa');
     const profileCgpa = document.getElementById('profile-cgpa-value');
     const eligibility = document.getElementById('profile-interview-eligibility');
     if (Number.isFinite(cgpa)) {
+      if (profileCgpaField) profileCgpaField.value = cgpa.toFixed(2);
       if (profileCgpa) profileCgpa.textContent = cgpa.toFixed(2);
       if (eligibility) {
         eligibility.textContent = cgpa >= INTERVIEW_MIN_CGPA
@@ -1447,6 +1449,7 @@ async function loadProfileView() {
       }
       currentProfile = { ...p, cgpa };
     } else {
+      if (profileCgpaField) profileCgpaField.value = 'Not calculated';
       if (profileCgpa) profileCgpa.textContent = '—';
       if (eligibility) eligibility.textContent = `Add semester GPA records to calculate your CGPA and check interview eligibility (minimum ${INTERVIEW_MIN_CGPA.toFixed(2)}).`;
       currentProfile = p;
