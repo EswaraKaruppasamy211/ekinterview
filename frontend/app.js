@@ -1430,31 +1430,9 @@ async function loadDashboardHome() {
 
 async function loadProfileView() {
   try {
-    const [data, academics] = await Promise.all([
-      apiFetch('/student/profile'),
-      apiFetch('/student/semester-records')
-    ]);
+    const data = await apiFetch('/student/profile');
     const p = data.profile || {};
-    renderProfileSemesterMarks(academics.records || []);
-    const cgpa = academics.cgpa === null || academics.cgpa === undefined || academics.cgpa === '' ? NaN : Number(academics.cgpa);
-    const profileCgpaField = document.getElementById('prof-cgpa');
-    const profileCgpa = document.getElementById('profile-cgpa-value');
-    const eligibility = document.getElementById('profile-interview-eligibility');
-    if (Number.isFinite(cgpa)) {
-      if (profileCgpaField) profileCgpaField.value = cgpa.toFixed(2);
-      if (profileCgpa) profileCgpa.textContent = cgpa.toFixed(2);
-      if (eligibility) {
-        eligibility.textContent = cgpa >= INTERVIEW_MIN_CGPA
-          ? `Eligible to attend interviews. Minimum required CGPA: ${INTERVIEW_MIN_CGPA.toFixed(2)}.`
-          : `Not eligible yet. Minimum required CGPA: ${INTERVIEW_MIN_CGPA.toFixed(2)}.`;
-      }
-      currentProfile = { ...p, cgpa };
-    } else {
-      if (profileCgpaField) profileCgpaField.value = 'Not calculated';
-      if (profileCgpa) profileCgpa.textContent = '—';
-      if (eligibility) eligibility.textContent = `Add semester GPA records to calculate your CGPA and check interview eligibility (minimum ${INTERVIEW_MIN_CGPA.toFixed(2)}).`;
-      currentProfile = p;
-    }
+    currentProfile = p;
     const onboardingCard = document.getElementById('profile-onboarding-card');
     document.getElementById('prof-name').value = p.name || '';
     document.getElementById('prof-student-id').value = p.student_id || (currentUser && currentUser.student_id) || '';
@@ -1478,79 +1456,6 @@ async function loadProfileView() {
   } catch (e) {
     const overview = document.getElementById('college-overview-cards');
     if (overview) overview.innerHTML = `<div class="saas-card">Unable to load university analytics. ${e.message || 'Please try again later.'}</div>`;
-  }
-}
-
-function renderProfileSemesterMarks(records) {
-  const container = document.getElementById('profile-semester-marks');
-  if (!container) return;
-  const bySemester = new Map((Array.isArray(records) ? records : []).map(record => [
-    Number(record.semester_number ?? record.semester),
-    record
-  ]));
-  container.innerHTML = Array.from({ length: 8 }, (_, index) => {
-    const semester = index + 1;
-    const record = bySemester.get(semester);
-    const gpa = record && record.gpa !== null && record.gpa !== undefined ? record.gpa : '';
-    const status = gpa === '' ? 'Not entered' : 'Included in CGPA';
-    return `<tr><td style="padding:0.65rem 0;">Semester ${semester}</td><td style="padding:0.65rem 0;"><input type="number" id="profile-semester-${semester}" class="saas-input profile-semester-mark" data-record-id="${record ? record.id : ''}" min="0" max="10" step="0.01" value="${gpa}" placeholder="e.g. 8.50" oninput="updateProfileCgpaPreview()" style="max-width:220px;" /></td><td id="profile-semester-status-${semester}" style="padding:0.65rem 0;color:var(--text-muted);">${status}</td></tr>`;
-  }).join('');
-  updateProfileCgpaPreview();
-}
-
-function updateProfileCgpaPreview() {
-  const marks = Array.from(document.querySelectorAll('.profile-semester-mark'))
-    .map(input => Number(input.value))
-    .filter(value => Number.isFinite(value) && value >= 0 && value <= 10);
-  const cgpa = marks.length ? (marks.reduce((sum, gpa) => sum + gpa, 0) / marks.length) : null;
-  const output = document.getElementById('profile-marks-cgpa');
-  const status = document.getElementById('profile-marks-status');
-  if (output) output.textContent = cgpa === null ? '—' : cgpa.toFixed(2);
-  if (status) status.textContent = marks.length
-    ? `${marks.length} semester${marks.length === 1 ? '' : 's'} included. CGPA is calculated from GPA.`
-    : 'Enter GPA values to calculate your CGPA.';
-  document.querySelectorAll('.profile-semester-mark').forEach(input => {
-    const semester = input.id.replace('profile-semester-', '');
-    const semesterStatus = document.getElementById(`profile-semester-status-${semester}`);
-    if (semesterStatus) semesterStatus.textContent = input.value === '' ? 'Not entered' : 'Included in CGPA';
-  });
-}
-
-async function saveProfileSemesterMarks() {
-  const inputs = Array.from(document.querySelectorAll('.profile-semester-mark'));
-  if (!inputs.length) return;
-  try {
-    for (let index = 0; index < inputs.length; index += 1) {
-      const input = inputs[index];
-      const semester = index + 1;
-      const rawMarks = input.value.trim();
-      const recordId = input.dataset.recordId;
-      if (rawMarks === '') {
-        if (recordId) {
-          await apiFetch(`/student/semester-records/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
-        }
-        continue;
-      }
-      const marks = Number(rawMarks);
-      if (!Number.isFinite(marks) || marks < 0 || marks > 10) {
-        throw new Error(`Semester ${semester} GPA must be between 0 and 10.`);
-      }
-      const payload = {
-        semester_number: semester,
-        semester: `Semester ${semester}`,
-        gpa: Number(marks.toFixed(2)),
-        academic_status: 'Pending'
-      };
-      if (recordId) {
-        await apiFetch(`/student/semester-records/${encodeURIComponent(recordId)}`, { method: 'PUT', body: JSON.stringify(payload) });
-      } else {
-        await apiFetch('/student/semester-records', { method: 'POST', body: JSON.stringify(payload) });
-      }
-    }
-    await loadProfileView();
-    alert('GPA details saved and CGPA calculated successfully.');
-  } catch (err) {
-    alert(err.message || 'Unable to save semester marks.');
   }
 }
 

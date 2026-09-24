@@ -260,7 +260,6 @@
               <div><label class="mb-1 block text-xs font-bold">University</label><input type="text" id="prof-university" class="saas-input" /></div>
               <div><label class="mb-1 block text-xs font-bold">Department</label><input type="text" id="prof-department" class="saas-input" /></div>
               <div><label class="mb-1 block text-xs font-bold">Degree</label><input type="text" id="prof-degree" class="saas-input" /></div>
-              <div><label class="mb-1 block text-xs font-bold">Calculated CGPA</label><input type="text" id="prof-cgpa" class="saas-input" value="Not calculated" readonly /><small style="color:var(--text-muted);">Average of all semester GPA values</small></div>
               <div><label class="mb-1 block text-xs font-bold">Expected Graduation Year</label><input type="number" id="prof-graduation" class="saas-input" min="2020" max="2100" /></div>
               <div><label class="mb-1 block text-xs font-bold">City</label><input type="text" id="prof-city" class="saas-input" /></div>
               <div><label class="mb-1 block text-xs font-bold">State</label><input type="text" id="prof-state" class="saas-input" /></div>
@@ -273,36 +272,6 @@
             </div>
             <button type="submit" class="btn-saas btn-primary">Save Profile</button>
           </form>
-        </div>
-        <div class="saas-card mb-6">
-          <div class="flex-between gap-3 mb-4">
-            <div>
-              <h3 style="font-weight: 800; margin: 0;">Academic Performance</h3>
-              <p style="color: var(--text-muted); margin: 0.35rem 0 0;">Enter your GPA for each completed semester. Your CGPA is calculated automatically as the average of those GPA values.</p>
-            </div>
-            <div style="text-align: right;"><div class="text-xs" style="color: var(--text-muted);">CURRENT CGPA</div><strong id="profile-marks-cgpa" style="font-size: 1.5rem;">—</strong></div>
-          </div>
-          <div class="saas-table" style="overflow-x:auto;">
-            <table style="width:100%;">
-              <thead><tr><th style="text-align:left;">Semester</th><th style="text-align:left;">GPA (0–10)</th><th style="text-align:left;">Status</th></tr></thead>
-              <tbody id="profile-semester-marks"></tbody>
-            </table>
-          </div>
-          <div class="flex-align gap-3 mt-4">
-            <button type="button" class="btn-saas btn-primary" onclick="saveProfileSemesterMarks()">Save GPA Details</button>
-            <span id="profile-marks-status" class="text-sm" style="color: var(--text-muted);">Enter GPA values to calculate your CGPA.</span>
-          </div>
-        </div>
-        <div class="saas-card mb-6">
-          <div class="flex-between gap-3">
-            <div>
-              <h3 style="font-weight: 800; margin: 0;">Interview eligibility</h3>
-              <p style="color: var(--text-muted); margin: 0.35rem 0 0;">Your CGPA is calculated from the GPA values entered for each semester.</p>
-            </div>
-            <strong id="profile-cgpa-value" style="font-size: 1.5rem;">—</strong>
-          </div>
-          <div id="profile-interview-eligibility" class="mt-3 text-sm" style="color: var(--text-muted);">Add semester GPA records to check your eligibility.</div>
-          <button type="button" class="btn-saas btn-outline mt-3" onclick="navigateTo('academics')">Enter semester GPA</button>
         </div>
       </section>
 
