@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
+const nodemailer = require('nodemailer');
 
 // Environment Setup
 const envPath = path.join(__dirname, '..', '.env');
@@ -37,6 +38,62 @@ const uploadsDir = process.env.VERCEL ? path.join('/tmp', 'skillbridge-uploads')
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'skillbridge-unique-backend-secret-key-2026';
+const ADMIN_NOTIFICATION_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL || 'eswarakaruppasamy123@gmail.com';
+
+let registrationMailer = null;
+
+function escapeEmailHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getRegistrationMailer() {
+  if (registrationMailer) return registrationMailer;
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  registrationMailer = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT) || 587,
+    secure: String(SMTP_SECURE).toLowerCase() === 'true',
+    auth: { user: SMTP_USER, pass: SMTP_PASS }
+  });
+  return registrationMailer;
+}
+
+async function notifyNewUserRegistration(details) {
+  const mailer = getRegistrationMailer();
+  if (!mailer) {
+    console.error('Registration notification was not sent: SMTP_HOST, SMTP_USER, and SMTP_PASS are not configured.');
+    return { sent: false, configured: false };
+  }
+
+  const fields = Object.entries(details)
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
+    .map(([label, value]) => `<tr><td style="padding:6px 12px 6px 0;font-weight:700;">${escapeEmailHtml(label)}</td><td style="padding:6px 0;">${escapeEmailHtml(value)}</td></tr>`)
+    .join('');
+  const text = Object.entries(details)
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
+    .map(([label, value]) => `${label}: ${value}`)
+    .join('\n');
+
+  try {
+    await mailer.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: ADMIN_NOTIFICATION_EMAIL,
+      subject: `New SkillBridge ${details.Role || 'user'} registration`,
+      text: `A new user registered on SkillBridge.\n\n${text}`,
+      html: `<h2>New SkillBridge registration</h2><p>A new user registered on the platform.</p><table>${fields}</table>`
+    });
+    return { sent: true, configured: true };
+  } catch (error) {
+    console.error('Registration notification email failed:', error.message);
+    return { sent: false, configured: true };
+  }
+}
 
 function normalizeIdentity(value) {
   return String(value ?? '').trim().toLowerCase();
@@ -1154,6 +1211,13 @@ const server = http.createServer(async (req, res) => {
           required_skills: newComp.required_skills.join(',')
         });
         state.users.push(newUser);
+        await notifyNewUserRegistration({
+          Role: 'Company',
+          Name: companyName,
+          'Manager name': managerName || 'Recruitment Manager',
+          Email: normalizedEmail,
+          'Company ID': assignedCompId
+        });
         const token = generateToken({ id: newUser.id, email: normalizedEmail, companyId: assignedCompId, role: 'company' });
         return sendJSON(201, { token, user: sanitizeUser(newUser), company: newComp });
 
@@ -1167,6 +1231,12 @@ const server = http.createServer(async (req, res) => {
           institution: collegeName, college: collegeName, admin_name: adminName || 'University Admin'
         });
         state.users.push(newUser);
+        await notifyNewUserRegistration({
+          Role: 'College / University',
+          Name: collegeName,
+          'Admin name': adminName || 'University Admin',
+          Email: normalizedEmail
+        });
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'college', collegeName });
         return sendJSON(201, { token, user: sanitizeUser(newUser) });
 
@@ -1191,6 +1261,14 @@ const server = http.createServer(async (req, res) => {
           salt
         };
         state.users.push(newUser);
+        await notifyNewUserRegistration({
+          Role: 'Faculty',
+          Name: fullName,
+          Email: normalizedEmail,
+          Mobile: mobile || '',
+          Department: department || '',
+          College: collegeName || ''
+        });
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'faculty' });
         return sendJSON(201, { token, user: sanitizeUser(newUser) });
 
@@ -1211,6 +1289,15 @@ const server = http.createServer(async (req, res) => {
         await userDb.createOrUpdateStudentProfile(stored.id, profile);
         state.studentProfiles[stored.id] = profile;
         delete otpStore[normalizedEmail];
+        await notifyNewUserRegistration({
+          Role: 'Student',
+          Name: fullName || '',
+          Email: normalizedEmail,
+          Mobile: mobile || '',
+          'Student ID': assignedStuId,
+          College: profile.college || '',
+          Department: department || ''
+        });
         const token = generateToken({ id: newUser.id, email: normalizedEmail, role: 'student' });
         return sendJSON(201, {
           token,
