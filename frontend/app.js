@@ -1491,10 +1491,9 @@ function renderProfileSemesterMarks(records) {
   container.innerHTML = Array.from({ length: 8 }, (_, index) => {
     const semester = index + 1;
     const record = bySemester.get(semester);
-    const marks = record && record.total_marks !== null && record.total_marks !== undefined
-      ? record.total_marks
-      : (record && record.percentage !== null && record.percentage !== undefined ? record.percentage : '');
-    return `<div><label class="block text-xs font-bold mb-1" for="profile-semester-${semester}">Semester ${semester} marks</label><input type="number" id="profile-semester-${semester}" class="saas-input profile-semester-mark" data-record-id="${record ? record.id : ''}" min="0" max="100" step="0.01" value="${marks}" placeholder="0 - 100" oninput="updateProfileCgpaPreview()" /></div>`;
+    const gpa = record && record.gpa !== null && record.gpa !== undefined ? record.gpa : '';
+    const status = gpa === '' ? 'Not entered' : 'Included in CGPA';
+    return `<tr><td style="padding:0.65rem 0;">Semester ${semester}</td><td style="padding:0.65rem 0;"><input type="number" id="profile-semester-${semester}" class="saas-input profile-semester-mark" data-record-id="${record ? record.id : ''}" min="0" max="10" step="0.01" value="${gpa}" placeholder="e.g. 8.50" oninput="updateProfileCgpaPreview()" style="max-width:220px;" /></td><td id="profile-semester-status-${semester}" style="padding:0.65rem 0;color:var(--text-muted);">${status}</td></tr>`;
   }).join('');
   updateProfileCgpaPreview();
 }
@@ -1502,14 +1501,19 @@ function renderProfileSemesterMarks(records) {
 function updateProfileCgpaPreview() {
   const marks = Array.from(document.querySelectorAll('.profile-semester-mark'))
     .map(input => Number(input.value))
-    .filter(value => Number.isFinite(value) && value >= 0 && value <= 100);
-  const cgpa = marks.length ? (marks.reduce((sum, mark) => sum + mark, 0) / marks.length / 10) : null;
+    .filter(value => Number.isFinite(value) && value >= 0 && value <= 10);
+  const cgpa = marks.length ? (marks.reduce((sum, gpa) => sum + gpa, 0) / marks.length) : null;
   const output = document.getElementById('profile-marks-cgpa');
   const status = document.getElementById('profile-marks-status');
   if (output) output.textContent = cgpa === null ? '—' : cgpa.toFixed(2);
   if (status) status.textContent = marks.length
-    ? `${marks.length} semester${marks.length === 1 ? '' : 's'} included in CGPA.`
-    : 'No semester marks entered.';
+    ? `${marks.length} semester${marks.length === 1 ? '' : 's'} included. CGPA is calculated from GPA.`
+    : 'Enter GPA values to calculate your CGPA.';
+  document.querySelectorAll('.profile-semester-mark').forEach(input => {
+    const semester = input.id.replace('profile-semester-', '');
+    const semesterStatus = document.getElementById(`profile-semester-status-${semester}`);
+    if (semesterStatus) semesterStatus.textContent = input.value === '' ? 'Not entered' : 'Included in CGPA';
+  });
 }
 
 async function saveProfileSemesterMarks() {
@@ -1528,17 +1532,13 @@ async function saveProfileSemesterMarks() {
         continue;
       }
       const marks = Number(rawMarks);
-      if (!Number.isFinite(marks) || marks < 0 || marks > 100) {
-        throw new Error(`Semester ${semester} marks must be between 0 and 100.`);
+      if (!Number.isFinite(marks) || marks < 0 || marks > 10) {
+        throw new Error(`Semester ${semester} GPA must be between 0 and 10.`);
       }
       const payload = {
         semester_number: semester,
         semester: `Semester ${semester}`,
-        total_marks: marks,
-        semester_marks: marks,
-        percentage: marks,
-        gpa: Number((marks / 10).toFixed(2)),
-        cgpa: Number((marks / 10).toFixed(2)),
+        gpa: Number(marks.toFixed(2)),
         academic_status: 'Pending'
       };
       if (recordId) {
@@ -1548,7 +1548,7 @@ async function saveProfileSemesterMarks() {
       }
     }
     await loadProfileView();
-    alert('Semester marks saved and CGPA calculated successfully.');
+    alert('GPA details saved and CGPA calculated successfully.');
   } catch (err) {
     alert(err.message || 'Unable to save semester marks.');
   }
