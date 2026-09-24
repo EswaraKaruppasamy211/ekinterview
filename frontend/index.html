@@ -275,6 +275,20 @@
           </form>
         </div>
         <div class="saas-card mb-6">
+          <div class="flex-between gap-3 mb-4">
+            <div>
+              <h3 style="font-weight: 800; margin: 0;">Semester Marks & CGPA</h3>
+              <p style="color: var(--text-muted); margin: 0.35rem 0 0;">Enter marks out of 100 for each semester. CGPA = average semester marks ÷ 10.</p>
+            </div>
+            <strong id="profile-marks-cgpa" style="font-size: 1.5rem;">—</strong>
+          </div>
+          <div id="profile-semester-marks" class="grid-4 gap-3 mb-4"></div>
+          <div class="flex-align gap-3">
+            <button type="button" class="btn-saas btn-primary" onclick="saveProfileSemesterMarks()">Save Semester Marks</button>
+            <span id="profile-marks-status" class="text-sm" style="color: var(--text-muted);">No semester marks entered.</span>
+          </div>
+        </div>
+        <div class="saas-card mb-6">
           <div class="flex-between gap-3">
             <div>
               <h3 style="font-weight: 800; margin: 0;">Interview eligibility</h3>
