@@ -321,6 +321,52 @@ Give 3 sentences of concise advice.`;
   });
 }
 
+async function generateContextAwareChatReply(userPrompt, role, context) {
+  const config = getGeminiConfig();
+  const unavailable = "I couldn't find that information in your available profile data.";
+  const promptText = [
+    `You are the SkillBridge ${role} assistant.`,
+    'Answer only from the supplied application data. Never infer, invent, or fill gaps with general facts about the user.',
+    `If the requested information is absent, reply exactly: "${unavailable}"`,
+    'Do not reveal private credentials, secrets, raw tokens, passwords, password hashes, API keys, or data outside this role scope.',
+    'Use concise, natural language. For lists and summaries, use Markdown bullets.',
+    `User question:\n${String(userPrompt || '').trim()}`,
+    `Authorized application data (JSON):\n${JSON.stringify(context || {})}`
+  ].join('\n\n');
+
+  if (!config.apiKey || config.provider !== 'gemini') return unavailable;
+  const requestData = JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] });
+
+  return new Promise((resolve) => {
+    const requestOptions = {
+      hostname: 'generativelanguage.googleapis.com',
+      path: `/v1beta/models/${encodeURIComponent(config.modelName)}:generateContent?key=${config.apiKey}`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(requestData) },
+      timeout: config.timeoutMs
+    };
+    const req = https.request(requestOptions, (res) => {
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        if (res.statusCode >= 400) {
+          if (process.env.NODE_ENV === 'development') console.error('[AI] Context chat HTTP error:', res.statusCode);
+          resolve(unavailable);
+          return;
+        }
+        resolve(parseGeminiResponse(body) || unavailable);
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('AI timeout')));
+    req.on('error', error => {
+      if (process.env.NODE_ENV === 'development') console.error('[AI] Context chat request failed:', error.message);
+      resolve(unavailable);
+    });
+    req.write(requestData);
+    req.end();
+  });
+}
+
 function fallbackLocalAIResponse(prompt, studentContext) {
   const name = studentContext?.name || 'student';
   return `Hi ${name}, focus on building 2 complete full-stack projects with live demo links and 1 strong industry project. Keep improving communication, system design, and practical problem-solving for better interview readiness.`;
@@ -335,5 +381,6 @@ module.exports = {
   crossCheckProjectURL,
   evaluateCodeComplexity,
   evaluateMockInterviewAnswer,
-  generateAICareerAdvice
+  generateAICareerAdvice,
+  generateContextAwareChatReply
 };

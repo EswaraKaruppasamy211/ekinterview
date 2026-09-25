@@ -2234,22 +2234,39 @@ async function handleSaveSettings(event) {
 }
 
 async function handleAiChatSubmit(event) {
+  return handleModuleAiChatSubmit(event, 'student');
+}
+
+function chatText(value) {
+  return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
+async function handleModuleAiChatSubmit(event, role) {
   event.preventDefault();
-  const input = document.getElementById('ai-chat-input');
-  const chatLog = document.getElementById('ai-chat-log');
+  const input = document.getElementById(`${role}-ai-chat-input`) || document.getElementById('ai-chat-input');
+  const chatLog = document.getElementById(`${role}-ai-chat-log`) || document.getElementById('ai-chat-log');
+  if (!input || !chatLog) return;
   const message = input.value.trim();
   if (!message) return;
-  chatLog.innerHTML += `<div class="chat-bubble user">${message}</div>`;
+  chatLog.innerHTML += `<div class="chat-bubble user">${chatText(message)}</div>`;
   input.value = '';
+  input.disabled = true;
+  const pending = document.createElement('div');
+  pending.className = 'chat-bubble bot';
+  pending.textContent = 'Thinking…';
+  chatLog.appendChild(pending);
+  chatLog.scrollTop = chatLog.scrollHeight;
   try {
     const data = await apiFetch('/ai/chat', {
       method: 'POST',
       body: JSON.stringify({ message })
     });
-    chatLog.innerHTML += `<div class="chat-bubble bot">${data.reply || 'I can help with your career goals.'}</div>`;
-    chatLog.scrollTop = chatLog.scrollHeight;
+    pending.textContent = data.reply || "I couldn't find that information in your available profile data.";
   } catch (err) {
-    chatLog.innerHTML += `<div class="chat-bubble bot">Unable to reach AI support right now.</div>`;
+    pending.textContent = err.message || 'Unable to reach AI support right now.';
+  } finally {
+    input.disabled = false;
+    chatLog.scrollTop = chatLog.scrollHeight;
   }
 }
 

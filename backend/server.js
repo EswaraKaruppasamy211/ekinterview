@@ -30,6 +30,7 @@ if (fs.existsSync(envPath)) {
 const userDb = require('./db');
 const { migrate } = require('./database/migrate');
 const academiaDb = require('./academia-features');
+const { generateContextAwareChatReply } = require('./ai_engine');
 
 const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 10000;
 const host = process.env.HOST || '0.0.0.0';
@@ -165,6 +166,87 @@ function resolveUniversityScope(profile, user = null) {
     university_name: normalizeUniversityValue(profileUniversityName ?? userUniversityName),
     values: normalized
   };
+}
+
+const AI_SENSITIVE_KEYS = new Set([
+  'password', 'password_hash', 'salt', 'token', 'access_token', 'refresh_token',
+  'jwt', 'jwt_secret', 'api_key', 'apikey', 'gemini_api_key', 'ai_api_key',
+  'secret', 'authorization'
+]);
+
+function sanitizeAIContext(value, key = '') {
+  if (AI_SENSITIVE_KEYS.has(String(key).toLowerCase())) return undefined;
+  if (Array.isArray(value)) return value.slice(0, 300).map(item => sanitizeAIContext(item)).filter(item => item !== undefined);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([entryKey]) => !AI_SENSITIVE_KEYS.has(entryKey.toLowerCase()))
+      .map(([entryKey, entryValue]) => [entryKey, sanitizeAIContext(entryValue, entryKey)])
+      .filter(([, entryValue]) => entryValue !== undefined));
+  }
+  if (typeof value === 'string' && value.length > 4000) return value.slice(0, 4000);
+  return value;
+}
+
+async function buildAIChatContext(authUser, universityAnalytics = null) {
+  const userId = String(authUser.id);
+  if (authUser.role === 'student') {
+    const profile = await userDb.getStudentProfileByUserId(authUser.id) || {};
+    const collections = ['projects', 'student_skills', 'assessments', 'student_academics',
+      'certifications', 'internships', 'applications', 'student_resumes', 'student_placements',
+      'student_preferences', 'campus_registrations'];
+    const records = await Promise.all(collections.map(collection => userDb.listRecords(collection, { user_id: userId })));
+    const data = Object.fromEntries(collections.map((collection, index) => [collection, records[index]]));
+    const jobs = await userDb.listRecords('jobs');
+    return sanitizeAIContext({ role: 'student', profile, data, available_jobs: jobs.filter(job => String(job.status || '').toLowerCase() !== 'closed') });
+  }
+
+  if (authUser.role === 'company') {
+    const companyId = String(authUser.companyId || '');
+    const profile = await userDb.getCompanyProfileByUserId(authUser.id) || {};
+    const collections = ['jobs', 'company_internships', 'applications', 'company_assessments',
+      'company_assessment_applicants', 'company_interviews', 'campus_drives', 'offers'];
+    const records = await Promise.all(collections.map(collection => userDb.listRecords(collection, { companyId })));
+    const data = Object.fromEntries(collections.map((collection, index) => [collection, records[index]]));
+    const redactCandidateContact = item => {
+      if (!item || typeof item !== 'object') return item;
+      const copy = { ...item };
+      ['email', 'candidate_email', 'phone', 'mobile', 'address', 'resume_url'].forEach(key => delete copy[key]);
+      return copy;
+    };
+    data.applications = data.applications.map(redactCandidateContact);
+    data.company_assessment_applicants = data.company_assessment_applicants.map(redactCandidateContact);
+    data.offers = data.offers.map(redactCandidateContact);
+    return sanitizeAIContext({ role: 'company', company: profile, data });
+  }
+
+  if (authUser.role === 'faculty') {
+    const profile = await academiaDb.get('faculty-profiles', userId, authUser).catch(() => null) || {};
+    const activity = [];
+    for (const resource of academiaDb.RESOURCE_NAMES) {
+      const items = await academiaDb.list(resource, {}, authUser);
+      activity.push(...items.filter(item => String(item.created_by) === userId
+        || (item.applications || []).some(entry => String(entry.user_id) === userId)
+        || (item.registrations || []).some(entry => String(entry.user_id) === userId)));
+    }
+    const authorizations = await userDb.listFacultyStudentAuthorizationsForFaculty(authUser.id);
+    const students = await Promise.all(authorizations.map(async authorization => {
+      const studentId = authorization.student_user_id;
+      if (!(await canAccessStudentAcademicData(studentId, authUser))) return null;
+      const studentProfile = await userDb.getStudentProfileByUserId(studentId) || {};
+      const academics = await userDb.listRecords('student_academics', { user_id: String(studentId) });
+      const skills = await userDb.listRecords('student_skills', { user_id: String(studentId) });
+      const safeProfile = { ...studentProfile };
+      ['email', 'phone', 'mobile', 'address', 'date_of_birth', 'dob'].forEach(key => delete safeProfile[key]);
+      return { profile: safeProfile, academics, skills, student_user_id: studentId };
+    }));
+    return sanitizeAIContext({ role: 'faculty', profile, activities: activity, authorized_students: students.filter(Boolean) });
+  }
+
+  if (authUser.role === 'college' || authUser.role === 'university_admin') {
+    return sanitizeAIContext({ role: 'university', analytics: universityAnalytics || {} });
+  }
+
+  return null;
 }
 
 async function canAccessStudentAcademicData(studentUserId, authUser) {
@@ -2029,6 +2111,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     // UNIQUE AI ENGINES
+    if (pathname === '/api/ai/chat' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      const allowedRoles = new Set(['student', 'company', 'faculty', 'college', 'university_admin']);
+      if (!authUser || !allowedRoles.has(String(authUser.role))) return sendJSON(401, { error: 'Authenticated portal access is required.' });
+      const body = await parseJSON(req);
+      const message = String(body.message || '').trim();
+      if (!message) return sendJSON(400, { error: 'A message is required.' });
+      if (message.length > 2000) return sendJSON(400, { error: 'Message is too long.' });
+      const universityAnalytics = authUser.role === 'college' || authUser.role === 'university_admin'
+        ? await buildCollegeAnalytics(authUser)
+        : null;
+      const context = await buildAIChatContext(authUser, universityAnalytics);
+      if (!context) return sendJSON(403, { error: 'This account is not authorized to use the AI assistant.' });
+      const reply = await generateContextAwareChatReply(message, authUser.role === 'college' || authUser.role === 'university_admin' ? 'university' : authUser.role, context);
+      return sendJSON(200, { reply, role: authUser.role });
+    }
     if (pathname === '/api/ai/calculate-skill-score' && req.method === 'POST') {
       const authUser = getAuthUser();
       if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });

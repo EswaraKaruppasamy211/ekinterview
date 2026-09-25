@@ -548,6 +548,11 @@
       <section id="view-faculty-dashboard" class="workspace-view hidden">
         <div class="flex-between mb-4"><div><h1 style="font-size:1.6rem;font-weight:800;">Faculty Workspace</h1><p style="color:var(--text-muted);">Discover, publish, and track academia–industry opportunities.</p></div><span class="badge-saas badge-purple">Faculty Portal</span></div>
         <div class="grid-4 gap-3 mb-4" id="faculty-summary"><div class="saas-card"><span class="text-xs">Loading activity…</span></div></div>
+        <div class="saas-card mb-4">
+          <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Faculty AI Assistant</h3><span class="badge-saas badge-purple">Authorized data only</span></div>
+          <div id="faculty-ai-chat-log" class="chat-log"><div class="chat-bubble bot">Ask about your faculty activities, research, or authorized student academic information.</div></div>
+          <form onsubmit="handleModuleAiChatSubmit(event, 'faculty')"><div class="flex-align gap-2 mt-3"><input id="faculty-ai-chat-input" type="text" class="saas-input" placeholder="Ask about research, FDP, or mentorship..." autocomplete="off"><button type="submit" class="btn-saas btn-primary">Send</button></div></form>
+        </div>
         <div class="saas-card mb-4"><form id="faculty-profile-form" onsubmit="saveFacultyProfile(event)"><div class="flex-between mb-2"><h3 style="font-weight:700;margin:0;">Faculty profile</h3><button class="btn-saas btn-outline" type="submit">Save profile</button></div><div class="grid-3 gap-3"><input id="faculty-profile-name" class="saas-input" placeholder="Full name" required><input id="faculty-profile-email" class="saas-input" type="email" placeholder="Email"><input id="faculty-profile-phone" class="saas-input" placeholder="Phone"><input id="faculty-profile-college" class="saas-input" placeholder="Institution / university"><input id="faculty-profile-department" class="saas-input" placeholder="Department"><input id="faculty-profile-designation" class="saas-input" placeholder="Designation"><input id="faculty-profile-expertise" class="saas-input" placeholder="Expertise (comma separated)"><input id="faculty-profile-skills" class="saas-input" placeholder="Skills (comma separated)"><input id="faculty-profile-experience" class="saas-input" placeholder="Experience"><input id="faculty-profile-research" class="saas-input" placeholder="Research interests"><input id="faculty-profile-contact" class="saas-input" placeholder="Contact information"><input id="faculty-profile-bio" class="saas-input" placeholder="Short bio"></div></form></div>
         <div class="saas-card mb-4"><div class="grid-3 gap-3">
           <div><label class="block text-xs font-bold mb-1">Academia feature</label><select id="faculty-resource" class="saas-input" onchange="loadFacultyResource()"></select></div>
@@ -570,6 +575,11 @@
             <p style="color: var(--text-muted);">Professional hiring dashboard for talent discovery, assessment, and placement performance.</p>
           </div>
           <button class="btn-saas btn-primary" onclick="navigateTo('company-job-drives')"><i class="fa-solid fa-plus"></i> Launch Hiring Campaign</button>
+        </div>
+        <div class="saas-card mb-6">
+          <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Recruitment AI Assistant</h3><span class="badge-saas badge-emerald">Company-scoped</span></div>
+          <div id="company-ai-chat-log" class="chat-log"><div class="chat-bubble bot">Ask about your jobs, applications, pipeline, interviews, or recruitment analytics.</div></div>
+          <form onsubmit="handleModuleAiChatSubmit(event, 'company')"><div class="flex-align gap-2 mt-3"><input id="company-ai-chat-input" type="text" class="saas-input" placeholder="Ask about active jobs or applications..." autocomplete="off"><button type="submit" class="btn-saas btn-primary">Send</button></div></form>
         </div>
         <div class="grid-4 gap-4 mb-6" id="company-metrics-grid"></div>
         <div class="saas-card mb-6">
@@ -813,6 +823,11 @@
         <div class="flex-between mb-4">
           <div><h1 style="font-size: 1.6rem; font-weight: 800;">University Placement & Academic Analytics</h1><p style="color: var(--text-muted);">Department performance, placement trend, and skill readiness across the university.</p></div>
           <div class="badge-saas badge-purple">University overview</div>
+        </div>
+        <div class="saas-card mb-6">
+          <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">University AI Assistant</h3><span class="badge-saas badge-purple">Institution-scoped</span></div>
+          <div id="college-ai-chat-log" class="chat-log"><div class="chat-bubble bot">Ask about placement, student skills, internships, campus drives, or university analytics.</div></div>
+          <form onsubmit="handleModuleAiChatSubmit(event, 'college')"><div class="flex-align gap-2 mt-3"><input id="college-ai-chat-input" type="text" class="saas-input" placeholder="Ask about placement progress or analytics..." autocomplete="off"><button type="submit" class="btn-saas btn-primary">Send</button></div></form>
         </div>
         <div class="grid-4 gap-4 mb-6" id="college-overview-cards"></div>
         <div class="grid-2 gap-4 mb-6">
