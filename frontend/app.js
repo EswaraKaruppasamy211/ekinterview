@@ -3546,5 +3546,16 @@ function handleLogout() {
   });
   showGuestLanding();
 }
-function closeMobileDrawer() { const sidebar = document.getElementById('app-sidebar'); if (sidebar) sidebar.classList.remove('mobile-open'); }
-function toggleMobileDrawer() { const sidebar = document.getElementById('app-sidebar'); if (sidebar) sidebar.classList.toggle('mobile-open'); }
+function closeMobileDrawer() {
+  const sidebar = document.getElementById('app-sidebar');
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  if (sidebar) sidebar.classList.remove('mobile-open');
+  if (backdrop) backdrop.classList.remove('active');
+}
+function toggleMobileDrawer() {
+  const sidebar = document.getElementById('app-sidebar');
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  if (!sidebar) return;
+  const isOpen = sidebar.classList.toggle('mobile-open');
+  if (backdrop) backdrop.classList.toggle('active', isOpen);
+}
