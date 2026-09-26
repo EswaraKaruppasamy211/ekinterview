@@ -89,6 +89,15 @@ async function insertRecord(collectionName, document) {
   await rows('INSERT INTO workflow_records(collection_name,record_id,data) VALUES($1,$2,$3::jsonb) ON CONFLICT (collection_name,record_id) DO UPDATE SET data=EXCLUDED.data,updated_at=now()', [collectionName, id, JSON.stringify(data)]);
   return data;
 }
+async function getOrCreateRecord(collectionName, document) {
+  const data = clean(document); const id = String(data.id ?? crypto.randomUUID());
+  data.id = data.id ?? id;
+  const inserted = await rows('INSERT INTO workflow_records(collection_name,record_id,data) VALUES($1,$2,$3::jsonb) ON CONFLICT (collection_name,record_id) DO NOTHING RETURNING data AS record', [collectionName, id, JSON.stringify(data)]);
+  if (inserted[0]) return inserted[0].record;
+  const existing = await getRecord(collectionName, { id });
+  if (!existing) throw new Error(`Unable to load existing ${collectionName} record.`);
+  return existing;
+}
 async function updateRecord(collectionName, filter, update, options = {}) {
   const current = await getRecord(collectionName, filter);
   if (!current && !options.upsert) return null;
@@ -180,4 +189,4 @@ function normalizeUniversityValue(value) {
   return String(value).trim();
 }
 
-module.exports = { init, createUser, getUserByEmail, getUserByUsername, getUserByIdentity, getUserById, getAllUsers, nextSequence, listRecords, getRecord, insertRecord, updateRecord, deleteRecord, deleteRecords, createOrUpdateStudentProfile, getStudentProfileByUserId, listStudentProfiles, createOrUpdateCompanyProfile, getCompanyProfileByUserId, upsertFacultyStudentAuthorization, getFacultyStudentAuthorization, listFacultyStudentAuthorizationsForFaculty, listFacultyStudentAuthorizationsForStudent, deleteFacultyStudentAuthorization };
+module.exports = { init, createUser, getUserByEmail, getUserByUsername, getUserByIdentity, getUserById, getAllUsers, nextSequence, listRecords, getRecord, insertRecord, getOrCreateRecord, updateRecord, deleteRecord, deleteRecords, createOrUpdateStudentProfile, getStudentProfileByUserId, listStudentProfiles, createOrUpdateCompanyProfile, getCompanyProfileByUserId, upsertFacultyStudentAuthorization, getFacultyStudentAuthorization, listFacultyStudentAuthorizationsForFaculty, listFacultyStudentAuthorizationsForStudent, deleteFacultyStudentAuthorization };

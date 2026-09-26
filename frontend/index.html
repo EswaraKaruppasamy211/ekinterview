@@ -236,6 +236,29 @@
             </div>
           </div>
         </div>
+        <div class="saas-card mb-6">
+          <div class="flex-between mb-3"><div><h3 style="font-weight:700;margin:0;">Skill Passport & Trust Badges</h3><p class="text-sm" style="color:var(--text-muted);margin:.25rem 0 0;">Share a signed credential containing verified skills and project evidence.</p></div><span class="badge-saas badge-emerald">RS256 signed</span></div>
+          <div id="skill-passport-state" class="text-sm mb-3" style="color:var(--text-muted);" aria-live="polite">Loading verified evidence…</div>
+          <div id="student-trust-badges" class="flex-align gap-2 flex-wrap mb-3"></div>
+          <button type="button" class="btn-saas btn-primary" onclick="issueSkillPassport()">Issue / refresh Skill Passport</button>
+        </div>
+        <div class="grid-2 gap-4 mb-6">
+          <div class="saas-card">
+            <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Career Growth Simulator</h3><span class="badge-saas badge-blue">Based on active jobs</span></div>
+            <p class="text-sm mb-3" style="color:var(--text-muted);">Select skills you plan to build and compare projected matches against current job requirements.</p>
+            <div id="career-simulator-skills" class="flex-align gap-2 flex-wrap mb-3"></div>
+            <div id="career-simulator-results" class="text-sm" style="color:var(--text-secondary);">Select a target job to see current and projected skill matches.</div>
+          </div>
+          <div class="saas-card">
+            <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Career Roadmap & Weekly Plan</h3><span id="career-roadmap-progress" class="badge-saas badge-purple">Progress unavailable</span></div>
+            <label class="block text-xs font-bold mb-1" for="career-target-job">Target role</label>
+            <select id="career-target-job" class="saas-input mb-3" onchange="saveCareerGoal()"><option value="">Choose an active role</option></select>
+            <div id="career-roadmap-tasks" class="flex-col gap-2 mb-3"><div class="text-sm" style="color:var(--text-muted);">Loading actions…</div></div>
+            <h4 class="mb-2" style="font-weight:700;">This Week’s Focus</h4>
+            <div id="career-weekly-plan" class="flex-col gap-2 mb-3"><div class="text-sm" style="color:var(--text-muted);">Loading weekly plan…</div></div>
+            <button type="button" class="btn-saas btn-primary" onclick="saveWeeklyPlan()">Save weekly plan</button>
+          </div>
+        </div>
       </section>
 
       <section id="view-profile" class="workspace-view hidden">
@@ -345,6 +368,19 @@
             </div>
             <button type="submit" class="btn-saas btn-primary">Add Skill</button>
           </form>
+        </div>
+        <div class="saas-card mb-4">
+          <h3 style="font-weight:700;margin-bottom:.5rem;">Verify Skill Evidence</h3>
+          <p class="text-sm mb-3" style="color:var(--text-muted);">Submit a project, assessment, or credential link for faculty review. Only faculty you are authorized with can review it.</p>
+          <form id="skill-verification-form" onsubmit="submitSkillVerification(event)">
+            <div class="grid-3 gap-3 mb-3">
+              <div><label class="block text-xs font-bold mb-1" for="verification-skill">Skill</label><select id="verification-skill" class="saas-input" required><option value="">Add a skill first</option></select></div>
+              <div><label class="block text-xs font-bold mb-1" for="verification-url">Evidence URL (HTTPS)</label><input id="verification-url" type="url" class="saas-input" placeholder="https://..." /></div>
+              <div><label class="block text-xs font-bold mb-1" for="verification-note">Evidence note</label><input id="verification-note" class="saas-input" maxlength="1000" placeholder="Briefly describe your evidence" /></div>
+            </div>
+            <button type="submit" class="btn-saas btn-outline">Submit for review</button>
+          </form>
+          <div id="skill-verification-status" class="flex-col gap-2 mt-3" aria-live="polite"></div>
         </div>
         <div class="saas-card"><div id="technical-skills-list" class="flex-col gap-3"></div></div>
       </section>
@@ -548,6 +584,10 @@
       <section id="view-faculty-dashboard" class="workspace-view hidden">
         <div class="flex-between mb-4"><div><h1 style="font-size:1.6rem;font-weight:800;">Faculty Workspace</h1><p style="color:var(--text-muted);">Discover, publish, and track academia–industry opportunities.</p></div><span class="badge-saas badge-purple">Faculty Portal</span></div>
         <div class="grid-4 gap-3 mb-4" id="faculty-summary"><div class="saas-card"><span class="text-xs">Loading activity…</span></div></div>
+        <div class="saas-card mb-4">
+          <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Authorized Student Skill Evidence</h3><button type="button" class="btn-saas btn-outline" onclick="loadFacultySkillVerifications()">Refresh</button></div>
+          <div id="faculty-skill-verifications" class="grid-2 gap-3"><div class="text-sm" style="color:var(--text-muted);">Loading authorized requests…</div></div>
+        </div>
         <div class="saas-card mb-4">
           <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Faculty AI Assistant</h3><span class="badge-saas badge-purple">Authorized data only</span></div>
           <div id="faculty-ai-chat-log" class="chat-log"><div class="chat-bubble bot">Ask about your faculty activities, research, or authorized student academic information.</div></div>

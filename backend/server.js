@@ -187,6 +187,176 @@ function sanitizeAIContext(value, key = '') {
   return value;
 }
 
+function encodePassportPart(value) {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+async function getSkillPassportKeys() {
+  const existing = await userDb.getRecord('system_signing_keys', { id: 'skill-passport-rs256-v1' });
+  if (existing && existing.private_key && existing.public_key) return existing;
+  const pair = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+  });
+  return userDb.getOrCreateRecord('system_signing_keys', {
+    id: 'skill-passport-rs256-v1',
+    private_key: pair.privateKey,
+    public_key: pair.publicKey,
+    algorithm: 'RS256',
+    created_at: new Date().toISOString()
+  });
+}
+
+async function signSkillPassport(payload) {
+  const keys = await getSkillPassportKeys();
+  const header = encodePassportPart({ alg: 'RS256', typ: 'JWT' });
+  const body = encodePassportPart(payload);
+  const signingInput = `${header}.${body}`;
+  const signature = crypto.sign('RSA-SHA256', Buffer.from(signingInput), keys.private_key).toString('base64url');
+  return { token: `${signingInput}.${signature}`, publicKey: keys.public_key };
+}
+
+function verifySkillPassport(token, publicKey) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    if (header.alg !== 'RS256' || header.typ !== 'JWT' || payload.iss !== 'SkillBridge') return null;
+    const verified = crypto.verify('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`), publicKey, Buffer.from(parts[2], 'base64url'));
+    if (!verified || !payload.jti || !Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch (error) {
+    return null;
+  }
+}
+
+function getRequiredSkills(job) {
+  const raw = Array.isArray(job.required_skills || job.requiredSkills)
+    ? (job.required_skills || job.requiredSkills)
+    : String(job.required_skills || job.requiredSkills || '').split(',');
+  return [...new Set(raw.map(skill => String(skill).trim()).filter(Boolean))];
+}
+
+function isCareerJobOpen(job) {
+  return !['closed', 'draft', 'inactive', 'expired', 'cancelled'].includes(String(job.status || '').trim().toLowerCase());
+}
+
+function roleSkillScore(job, skillNames) {
+  const required = getRequiredSkills(job);
+  if (!required.length) return null;
+  const matched = required.filter(skill => skillNames.has(skill.toLowerCase())).length;
+  return { matched, total: required.length, score: Math.round((matched / required.length) * 100) };
+}
+
+function getCareerWeekKey() {
+  const date = new Date();
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+  return date.toISOString().slice(0, 10);
+}
+
+async function buildStudentCareerGrowthData(userId) {
+  const id = String(userId);
+  const [profile, preferences, skills, projects, certificates, assessments, verifications, storedPlan, rawJobs] = await Promise.all([
+    userDb.getStudentProfileByUserId(userId),
+    userDb.getRecord('student_preferences', { user_id: id }),
+    userDb.listRecords('student_skills', { user_id: id }, { skill_name: 1 }),
+    userDb.listRecords('projects', { user_id: id }, { created_at: -1 }),
+    userDb.listRecords('certifications', { user_id: id }, { created_at: -1 }),
+    userDb.getRecord('assessments', { user_id: id }),
+    userDb.listRecords('student_skill_verifications', { user_id: id }, { created_at: -1 }),
+    userDb.getRecord('student_career_plans', { user_id: id }),
+    userDb.listRecords('jobs')
+  ]);
+  const jobs = rawJobs.filter(isCareerJobOpen);
+  const verificationBySkill = new Map();
+  for (const verification of verifications) {
+    const key = String(verification.skill_name || '').toLowerCase();
+    if (key && !verificationBySkill.has(key)) verificationBySkill.set(key, verification);
+  }
+  const skillNames = new Set(skills.map(item => String(item.skill_name || '').toLowerCase()));
+  const requestedGoal = storedPlan && storedPlan.target_job_id !== null && storedPlan.target_job_id !== undefined
+    ? String(storedPlan.target_job_id || '')
+    : String(profile?.career_goal || profile?.careerGoal || preferences?.career_goal || '');
+  const goalJob = jobs.find(job => String(job.id) === requestedGoal)
+    || (requestedGoal ? jobs.find(job => String(job.title || '').toLowerCase().includes(requestedGoal.toLowerCase())) : null)
+    || null;
+  const roleSkills = goalJob ? getRequiredSkills(goalJob) : [];
+  const gaps = roleSkills.filter(skill => !skillNames.has(skill.toLowerCase()));
+  const readiness = roleSkillScore(goalJob || {}, skillNames);
+  const tasks = [];
+  const missingProfileFields = [
+    ['name', 'Complete your name in your profile', profile?.name],
+    ['department', 'Add your department to your profile', profile?.department],
+    ['education', 'Add your degree or university to your profile', profile?.degree || profile?.university || profile?.college]
+  ].filter(([, , value]) => !String(value || '').trim());
+  missingProfileFields.forEach(([key, title]) => tasks.push({ id: `profile-${key}`, title, category: 'Profile' }));
+  gaps.forEach(skill => tasks.push({
+    id: `skill-${encodeURIComponent(skill.toLowerCase())}`,
+    title: `Build evidence for ${skill}`,
+    category: 'Target role skill',
+    source: `Required by ${goalJob.title}`
+  }));
+  if (!projects.length) tasks.push({ id: 'add-project', title: 'Add a project to your portfolio', category: 'Portfolio' });
+  if (!certificates.length) tasks.push({ id: 'add-certificate', title: 'Add a certification to your portfolio', category: 'Portfolio' });
+  const pendingSkills = skills.filter(skill => !['verified'].includes(String(verificationBySkill.get(String(skill.skill_name || '').toLowerCase())?.status || '').toLowerCase()));
+  if (pendingSkills.length) tasks.push({ id: 'verify-skill', title: 'Submit evidence for a skill', category: 'Verification' });
+  const validTaskIds = new Set(tasks.map(task => task.id));
+  const completedTaskIds = (Array.isArray(storedPlan?.completed_task_ids) ? storedPlan.completed_task_ids : [])
+    .map(String).filter(taskId => validTaskIds.has(taskId));
+  const verifiedSkills = skills.filter(skill => String(verificationBySkill.get(String(skill.skill_name || '').toLowerCase())?.status || '').toLowerCase() === 'verified');
+  const badges = [
+    { id: 'profile', label: 'Profile ready', earned: missingProfileFields.length === 0 },
+    { id: 'project', label: 'Project contributor', earned: projects.length > 0 },
+    { id: 'certification', label: 'Certification recorded', earned: certificates.length > 0 },
+    { id: 'assessment', label: 'Assessment completed', earned: Boolean(assessments && (Number(assessments.overall_score) > 0 || (Array.isArray(assessments.tests) && assessments.tests.length > 0))) },
+    { id: 'verified-skill', label: 'Verified skill', earned: verifiedSkills.length > 0 }
+  ];
+  const jobReachability = jobs.map(job => ({ job, score: roleSkillScore(job, skillNames) }))
+    .filter(entry => entry.score)
+    .reduce((tiers, entry) => {
+      const score = entry.score.score;
+      const tier = score >= 85 ? 'readyNow' : score >= 70 ? 'nearlyReady' : score >= 50 ? 'skillGap' : 'futureTarget';
+      tiers[tier] += 1;
+      return tiers;
+    }, { readyNow: 0, nearlyReady: 0, skillGap: 0, futureTarget: 0 });
+  return {
+    profile: profile || {},
+    skills: skills.map(skill => ({
+      skill_name: skill.skill_name,
+      category: skill.category || '',
+      proficiency_percentage: Number(skill.proficiency_percentage || skill.proficiencyPercentage || 0),
+      evidence_status: String(verificationBySkill.get(String(skill.skill_name || '').toLowerCase())?.status || 'self-declared').toLowerCase() === 'approved'
+        ? 'verified'
+        : String(verificationBySkill.get(String(skill.skill_name || '').toLowerCase())?.status || 'self-declared').toLowerCase()
+    })),
+    projects: projects.map(project => ({ title: project.title, technologies: project.technologies || project.technology || '' })),
+    certifications: certificates.map(certificate => ({ name: certificate.certificateName || certificate.name, issuer: certificate.issuer || '' })),
+    assessmentCount: Array.isArray(assessments?.tests) ? assessments.tests.length : 0,
+    verificationRequests: verifications.map(item => ({
+      id: item.id, skill_name: item.skill_name, evidence_url: item.evidence_url || '',
+      evidence_note: item.evidence_note || '', status: item.status, created_at: item.created_at,
+      reviewed_at: item.reviewed_at || null
+    })),
+    goalJob: goalJob ? { id: String(goalJob.id), title: goalJob.title || '', company_name: goalJob.company_name || goalJob.company || '', required_skills: roleSkills } : null,
+    jobs: jobs.map(job => ({ id: String(job.id), title: job.title || '', company_name: job.company_name || job.company || '', location: job.location || '', required_skills: getRequiredSkills(job) })),
+    readiness: readiness ? { ...readiness, role: goalJob.title } : null,
+    gaps,
+    tasks,
+    completedTaskIds,
+    roadmapProgress: tasks.length ? Math.round((completedTaskIds.length / tasks.length) * 100) : null,
+    weeklyPlan: storedPlan?.weekly_plan_week === getCareerWeekKey() && Array.isArray(storedPlan.weekly_plan)
+      ? storedPlan.weekly_plan
+      : [],
+    badges,
+    jobReachability,
+    passports: await userDb.listRecords('student_skill_passports', { user_id: id }, { issued_at: -1 })
+      .then(items => items.map(item => ({ id: item.id, issued_at: item.issued_at, expires_at: item.expires_at, revoked: Boolean(item.revoked) })))
+  };
+}
+
 async function buildAIChatContext(authUser, universityAnalytics = null) {
   const userId = String(authUser.id);
   if (authUser.role === 'student') {
@@ -2111,6 +2281,212 @@ const server = http.createServer(async (req, res) => {
     }
 
     // UNIQUE AI ENGINES
+    if (pathname === '/api/student/career-growth' && req.method === 'GET') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const data = await buildStudentCareerGrowthData(authUser.id);
+      return sendJSON(200, {
+        targetJob: data.goalJob,
+        readiness: data.readiness,
+        gaps: data.gaps,
+        tasks: data.tasks,
+        completedTaskIds: data.completedTaskIds,
+        roadmapProgress: data.roadmapProgress,
+        badges: data.badges,
+        jobReachability: data.jobReachability,
+        jobs: data.jobs,
+        weeklyPlan: data.weeklyPlan,
+        skills: data.skills,
+        verifications: data.verificationRequests,
+        passports: data.passports
+      });
+    }
+    if (pathname === '/api/student/career-goal' && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const targetJobId = String(body.targetJobId || '').trim();
+      if (targetJobId) {
+        const jobs = (await userDb.listRecords('jobs')).filter(isCareerJobOpen);
+        if (!jobs.some(job => String(job.id) === targetJobId)) return sendJSON(400, { error: 'Choose an active job from the available opportunities.' });
+      }
+      const plan = await userDb.getOrCreateRecord('student_career_plans', {
+        id: `student-career-plan-${authUser.id}`, user_id: String(authUser.id),
+        target_job_id: targetJobId, completed_task_ids: [], weekly_plan: [], updated_at: new Date().toISOString()
+      });
+      plan.target_job_id = targetJobId;
+      plan.updated_at = new Date().toISOString();
+      await userDb.insertRecord('student_career_plans', plan);
+      return sendJSON(200, { success: true, targetJobId });
+    }
+    if (pathname === '/api/student/career-plan' && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const taskId = String(body.taskId || '');
+      const completed = body.completed === true;
+      const validData = await buildStudentCareerGrowthData(authUser.id);
+      if (!validData.tasks.some(task => task.id === taskId)) return sendJSON(400, { error: 'That action item is no longer available.' });
+      const plan = await userDb.getOrCreateRecord('student_career_plans', {
+        id: `student-career-plan-${authUser.id}`, user_id: String(authUser.id),
+        target_job_id: null, completed_task_ids: [], weekly_plan: [], updated_at: new Date().toISOString()
+      });
+      const completedTaskIds = new Set(plan.completed_task_ids || []);
+      if (completed) completedTaskIds.add(taskId);
+      else completedTaskIds.delete(taskId);
+      plan.completed_task_ids = [...completedTaskIds];
+      plan.updated_at = new Date().toISOString();
+      await userDb.insertRecord('student_career_plans', plan);
+      return sendJSON(200, { success: true, completedTaskIds: plan.completed_task_ids });
+    }
+    if (pathname === '/api/student/weekly-plan' && req.method === 'PUT') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      if (!Array.isArray(body.items) || body.items.length > 7) return sendJSON(400, { error: 'Submit up to seven weekly focus items.' });
+      const availableTasks = await buildStudentCareerGrowthData(authUser.id);
+      const taskTitles = new Map(availableTasks.tasks.map(task => [task.id, task.title]));
+      const items = [];
+      for (const item of body.items) {
+        const taskId = String(item && item.taskId || '');
+        const title = taskTitles.get(taskId);
+        if (!title) return sendJSON(400, { error: 'A weekly focus item is no longer available.' });
+        const minutes = Number(item.minutes);
+        if (!Number.isInteger(minutes) || minutes < 15 || minutes > 240) return sendJSON(400, { error: 'Each weekly focus item must be between 15 and 240 minutes.' });
+        items.push({ task_id: taskId, title, minutes, completed: item.completed === true });
+      }
+      const plan = await userDb.getOrCreateRecord('student_career_plans', {
+        id: `student-career-plan-${authUser.id}`, user_id: String(authUser.id),
+        target_job_id: null, completed_task_ids: [], weekly_plan: [], updated_at: new Date().toISOString()
+      });
+      plan.weekly_plan = items;
+      plan.weekly_plan_week = getCareerWeekKey();
+      plan.weekly_plan_updated_at = new Date().toISOString();
+      plan.updated_at = new Date().toISOString();
+      await userDb.insertRecord('student_career_plans', plan);
+      return sendJSON(200, { success: true, items: plan.weekly_plan });
+    }
+    if (pathname === '/api/student/skill-verifications' && ['GET', 'POST'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const userId = String(authUser.id);
+      if (req.method === 'GET') {
+        return sendJSON(200, { requests: await userDb.listRecords('student_skill_verifications', { user_id: userId }, { created_at: -1 }) });
+      }
+      const body = await parseJSON(req);
+      const skillName = String(body.skillName || body.skill_name || '').trim();
+      const evidenceUrl = String(body.evidenceUrl || body.evidence_url || '').trim();
+      const evidenceNote = String(body.evidenceNote || body.evidence_note || '').trim().slice(0, 1000);
+      if (!skillName || (!evidenceUrl && !evidenceNote)) return sendJSON(400, { error: 'Choose a skill and provide an evidence link or evidence note.' });
+      const skill = await userDb.getRecord('student_skills', { user_id: userId, skill_name: skillName });
+      if (!skill) return sendJSON(404, { error: 'Add the skill to your profile before submitting evidence.' });
+      if (evidenceUrl && !/^https:\/\/\S+$/i.test(evidenceUrl)) return sendJSON(400, { error: 'Evidence links must use HTTPS.' });
+      const duplicate = (await userDb.listRecords('student_skill_verifications', { user_id: userId, skill_name: skillName }))
+        .find(item => ['pending', 'approved'].includes(String(item.status || '').toLowerCase()));
+      if (duplicate) return sendJSON(409, { error: 'A pending or verified evidence request already exists for this skill.' });
+      const request = {
+        id: crypto.randomUUID(), user_id: userId, skill_name: skillName,
+        evidence_url: evidenceUrl, evidence_note: evidenceNote,
+        status: 'pending', created_at: new Date().toISOString()
+      };
+      await userDb.insertRecord('student_skill_verifications', request);
+      return sendJSON(201, { success: true, request });
+    }
+    if (pathname === '/api/student/skill-passport' && req.method === 'POST') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const body = await parseJSON(req);
+      const growth = await buildStudentCareerGrowthData(authUser.id);
+      if (growth.skills.length === 0) return sendJSON(409, { error: 'Add at least one skill before issuing a Skill Passport.' });
+      const profile = growth.profile;
+      const verified = growth.skills.filter(skill => skill.evidence_status === 'verified');
+      const now = Math.floor(Date.now() / 1000);
+      const publicId = crypto.randomUUID();
+      const claims = {
+        iss: 'SkillBridge', sub: publicId, jti: publicId,
+        iat: now, exp: now + 60 * 60 * 24 * 30,
+        name: String(profile.name || authUser.username),
+        institution: String(profile.university || profile.college || ''),
+        department: String(profile.department || ''),
+        skills: verified.map(skill => ({ name: skill.skill_name, category: skill.category })),
+        projects: growth.projects, issued_at: new Date(now * 1000).toISOString()
+      };
+      const signed = await signSkillPassport(claims);
+      const record = {
+        id: publicId, user_id: String(authUser.id), issued_at: claims.issued_at,
+        expires_at: new Date(claims.exp * 1000).toISOString(), revoked: false,
+        token: signed.token
+      };
+      const priorPassports = await userDb.listRecords('student_skill_passports', { user_id: String(authUser.id) });
+      await Promise.all(priorPassports.filter(item => !item.revoked && new Date(item.expires_at) > new Date())
+        .map(item => userDb.updateRecord('student_skill_passports', { id: item.id, user_id: String(authUser.id) }, {
+          $set: { revoked: true, revoked_at: new Date().toISOString() }
+        })));
+      await userDb.insertRecord('student_skill_passports', record);
+      return sendJSON(201, { success: true, id: publicId, issued_at: record.issued_at, expires_at: record.expires_at, verified_skill_count: verified.length, url: `/api/public/skill-passports/${encodeURIComponent(publicId)}` });
+    }
+    const ownedPassportMatch = pathname.match(/^\/api\/student\/skill-passports\/([^/]+)$/);
+    if (ownedPassportMatch && req.method === 'DELETE') {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'student') return sendJSON(401, { error: 'Student authentication required.' });
+      const passportId = decodeURIComponent(ownedPassportMatch[1]);
+      const passport = await userDb.getRecord('student_skill_passports', { id: passportId, user_id: String(authUser.id) });
+      if (!passport) return sendJSON(404, { error: 'Skill Passport not found.' });
+      await userDb.updateRecord('student_skill_passports', { id: passportId, user_id: String(authUser.id) }, {
+        $set: { revoked: true, revoked_at: new Date().toISOString() }
+      });
+      return sendJSON(200, { success: true, revoked: true });
+    }
+    const publicPassportMatch = pathname.match(/^\/api\/public\/skill-passports\/([^/]+)$/);
+    if (publicPassportMatch && req.method === 'GET') {
+      const passportId = decodeURIComponent(publicPassportMatch[1]);
+      const record = await userDb.getRecord('student_skill_passports', { id: passportId });
+      if (!record || record.revoked) return sendJSON(404, { error: 'Skill Passport not found.' });
+      const keys = await getSkillPassportKeys();
+      const claims = verifySkillPassport(record.token, keys.public_key);
+      if (!claims || claims.jti !== passportId) return sendJSON(410, { error: 'Skill Passport is expired or invalid.' });
+      return sendJSON(200, {
+        passport: { id: passportId, issued_at: claims.issued_at, expires_at: new Date(claims.exp * 1000).toISOString(), skills: claims.skills, projects: claims.projects },
+        credential: record.token,
+        publicKey: keys.public_key
+      });
+    }
+    if (pathname === '/api/faculty/skill-verifications' && ['GET', 'POST'].includes(req.method)) {
+      const authUser = getAuthUser();
+      if (!authUser || authUser.role !== 'faculty') return sendJSON(403, { error: 'Faculty access required.' });
+      const authorizedIds = new Set((await userDb.listFacultyStudentAuthorizationsForFaculty(authUser.id))
+        .map(row => String(row.student_user_id)));
+      if (req.method === 'GET') {
+        const records = await userDb.listRecords('student_skill_verifications', { status: 'pending' });
+        const requests = [];
+        for (const record of records) {
+          if (!authorizedIds.has(String(record.user_id))) continue;
+          if (!(await canAccessStudentAcademicData(record.user_id, authUser))) continue;
+          const profile = await userDb.getStudentProfileByUserId(record.user_id) || {};
+          requests.push({
+            id: record.id, student_user_id: record.user_id,
+            student_name: profile.name || 'Authorized student',
+            skill_name: record.skill_name, evidence_url: record.evidence_url || '',
+            evidence_note: record.evidence_note || '', created_at: record.created_at
+          });
+        }
+        return sendJSON(200, { requests });
+      }
+      const body = await parseJSON(req);
+      const requestId = String(body.requestId || '');
+      const decision = String(body.decision || '').toLowerCase();
+      if (!requestId || !['approved', 'rejected'].includes(decision)) return sendJSON(400, { error: 'A verification request and valid decision are required.' });
+      const request = await userDb.getRecord('student_skill_verifications', { id: requestId, status: 'pending' });
+      if (!request || !authorizedIds.has(String(request.user_id))
+        || !(await canAccessStudentAcademicData(request.user_id, authUser))) {
+        return sendJSON(404, { error: 'Pending skill evidence not found within your authorized students.' });
+      }
+      const saved = await userDb.updateRecord('student_skill_verifications', { id: requestId, user_id: String(request.user_id), status: 'pending' }, {
+        $set: { status: decision, reviewed_at: new Date().toISOString(), reviewed_by: String(authUser.id) }
+      });
+      if (!saved) return sendJSON(409, { error: 'Skill evidence was already reviewed.' });
+      return sendJSON(200, { success: true, request: { id: saved.id, status: saved.status } });
+    }
     if (pathname === '/api/ai/chat' && req.method === 'POST') {
       const authUser = getAuthUser();
       const allowedRoles = new Set(['student', 'company', 'faculty', 'college', 'university_admin']);

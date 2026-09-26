@@ -13,6 +13,9 @@ let authToken = localStorage.getItem('sb_token') || null;
 let pendingStudentOtpEmail = null;
 let otpCountdownTimer = null;
 let studentCampusDrives = [];
+let studentCareerGrowth = null;
+let simulatedCareerSkills = new Set();
+let weeklyPlanDraft = [];
 let voiceInterview = {
   language: 'ta-IN',
   questionIndex: 0,
@@ -1279,6 +1282,7 @@ async function loadFacultyDashboard() {
       const field = document.getElementById(`faculty-profile-${key}`);
       if (field) field.value = value || '';
     });
+    await loadFacultySkillVerifications();
   } catch (error) {
     if (summary) summary.innerHTML = `<div class="saas-card" style="grid-column:1/-1;"><span style="color:var(--text-muted);">${facultyText(error.message || 'Unable to load faculty activity.')}</span></div>`;
   }
@@ -1296,6 +1300,42 @@ async function saveFacultyProfile(event) {
     alert('Faculty profile saved.');
   } catch (error) { alert(error.message || 'Unable to save faculty profile.'); }
 }
+
+async function loadFacultySkillVerifications() {
+  const target = document.getElementById('faculty-skill-verifications');
+  if (!target) return;
+  target.textContent = 'Loading authorized requests…';
+  try {
+    const data = await apiFetch('/faculty/skill-verifications');
+    const requests = data.requests || [];
+    target.innerHTML = requests.length ? requests.map(request => `
+      <article class="saas-card">
+        <h4 style="font-weight:700;">${facultyText(request.skill_name)} · ${facultyText(request.student_name)}</h4>
+        <p class="text-sm mt-2" style="color:var(--text-muted);">${facultyText(request.evidence_note || 'Evidence link submitted')}</p>
+        ${request.evidence_url ? `<a class="btn-saas btn-outline mt-2" href="${facultyText(request.evidence_url)}" target="_blank" rel="noopener noreferrer">Review evidence</a>` : ''}
+        <div class="flex-align gap-2 mt-3">
+          <button class="btn-saas btn-primary" type="button" onclick="reviewFacultySkillEvidence('${facultyText(request.id)}','approved')">Verify</button>
+          <button class="btn-saas btn-outline" type="button" onclick="reviewFacultySkillEvidence('${facultyText(request.id)}','rejected')">Reject</button>
+        </div>
+      </article>
+    `).join('') : '<div class="text-sm" style="color:var(--text-muted);">No pending evidence from students authorized to you.</div>';
+  } catch (error) {
+    target.textContent = error.message || 'Unable to load skill evidence requests.';
+  }
+}
+
+async function reviewFacultySkillEvidence(requestId, decision) {
+  try {
+    await apiFetch('/faculty/skill-verifications', {
+      method: 'POST',
+      body: JSON.stringify({ requestId, decision })
+    });
+    await loadFacultySkillVerifications();
+  } catch (error) {
+    alert(error.message || 'Unable to review skill evidence.');
+  }
+}
+
 function facultyText(value) { return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
 function filterFacultyItems() { renderFacultyItems(); }
 function renderFacultyItems(errorMessage = '') {
@@ -1423,11 +1463,232 @@ async function loadDashboardHome() {
         <button class="btn-saas btn-primary w-full" onclick="navigateTo('opportunities')">View & Apply</button>
       </div>
     `).join('') : '<div class="saas-card">Add more skills and projects to unlock role recommendations.</div>';
+    await loadStudentCareerFeatures();
   } catch (e) {
     console.error('Dashboard load failed', e);
   }
 }
 
+function careerText(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  }
+
+  async function loadStudentCareerFeatures() {
+    const stateEl = document.getElementById('skill-passport-state');
+    if (!stateEl) return;
+    stateEl.textContent = 'Loading current profile evidence and job requirements…';
+    try {
+      studentCareerGrowth = await apiFetch('/student/career-growth');
+      renderStudentCareerFeatures();
+    } catch (error) {
+      stateEl.textContent = error.message || 'Unable to load career features.';
+      const tasks = document.getElementById('career-roadmap-tasks');
+      if (tasks) tasks.textContent = 'Career roadmap is temporarily unavailable.';
+    }
+  }
+
+  function renderStudentCareerFeatures() {
+    const data = studentCareerGrowth;
+    if (!data) return;
+    const passportState = document.getElementById('skill-passport-state');
+    const badgesEl = document.getElementById('student-trust-badges');
+    const goalSelect = document.getElementById('career-target-job');
+    const tasksEl = document.getElementById('career-roadmap-tasks');
+    const progressEl = document.getElementById('career-roadmap-progress');
+    const skillSelect = document.getElementById('verification-skill');
+
+    if (passportState) {
+      const passports = data.passports || [];
+      const active = passports.filter(item => !item.revoked && new Date(item.expires_at) > new Date());
+      passportState.innerHTML = active.length
+        ? `${active.length} active signed passport(s). Issued passports include only verified skills.${active.map(item => `<div class="flex-align gap-2 mt-2"><a class="btn-saas btn-outline" href="/api/public/skill-passports/${encodeURIComponent(item.id)}" target="_blank" rel="noopener noreferrer">Open passport · ${careerText(new Date(item.issued_at).toLocaleDateString())}</a><button type="button" class="btn-saas btn-outline" onclick="revokeSkillPassport('${careerText(item.id)}')">Revoke</button></div>`).join('')}`
+        : 'No active signed Skill Passport. Only verified skills are shared.';
+    }
+    if (badgesEl) badgesEl.innerHTML = (data.badges || []).map(badge =>
+      `<span class="badge-saas ${badge.earned ? 'badge-emerald' : 'badge-blue'}">${careerText(badge.label)} · ${badge.earned ? 'Earned' : 'In progress'}</span>`
+    ).join('') || '<span class="text-sm" style="color:var(--text-muted);">No trust badges available.</span>';
+
+    if (goalSelect) {
+      const selected = data.targetJob?.id || '';
+      goalSelect.innerHTML = '<option value="">Choose an active role</option>' + (data.jobs || []).map(job =>
+        `<option value="${careerText(job.id)}" ${String(job.id) === String(selected) ? 'selected' : ''}>${careerText(job.title)}${job.company_name ? ` — ${careerText(job.company_name)}` : ''}</option>`
+      ).join('');
+      goalSelect.value = selected;
+    }
+    if (progressEl) progressEl.textContent = data.roadmapProgress === null ? 'Set a role to begin' : `${data.roadmapProgress}% roadmap complete`;
+    if (tasksEl) {
+      tasksEl.innerHTML = (data.tasks || []).length ? data.tasks.map(task => {
+        const checked = (data.completedTaskIds || []).includes(task.id);
+        return `<label class="flex-align gap-2 text-sm" style="color:var(--text-secondary);"><input type="checkbox" data-task-id="${careerText(task.id)}" ${checked ? 'checked' : ''} onchange="toggleCareerTask(this.dataset.taskId,this.checked)"><span>${careerText(task.title)} <small style="color:var(--text-muted);">(${careerText(task.category)})</small></span></label>`;
+      }).join('') : '<div class="text-sm" style="color:var(--text-muted);">No actions are currently available. Add profile evidence or choose an active target job.</div>';
+    }
+    if (skillSelect) {
+      skillSelect.innerHTML = '<option value="">Choose a skill</option>' + (data.skills || []).map(skill =>
+        `<option value="${careerText(skill.skill_name)}">${careerText(skill.skill_name)} · ${careerText(skill.evidence_status)}</option>`
+      ).join('');
+    }
+    weeklyPlanDraft = (data.weeklyPlan || []).map(item => ({
+      taskId: item.task_id, minutes: Number(item.minutes) || 45, completed: Boolean(item.completed)
+    }));
+    renderCareerSimulator();
+    renderWeeklyPlan();
+    renderSkillVerifications(data.verifications || []);
+  }
+
+  function renderCareerSimulator() {
+    const controls = document.getElementById('career-simulator-skills');
+    const results = document.getElementById('career-simulator-results');
+    if (!controls || !results || !studentCareerGrowth) return;
+    const knownSkills = new Set((studentCareerGrowth.skills || []).map(skill => String(skill.skill_name || '').toLowerCase()));
+    const demandSkills = [...new Set((studentCareerGrowth.jobs || []).flatMap(job => job.required_skills || []))]
+      .filter(skill => !knownSkills.has(String(skill).toLowerCase()));
+    controls.innerHTML = demandSkills.length ? demandSkills.slice(0, 24).map(skill =>
+      `<label class="badge-saas ${simulatedCareerSkills.has(String(skill).toLowerCase()) ? 'badge-emerald' : 'badge-blue'}" style="cursor:pointer;"><input type="checkbox" data-career-skill="${careerText(skill)}" ${simulatedCareerSkills.has(String(skill).toLowerCase()) ? 'checked' : ''} onchange="toggleSimulatedCareerSkill(this.dataset.careerSkill,this.checked)"> ${careerText(skill)}</label>`
+    ).join('') : '<span class="text-sm" style="color:var(--text-muted);">No missing job-requirement skills are available to simulate.</span>';
+
+    const projected = new Set([...knownSkills, ...simulatedCareerSkills]);
+    const tiers = (studentCareerGrowth.jobs || []).reduce((counts, job) => {
+      const required = job.required_skills || [];
+      if (!required.length) return counts;
+      const match = required.filter(skill => projected.has(String(skill).toLowerCase())).length / required.length * 100;
+      counts[match >= 85 ? 'Ready now' : match >= 70 ? 'Nearly ready' : match >= 50 ? 'Skill gap' : 'Future target'] += 1;
+      return counts;
+    }, { 'Ready now': 0, 'Nearly ready': 0, 'Skill gap': 0, 'Future target': 0 });
+    const currentSkills = knownSkills;
+    const currentReach = (studentCareerGrowth.jobs || []).filter(job => job.required_skills?.length
+      && job.required_skills.filter(skill => currentSkills.has(String(skill).toLowerCase())).length / job.required_skills.length * 100 >= 85).length;
+    const projectedReach = tiers['Ready now'];
+    results.innerHTML = `<strong>${currentReach}</strong> jobs currently meet the 85% skills threshold; <strong>${projectedReach}</strong> projected after selecting ${simulatedCareerSkills.size} skill${simulatedCareerSkills.size === 1 ? '' : 's'}.<div class="flex-align gap-2 flex-wrap mt-2">${Object.entries(tiers).map(([label, count]) => `<span class="badge-saas badge-blue">${careerText(label)}: ${count}</span>`).join('')}</div>`;
+  }
+
+  function toggleSimulatedCareerSkill(skill, enabled) {
+    const key = String(skill).toLowerCase();
+    if (enabled) simulatedCareerSkills.add(key);
+    else simulatedCareerSkills.delete(key);
+    renderCareerSimulator();
+  }
+
+  async function saveCareerGoal() {
+    const selector = document.getElementById('career-target-job');
+    if (!selector) return;
+    try {
+      await apiFetch('/student/career-goal', { method: 'PUT', body: JSON.stringify({ targetJobId: selector.value }) });
+      simulatedCareerSkills.clear();
+      await loadStudentCareerFeatures();
+    } catch (error) {
+      alert(error.message || 'Unable to save your target role.');
+    }
+  }
+
+  async function toggleCareerTask(taskId, completed) {
+    try {
+      await apiFetch('/student/career-plan', { method: 'PUT', body: JSON.stringify({ taskId, completed }) });
+      await loadStudentCareerFeatures();
+    } catch (error) {
+      alert(error.message || 'Unable to update your roadmap.');
+    }
+  }
+
+  function renderWeeklyPlan() {
+    const target = document.getElementById('career-weekly-plan');
+    if (!target || !studentCareerGrowth) return;
+    const saved = new Map((studentCareerGrowth.weeklyPlan || []).map(item => [item.task_id, item]));
+    const options = (studentCareerGrowth.tasks || []).slice(0, 7);
+    options.forEach(task => {
+      const plan = saved.get(task.id);
+      if (plan && !weeklyPlanDraft.some(item => item.taskId === task.id)) {
+        weeklyPlanDraft.push({ taskId: task.id, minutes: Number(plan.minutes) || 45, completed: Boolean(plan.completed) });
+      }
+    });
+    const draftMap = new Map(weeklyPlanDraft.map(item => [item.taskId, item]));
+    target.innerHTML = options.length ? options.map(task => {
+      const plan = draftMap.get(task.id);
+      const checked = Boolean(plan);
+      const minutes = plan ? plan.minutes : 45;
+      return `<div class="grid-3 gap-2 text-sm" style="align-items:center;color:var(--text-secondary);"><label><input type="checkbox" data-task-id="${careerText(task.id)}" ${checked ? 'checked' : ''} onchange="toggleWeeklyTask(this.dataset.taskId,this.checked)"> ${careerText(task.title)}</label><label class="flex-align gap-2"><input type="checkbox" data-task-id="${careerText(task.id)}" ${plan?.completed ? 'checked' : ''} onchange="setWeeklyTaskCompleted(this.dataset.taskId,this.checked)" ${checked ? '' : 'disabled'}> Done</label><span><input type="number" class="saas-input" min="15" max="240" step="15" value="${minutes}" data-task-id="${careerText(task.id)}" aria-label="Minutes this week for ${careerText(task.title)}" onchange="setWeeklyTaskMinutes(this.dataset.taskId,this.value)" ${checked ? '' : 'disabled'}> minutes</span></div>`;
+    }).join('') : '<div class="text-sm" style="color:var(--text-muted);">Complete your profile or set a target role to create weekly focus actions.</div>';
+  }
+
+  function toggleWeeklyTask(taskId, enabled) {
+    const existing = weeklyPlanDraft.find(item => item.taskId === taskId);
+    if (enabled && !existing) weeklyPlanDraft.push({ taskId, minutes: 45, completed: false });
+    if (!enabled) weeklyPlanDraft = weeklyPlanDraft.filter(item => item.taskId !== taskId);
+    renderWeeklyPlan();
+  }
+
+  function setWeeklyTaskMinutes(taskId, value) {
+    const existing = weeklyPlanDraft.find(item => item.taskId === taskId);
+    if (existing) existing.minutes = Number(value);
+  }
+
+  function setWeeklyTaskCompleted(taskId, completed) {
+    const existing = weeklyPlanDraft.find(item => item.taskId === taskId);
+    if (existing) existing.completed = completed;
+  }
+
+  async function saveWeeklyPlan() {
+    try {
+      const result = await apiFetch('/student/weekly-plan', {
+        method: 'PUT',
+        body: JSON.stringify({ items: weeklyPlanDraft.map(item => ({ taskId: item.taskId, minutes: item.minutes, completed: item.completed })) })
+      });
+      weeklyPlanDraft = (result.items || []).map(item => ({ taskId: item.task_id, minutes: item.minutes, completed: item.completed }));
+      await loadStudentCareerFeatures();
+    } catch (error) {
+      alert(error.message || 'Unable to save weekly plan.');
+    }
+  }
+
+  function renderSkillVerifications(requests) {
+    const target = document.getElementById('skill-verification-status');
+    if (!target) return;
+    target.innerHTML = requests.length ? requests.map(request =>
+      `<div class="flex-between gap-2 text-sm"><span>${careerText(request.skill_name)}</span><span class="badge-saas ${request.status === 'approved' ? 'badge-emerald' : request.status === 'rejected' ? 'badge-amber' : 'badge-blue'}">${careerText(request.status)}</span></div>`
+    ).join('') : '<div class="text-sm" style="color:var(--text-muted);">No evidence requests submitted yet.</div>';
+  }
+
+  async function submitSkillVerification(event) {
+    event.preventDefault();
+    const skillName = document.getElementById('verification-skill')?.value;
+    const evidenceUrl = document.getElementById('verification-url')?.value.trim();
+    const evidenceNote = document.getElementById('verification-note')?.value.trim();
+    try {
+      await apiFetch('/student/skill-verifications', {
+        method: 'POST',
+        body: JSON.stringify({ skillName, evidenceUrl, evidenceNote })
+      });
+      document.getElementById('skill-verification-form').reset();
+      await loadSkillsView();
+      await loadStudentCareerFeatures();
+    } catch (error) {
+      alert(error.message || 'Unable to submit skill evidence.');
+    }
+  }
+
+  async function issueSkillPassport() {
+    const stateEl = document.getElementById('skill-passport-state');
+    if (!window.confirm('Issue a public Skill Passport? Anyone with its link can view your name, institution, verified skills, and project titles/technologies.')) return;
+    if (stateEl) stateEl.textContent = 'Signing your current verified profile…';
+    try {
+      const result = await apiFetch('/student/skill-passport', { method: 'POST', body: JSON.stringify({}) });
+      if (stateEl) {
+        stateEl.innerHTML = `Signed passport issued with ${Number(result.verified_skill_count)} verified skill(s). <a href="${careerText(result.url)}" target="_blank" rel="noopener noreferrer">Open public passport JSON</a> · Expires ${careerText(new Date(result.expires_at).toLocaleDateString())}.`;
+      }
+      await loadStudentCareerFeatures();
+    } catch (error) {
+      if (stateEl) stateEl.textContent = error.message || 'Unable to issue Skill Passport.';
+    }
+  }
+
+  async function revokeSkillPassport(passportId) {
+    if (!window.confirm('Revoke this public Skill Passport? Its verification link will stop working.')) return;
+    try {
+      await apiFetch(`/student/skill-passports/${encodeURIComponent(passportId)}`, { method: 'DELETE' });
+      await loadStudentCareerFeatures();
+    } catch (error) {
+      alert(error.message || 'Unable to revoke Skill Passport.');
+    }
+  }
 async function loadProfileView() {
   try {
     const data = await apiFetch('/student/profile');
@@ -1897,6 +2158,7 @@ async function loadSkillsView() {
         <button class="btn-saas btn-outline" type="button" onclick="deleteSkill(${skill.id})">Delete</button>
       </div>
     `).join('');
+    await loadStudentCareerFeatures();
   } catch (e) {
     console.error('Skills load failed', e);
   }
