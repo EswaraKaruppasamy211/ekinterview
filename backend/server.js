@@ -1139,6 +1139,18 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(200, { status: 'UP & RUNNING', uptime_seconds: process.uptime(), memory: process.memoryUsage(), timestamp: new Date().toISOString() });
     }
 
+    if ((pathname === '/api' || pathname === '/api/') && req.method === 'GET') {
+      return sendJSON(200, {
+        platform: 'SkillBridge Academiaâ€“Industry Collaboration Platform API',
+        version: '2.0-Unique-Engine',
+        port,
+        portals: ['Student Portal', 'Company Recruiter Module', 'University Admin Module'],
+        endpoints_count: 24,
+        docs: '/api/docs',
+        health: '/api/health'
+      });
+    }
+
     if (pathname === '/api/docs' && req.method === 'GET') {
       return sendJSON(200, {
         platform: 'SkillBridge Academiaâ€“Industry Collaboration Platform API',
@@ -2690,8 +2702,16 @@ const server = http.createServer(async (req, res) => {
 
     // Static Asset Server Fallback (Supports root & frontend directory)
     let filePath = path.join(repoRoot, pathname === '/' ? 'index.html' : pathname);
-    if (!fs.existsSync(filePath)) filePath = path.join(repoRoot, 'frontend', pathname === '/' ? 'index.html' : pathname);
-    if (!fs.existsSync(filePath)) filePath = path.join(repoRoot, 'frontend', 'index.html');
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      filePath = path.join(repoRoot, 'frontend', pathname === '/' ? 'index.html' : pathname);
+    }
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      filePath = path.join(repoRoot, 'frontend', 'index.html');
+    }
+
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+      filePath = path.join(repoRoot, 'frontend', 'index.html');
+    }
 
     const ext = path.extname(filePath).toLowerCase();
     const mimeTypes = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg' };
