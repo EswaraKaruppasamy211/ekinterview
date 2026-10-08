@@ -212,18 +212,11 @@
         <div class="grid-2 gap-4 mb-6">
           <div class="saas-card">
             <div class="flex-between mb-3">
-              <h3 style="font-weight: 700; margin: 0;">AI Career Copilot</h3>
-              <span class="badge-saas badge-emerald">Live</span>
+              <h3 style="font-weight: 700; margin: 0;">Student AI Assistant</h3>
+              <span class="badge-saas badge-emerald">Profile aware</span>
             </div>
-            <div id="ai-chat-log" class="chat-log">
-              <div class="chat-bubble bot">Hi! I can help you improve your placement profile, suggested skills, and project roadmap.</div>
-            </div>
-            <form id="ai-chat-form" onsubmit="handleAiChatSubmit(event)">
-              <div class="flex-align gap-2 mt-3">
-                <input id="ai-chat-input" type="text" class="saas-input" placeholder="Ask about skills, resume, or projects..." />
-                <button type="submit" class="btn-saas btn-primary">Send</button>
-              </div>
-            </form>
+            <p class="text-sm mb-3">Ask questions about information currently saved in your student profile and records.</p>
+            <button type="button" class="btn-saas btn-primary" onclick="openModuleChatbot()"><i class="fa-solid fa-comments"></i> Open Student AI Assistant</button>
           </div>
 
           <div class="saas-card">
@@ -234,29 +227,6 @@
               <div class="mini-stat-card"><span>Certificates</span><strong id="mini-cert-score">0</strong></div>
               <div class="mini-stat-card"><span>Projects</span><strong id="mini-project-score">0</strong></div>
             </div>
-          </div>
-        </div>
-        <div class="saas-card mb-6">
-          <div class="flex-between mb-3"><div><h3 style="font-weight:700;margin:0;">Skill Passport & Trust Badges</h3><p class="text-sm" style="color:var(--text-muted);margin:.25rem 0 0;">Share a signed credential containing verified skills and project evidence.</p></div><span class="badge-saas badge-emerald">RS256 signed</span></div>
-          <div id="skill-passport-state" class="text-sm mb-3" style="color:var(--text-muted);" aria-live="polite">Loading verified evidence…</div>
-          <div id="student-trust-badges" class="flex-align gap-2 flex-wrap mb-3"></div>
-          <button type="button" class="btn-saas btn-primary" onclick="issueSkillPassport()">Issue / refresh Skill Passport</button>
-        </div>
-        <div class="grid-2 gap-4 mb-6">
-          <div class="saas-card">
-            <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Career Growth Simulator</h3><span class="badge-saas badge-blue">Based on active jobs</span></div>
-            <p class="text-sm mb-3" style="color:var(--text-muted);">Select skills you plan to build and compare projected matches against current job requirements.</p>
-            <div id="career-simulator-skills" class="flex-align gap-2 flex-wrap mb-3"></div>
-            <div id="career-simulator-results" class="text-sm" style="color:var(--text-secondary);">Select a target job to see current and projected skill matches.</div>
-          </div>
-          <div class="saas-card">
-            <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Career Roadmap & Weekly Plan</h3><span id="career-roadmap-progress" class="badge-saas badge-purple">Progress unavailable</span></div>
-            <label class="block text-xs font-bold mb-1" for="career-target-job">Target role</label>
-            <select id="career-target-job" class="saas-input mb-3" onchange="saveCareerGoal()"><option value="">Choose an active role</option></select>
-            <div id="career-roadmap-tasks" class="flex-col gap-2 mb-3"><div class="text-sm" style="color:var(--text-muted);">Loading actions…</div></div>
-            <h4 class="mb-2" style="font-weight:700;">This Week’s Focus</h4>
-            <div id="career-weekly-plan" class="flex-col gap-2 mb-3"><div class="text-sm" style="color:var(--text-muted);">Loading weekly plan…</div></div>
-            <button type="button" class="btn-saas btn-primary" onclick="saveWeeklyPlan()">Save weekly plan</button>
           </div>
         </div>
       </section>
@@ -368,19 +338,6 @@
             </div>
             <button type="submit" class="btn-saas btn-primary">Add Skill</button>
           </form>
-        </div>
-        <div class="saas-card mb-4">
-          <h3 style="font-weight:700;margin-bottom:.5rem;">Verify Skill Evidence</h3>
-          <p class="text-sm mb-3" style="color:var(--text-muted);">Submit a project, assessment, or credential link for faculty review. Only faculty you are authorized with can review it.</p>
-          <form id="skill-verification-form" onsubmit="submitSkillVerification(event)">
-            <div class="grid-3 gap-3 mb-3">
-              <div><label class="block text-xs font-bold mb-1" for="verification-skill">Skill</label><select id="verification-skill" class="saas-input" required><option value="">Add a skill first</option></select></div>
-              <div><label class="block text-xs font-bold mb-1" for="verification-url">Evidence URL (HTTPS)</label><input id="verification-url" type="url" class="saas-input" placeholder="https://..." /></div>
-              <div><label class="block text-xs font-bold mb-1" for="verification-note">Evidence note</label><input id="verification-note" class="saas-input" maxlength="1000" placeholder="Briefly describe your evidence" /></div>
-            </div>
-            <button type="submit" class="btn-saas btn-outline">Submit for review</button>
-          </form>
-          <div id="skill-verification-status" class="flex-col gap-2 mt-3" aria-live="polite"></div>
         </div>
         <div class="saas-card"><div id="technical-skills-list" class="flex-col gap-3"></div></div>
       </section>
@@ -584,15 +541,6 @@
       <section id="view-faculty-dashboard" class="workspace-view hidden">
         <div class="flex-between mb-4"><div><h1 style="font-size:1.6rem;font-weight:800;">Faculty Workspace</h1><p style="color:var(--text-muted);">Discover, publish, and track academia–industry opportunities.</p></div><span class="badge-saas badge-purple">Faculty Portal</span></div>
         <div class="grid-4 gap-3 mb-4" id="faculty-summary"><div class="saas-card"><span class="text-xs">Loading activity…</span></div></div>
-        <div class="saas-card mb-4">
-          <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Authorized Student Skill Evidence</h3><button type="button" class="btn-saas btn-outline" onclick="loadFacultySkillVerifications()">Refresh</button></div>
-          <div id="faculty-skill-verifications" class="grid-2 gap-3"><div class="text-sm" style="color:var(--text-muted);">Loading authorized requests…</div></div>
-        </div>
-        <div class="saas-card mb-4">
-          <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Faculty AI Assistant</h3><span class="badge-saas badge-purple">Authorized data only</span></div>
-          <div id="faculty-ai-chat-log" class="chat-log"><div class="chat-bubble bot">Ask about your faculty activities, research, or authorized student academic information.</div></div>
-          <form onsubmit="handleModuleAiChatSubmit(event, 'faculty')"><div class="flex-align gap-2 mt-3"><input id="faculty-ai-chat-input" type="text" class="saas-input" placeholder="Ask about research, FDP, or mentorship..." autocomplete="off"><button type="submit" class="btn-saas btn-primary">Send</button></div></form>
-        </div>
         <div class="saas-card mb-4"><form id="faculty-profile-form" onsubmit="saveFacultyProfile(event)"><div class="flex-between mb-2"><h3 style="font-weight:700;margin:0;">Faculty profile</h3><button class="btn-saas btn-outline" type="submit">Save profile</button></div><div class="grid-3 gap-3"><input id="faculty-profile-name" class="saas-input" placeholder="Full name" required><input id="faculty-profile-email" class="saas-input" type="email" placeholder="Email"><input id="faculty-profile-phone" class="saas-input" placeholder="Phone"><input id="faculty-profile-college" class="saas-input" placeholder="Institution / university"><input id="faculty-profile-department" class="saas-input" placeholder="Department"><input id="faculty-profile-designation" class="saas-input" placeholder="Designation"><input id="faculty-profile-expertise" class="saas-input" placeholder="Expertise (comma separated)"><input id="faculty-profile-skills" class="saas-input" placeholder="Skills (comma separated)"><input id="faculty-profile-experience" class="saas-input" placeholder="Experience"><input id="faculty-profile-research" class="saas-input" placeholder="Research interests"><input id="faculty-profile-contact" class="saas-input" placeholder="Contact information"><input id="faculty-profile-bio" class="saas-input" placeholder="Short bio"></div></form></div>
         <div class="saas-card mb-4"><div class="grid-3 gap-3">
           <div><label class="block text-xs font-bold mb-1">Academia feature</label><select id="faculty-resource" class="saas-input" onchange="loadFacultyResource()"></select></div>
@@ -615,11 +563,6 @@
             <p style="color: var(--text-muted);">Professional hiring dashboard for talent discovery, assessment, and placement performance.</p>
           </div>
           <button class="btn-saas btn-primary" onclick="navigateTo('company-job-drives')"><i class="fa-solid fa-plus"></i> Launch Hiring Campaign</button>
-        </div>
-        <div class="saas-card mb-6">
-          <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">Recruitment AI Assistant</h3><span class="badge-saas badge-emerald">Company-scoped</span></div>
-          <div id="company-ai-chat-log" class="chat-log"><div class="chat-bubble bot">Ask about your jobs, applications, pipeline, interviews, or recruitment analytics.</div></div>
-          <form onsubmit="handleModuleAiChatSubmit(event, 'company')"><div class="flex-align gap-2 mt-3"><input id="company-ai-chat-input" type="text" class="saas-input" placeholder="Ask about active jobs or applications..." autocomplete="off"><button type="submit" class="btn-saas btn-primary">Send</button></div></form>
         </div>
         <div class="grid-4 gap-4 mb-6" id="company-metrics-grid"></div>
         <div class="saas-card mb-6">
@@ -864,11 +807,6 @@
           <div><h1 style="font-size: 1.6rem; font-weight: 800;">University Placement & Academic Analytics</h1><p style="color: var(--text-muted);">Department performance, placement trend, and skill readiness across the university.</p></div>
           <div class="badge-saas badge-purple">University overview</div>
         </div>
-        <div class="saas-card mb-6">
-          <div class="flex-between mb-3"><h3 style="font-weight:700;margin:0;">University AI Assistant</h3><span class="badge-saas badge-purple">Institution-scoped</span></div>
-          <div id="college-ai-chat-log" class="chat-log"><div class="chat-bubble bot">Ask about placement, student skills, internships, campus drives, or university analytics.</div></div>
-          <form onsubmit="handleModuleAiChatSubmit(event, 'college')"><div class="flex-align gap-2 mt-3"><input id="college-ai-chat-input" type="text" class="saas-input" placeholder="Ask about placement progress or analytics..." autocomplete="off"><button type="submit" class="btn-saas btn-primary">Send</button></div></form>
-        </div>
         <div class="grid-4 gap-4 mb-6" id="college-overview-cards"></div>
         <div class="grid-2 gap-4 mb-6">
           <div class="saas-card">
@@ -953,6 +891,31 @@
       </section>
 
     </main>
+  </div>
+
+  <div id="module-chatbot" class="module-chatbot hidden">
+    <button id="module-chatbot-toggle" type="button" class="btn-saas btn-primary module-chatbot-toggle" onclick="toggleModuleChatbot()" aria-expanded="false" aria-controls="module-chatbot-panel">
+      <i class="fa-solid fa-comments"></i> <span>AI Assistant</span>
+    </button>
+    <section id="module-chatbot-panel" class="module-chatbot-panel hidden" aria-label="Portal AI Assistant">
+      <div class="flex-between mb-3">
+        <div>
+          <h2 id="module-chatbot-title" style="font-weight:800;margin:0;">Portal AI Assistant</h2>
+          <p class="text-xs" style="color:var(--text-muted);margin:.25rem 0 0;">Answers use your authorized, current portal data.</p>
+        </div>
+        <button type="button" class="btn-saas btn-outline" style="padding:.3rem .6rem;" onclick="toggleModuleChatbot(false)" aria-label="Close AI assistant"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="module-chatbot-log" class="chat-log module-chatbot-log" role="log" aria-live="polite">
+        <div class="chat-bubble bot">Ask a question about records available in this portal. I will say when requested information is not available.</div>
+      </div>
+      <div id="module-chatbot-status" class="module-chatbot-status text-xs" role="status" aria-live="polite"></div>
+      <form id="module-chatbot-form" onsubmit="handleModuleChatSubmit(event)">
+        <div class="flex-align gap-2 mt-3">
+          <input id="module-chatbot-input" type="text" class="saas-input" maxlength="2000" autocomplete="off" placeholder="Ask about your portal data..." aria-label="Ask the portal AI assistant" required />
+          <button id="module-chatbot-send" type="submit" class="btn-saas btn-primary module-chatbot-send">Send</button>
+        </div>
+      </form>
+    </section>
   </div>
 
   <!-- ENFORCED STUDENT AUTHENTICATION MODAL -->

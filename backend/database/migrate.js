@@ -119,6 +119,9 @@ async function importLegacyJson(client) {
 }
 
 async function migrate() {
+  if (!process.env.DATABASE_URL) {
+    return 0;
+  }
   await init();
   const client = await pool.connect();
   try {
@@ -127,6 +130,7 @@ async function migrate() {
     const imported = await importLegacyJson(client);
     await client.query('COMMIT');
     console.log(`PostgreSQL schema is up to date${imported ? `; imported ${imported} legacy records` : ''}.`);
+    return imported;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

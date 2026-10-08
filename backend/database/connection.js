@@ -16,7 +16,9 @@ pool.on('error', error => {
 
 let schemaPromise;
 async function init() {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
+  if (!process.env.DATABASE_URL) {
+    return null;
+  }
   if (!schemaPromise) {
     const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
     schemaPromise = pool.query(sql).catch(error => { schemaPromise = null; throw error; });
