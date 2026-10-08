@@ -30,7 +30,7 @@ if (fs.existsSync(envPath)) {
 const userDb = require('./db');
 const { migrate } = require('./database/migrate');
 const academiaDb = require('./academia-features');
-const { buildAIChatContext, hasContextData, NO_DATA_REPLY } = require('./ai-chat-context');
+const { buildAIChatContext, hasContextData, NO_DATA_REPLY, normalizeRole } = require('./ai-chat-context');
 const { generateContextAwareChatReply } = require('./ai_engine');
 
 const port = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 10000;
@@ -2653,7 +2653,8 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== 'POST') return sendJSON(405, { error: 'Method not allowed.' });
       const authUser = getAuthUser();
       if (!authUser) return sendJSON(401, { error: 'Authentication required.' });
-      if (!['student', 'company', 'faculty', 'college'].includes(String(authUser.role))) {
+      const portalRole = normalizeRole(authUser.role);
+      if (!['student', 'company', 'faculty', 'college'].includes(portalRole)) {
         return sendJSON(403, { error: 'This account role does not have access to the portal chatbot.' });
       }
 
@@ -2684,11 +2685,11 @@ const server = http.createServer(async (req, res) => {
         console.error('[AI] Unable to build authorized chatbot context:', error.message);
         return sendJSON(500, { error: 'Unable to load your authorized portal data right now.' });
       }
-      if (!hasContextData(context)) return sendJSON(200, { reply: NO_DATA_REPLY, role: authUser.role });
+      if (!hasContextData(context)) return sendJSON(200, { reply: NO_DATA_REPLY, role: portalRole });
 
       try {
-        const reply = await generateContextAwareChatReply(message, authUser.role, context, history);
-        return sendJSON(200, { reply, role: authUser.role });
+        const reply = await generateContextAwareChatReply(message, portalRole, context, history);
+        return sendJSON(200, { reply, role: portalRole });
       } catch (error) {
         console.error('[AI] Context chatbot provider request failed:', error.message);
         return sendJSON(502, { error: 'The AI assistant is temporarily unavailable. Please try again shortly.' });

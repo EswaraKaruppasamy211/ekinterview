@@ -140,6 +140,26 @@ test('university context only queries academics for its scoped student directory
   assert.equal(context.data.student_directory[0].user_id, undefined);
 });
 
+test('university role aliases resolve to the same scoped context', async () => {
+  const userDb = makeUserDb({
+    student_academics: [{ user_id: '41', semester_number: 1, gpa: 8.7 }]
+  });
+  const context = await buildAIChatContext({ id: 4, role: 'University Admin' }, {
+    userDb,
+    async buildCollegeAnalytics() {
+      return {
+        total_students: 1,
+        student_directory: [{ user_id: 41, name: 'Scoped student', skills: ['SQL'], placed: true }],
+        partners: ['Scoped partner']
+      };
+    }
+  });
+
+  assert.equal(context.module, 'university');
+  assert.deepEqual(context.data.student_academics[0].semesters.map(item => item.gpa), [8.7]);
+  assert.equal(context.data.student_directory[0].name, 'Scoped student');
+});
+
 test('empty context is recognized for the no-data response', () => {
   assert.equal(hasContextData({ data: { profile: {}, projects: [] } }), false);
   assert.equal(NO_DATA_REPLY, "I couldn't find that information in your available profile data.");

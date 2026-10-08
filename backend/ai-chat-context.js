@@ -4,6 +4,18 @@ const MAX_STUDENTS = 80;
 const MAX_CONTEXT_BYTES = 48000;
 const SENSITIVE_KEYS = /password|secret|token|salt|hash|api.?key|access.?key|private.?key|credential|authorization|email|phone|mobile|address|date.?of.?birth|\bdob\b|\bjwt\b/i;
 
+function normalizeRole(role) {
+  const normalized = String(role ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const aliases = {
+    college_admin: 'college',
+    collegeadmin: 'college',
+    university: 'college',
+    university_admin: 'college',
+    universityadmin: 'college'
+  };
+  return aliases[normalized] || normalized;
+}
+
 function safeValue(value, depth = 0) {
   if (typeof value === 'string') {
     return value
@@ -240,11 +252,12 @@ async function buildUniversityContext(user, { userDb, buildCollegeAnalytics }) {
 
 async function buildAIChatContext(user, dependencies) {
   if (!user || !user.id) throw new Error('Authenticated user is required to build chat context.');
+  const role = normalizeRole(user.role);
   let context;
-  if (user.role === 'student') context = await buildStudentContext(user, dependencies);
-  else if (user.role === 'company') context = await buildCompanyContext(user, dependencies);
-  else if (user.role === 'faculty') context = await buildFacultyContext(user, dependencies);
-  else if (user.role === 'college') context = await buildUniversityContext(user, dependencies);
+  if (role === 'student') context = await buildStudentContext(user, dependencies);
+  else if (role === 'company') context = await buildCompanyContext(user, dependencies);
+  else if (role === 'faculty') context = await buildFacultyContext(user, dependencies);
+  else if (role === 'college') context = await buildUniversityContext(user, dependencies);
   else throw new Error('This account role does not have access to the context-aware chatbot.');
   return limitContextSize(context);
 }
@@ -257,4 +270,4 @@ function hasContextData(context) {
   }));
 }
 
-module.exports = { NO_DATA_REPLY, buildAIChatContext, hasContextData };
+module.exports = { NO_DATA_REPLY, buildAIChatContext, hasContextData, normalizeRole };
